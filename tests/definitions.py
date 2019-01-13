@@ -6,8 +6,12 @@ import sys
 class TestGlobals(TestCase):
 
     def checkGlobals(self, code, ref):
+        class StrictCollect(beniget.Collect):
+            def unbound_identifier(self, name, node):
+                raise RuntimeError("W: unbound identifier '{}' at {}:{}".format(name, node.lineno, node.col_offset))
+
         node = ast.parse(code)
-        c = beniget.Collect()
+        c = StrictCollect()
         c.visit(node)
         self.assertEqual(c.dump_definitions(node), ref)
 
@@ -115,21 +119,21 @@ class TestGlobals(TestCase):
         self.checkGlobals(code, ['a', 'b'])
 
     def testGlobalWith(self):
-        code = 'with foo() as x: pass'
-        self.checkGlobals(code, [])
+        code = 'from some import foo\nwith foo() as x: pass'
+        self.checkGlobals(code, ['foo', 'x'])
 
     if sys.version_info >= (3, 7):
         def testGlobalAsyncWith(self):
-            code = 'async with foo() as x: pass'
-            self.checkGlobals(code, [])
+            code = 'from some import foo\nasync with foo() as x: pass'
+            self.checkGlobals(code, ['foo', 'x'])
 
     def testGlobalTry(self):
         code = 'try: x = 1\nexcept Exception: pass'
         self.checkGlobals(code, ['x'])
 
     def testGlobalTryExcept(self):
-        code = 'try: foo()\nexcept Exception as e: pass'
-        self.checkGlobals(code, ['e'])
+        code = 'from some import foo\ntry: foo()\nexcept Exception as e: pass'
+        self.checkGlobals(code, ['e', 'foo'])
 
     def testGlobalTryExceptFinally(self):
         code = 'try: w = 1\nexcept Exception as x: y = 1\nfinally: z = 1'
@@ -209,33 +213,104 @@ class TestGlobals(TestCase):
         self.checkGlobals(code, ['bar', 'maid'])
 
     def testGlobalListComp(self):
-        code = '[1 for x in y]'
+        code = 'from some import y; [1 for x in y]'
         if sys.version_info.major == 2:
-            self.checkGlobals(code, ['x'])
+            self.checkGlobals(code, ['x', 'y'])
         else:
-            self.checkGlobals(code, [])
+            self.checkGlobals(code, ['y'])
 
     def testGlobalSetComp(self):
-        code = '{1 for x in y}'
+        code = 'from some import y; {1 for x in y}'
         if sys.version_info.major == 2:
-            self.checkGlobals(code, ['x'])
+            self.checkGlobals(code, ['x', 'y'])
         else:
-            self.checkGlobals(code, [])
+            self.checkGlobals(code, ['y'])
 
     def testGlobalDictComp(self):
-        code = '{1:1 for x in y}'
+        code = 'from some import y; {1:1 for x in y}'
         if sys.version_info.major == 2:
-            self.checkGlobals(code, ['x'])
+            self.checkGlobals(code, ['x', 'y'])
         else:
-            self.checkGlobals(code, [])
+            self.checkGlobals(code, ['y'])
 
     def testGlobalGeneratorExpr(self):
-        code = '(1 for x in y)'
+        code = 'from some import y; (1 for x in y)'
         if sys.version_info.major == 2:
-            self.checkGlobals(code, ['x'])
+            self.checkGlobals(code, ['x', 'y'])
         else:
-            self.checkGlobals(code, [])
+            self.checkGlobals(code, ['y'])
 
     def testGlobalLambda(self):
         code = 'lambda x: x'
         self.checkGlobals(code, [])
+
+
+class TestLocals(TestCase):
+
+    def checkLocals(self, code, ref):
+        node = ast.parse(code)
+        c = beniget.Collect()
+        c.visit(node)
+        functions = [n for n in node.body if isinstance(n, ast.FunctionDef)]
+        assert len(functions) == 1, "only one top-level function per test case"
+        f = functions[0]
+        self.assertEqual(c.dump_definitions(f), ref)
+
+    def testLocalFunctionDef(self):
+        code = 'def foo(): pass'
+        self.checkLocals(code, [])
+
+    def testLocalFunctionDefOneArg(self):
+        code = 'def foo(a): pass'
+        self.checkLocals(code, ['a'])
+
+    def testLocalFunctionDefOneArgDefault(self):
+        code = 'def foo(a=1): pass'
+        self.checkLocals(code, ['a'])
+
+    def testLocalFunctionDefArgsDefault(self):
+        code = 'def foo(a, b=1): pass'
+        self.checkLocals(code, ['a', 'b'])
+
+    def testLocalFunctionDefStarArgs(self):
+        code = 'def foo(a, *b): pass'
+        self.checkLocals(code, ['a', 'b'])
+
+    def testLocalFunctionDefKwArgs(self):
+        code = 'def foo(a, **b): pass'
+        self.checkLocals(code, ['a', 'b'])
+
+    if sys.version_info.major >= 3:
+        def testLocalFunctionDefKwOnly(self):
+            code = 'def foo(a, *, b=1): pass'
+            self.checkLocals(code, ['a', 'b'])
+
+    if sys.version_info.major == 2:
+        def testLocalFunctionDefDestructureArg(self):
+            code = 'def foo((a, b)): pass'
+            self.checkLocals(code, ['a', 'b'])
+
+    def test_LocalAssign(self):
+        code = 'def foo(): a = 1'
+        self.checkLocals(code, ['a'])
+
+    def test_LocalAssignRedef(self):
+        code = 'def foo(a): a = 1'
+        self.checkLocals(code, ['a', 'a'])
+
+    def test_LocalNestedFun(self):
+        code = 'def foo(a):\n def bar(): return a\n return bar'
+        self.checkLocals(code, ['a', 'bar'])
+
+    if sys.version_info.major >= 3:
+        def test_LocalNonLocalBefore(self):
+            code = 'def foo(a):\n def bar():\n  nonlocal a; a = 1\n bar(); return a'
+            self.checkLocals(code, ['a', 'bar'])
+
+        def test_LocalNonLocalAfter(self):
+            code = 'def foo():\n def bar():\n  nonlocal a; a = 1\n a = 2; bar(); return a'
+            self.checkLocals(code, ['a', 'bar'])
+
+    def test_LocalGlobal(self):
+        code = 'def foo(): global a; a = 1'
+        self.checkLocals(code, [])

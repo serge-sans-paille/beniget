@@ -75,6 +75,7 @@ class Collect(ast.NodeVisitor):
         self.defered = []
         self.chains = {}
         self.definitions = []
+        self.promoted_locals = []
         self.undefs = []
         self.heads = defaultdict(list)
         self.currenthead = []
@@ -131,7 +132,9 @@ class Collect(ast.NodeVisitor):
     def DefinitionContext(self, node):
         self.currenthead.append(node)
         self.definitions.append(defaultdict(list))
+        self.promoted_locals.append(set())
         yield
+        self.promoted_locals.pop()
         self.definitions.pop()
         self.currenthead.pop()
 
@@ -140,14 +143,17 @@ class Collect(ast.NodeVisitor):
         if sys.version_info.major >= 3:
             self.currenthead.append(node)
             self.definitions.append(defaultdict(list))
+            self.promoted_locals.append(set())
         yield
         if sys.version_info.major >= 3:
+            self.promoted_locals.pop()
             self.definitions.pop()
             self.currenthead.pop()
 
 
     # stmt
     def visit_Module(self, node):
+        self.module = node
         with self.DefinitionContext(node):
 
             self.definitions[-1].update(Builtins)
@@ -176,13 +182,31 @@ class Collect(ast.NodeVisitor):
 
             # various sanity checks
             if __debug__:
+                class WithItemCounter(ast.NodeVisitor):
+                    def __init__(self):
+                        self.count = 0
+                        self.names = set()
+
+                    def visit_Name(self, node):
+                        if isinstance(node.ctx, ast.Store):
+                            self.count += 1
+                            self.names.add(node.id)
+
+                wic = WithItemCounter()
+                for n in node.body:
+                    if isinstance(n, (ast.With, ast.AsyncWith)):
+                        for item in n.items:
+                            wic.visit(item)
+
                 overloaded_builtins = set()
                 for d in self.heads[node]:
                     name = d.name()
                     if name in Builtins:
                         overloaded_builtins.add(name)
-                    assert name in self.definitions[0], (name, d.node)
-                assert len(self.definitions[0]) == len({d.name() for d in self.heads[node]}) + len(Builtins) - len(overloaded_builtins)
+                    assert name in self.definitions[0] or name in wic.names, (name, d.node)
+
+
+                assert len(self.definitions[0]) == len({d.name() for d in self.heads[node]}) + len(Builtins) - len(overloaded_builtins) - wic.count
 
         assert not self.definitions
         assert not self.defered
@@ -316,10 +340,20 @@ class Collect(ast.NodeVisitor):
                 self.definitions[-1][d].extend(orelse_defs[d])
 
     def visit_With(self, node):
-        with self.DefinitionContext(node):
-            for withitem in node.items:
-                self.visit(withitem)
-            self.process_body(node.body)
+        saved_definitions = {d: len(n) for d, n in self.definitions[-1].items()}
+        for withitem in node.items:
+            self.visit(withitem)
+        new_definitions = dict()
+        for d, nodes in self.definitions[-1].items():
+            if d not in saved_definitions:
+                new_definitions[d] = 0, len(nodes)
+            else:
+                new_definitions[d] = saved_definitions[d], len(nodes)
+        self.process_body(node.body)
+        for k, (l, n) in new_definitions.items():
+            self.definitions[-1][k] = self.definitions[-1][k][:l] + self.definitions[-1][k][l+n:]
+            if not self.definitions[-1][k]:
+                del self.definitions[-1][k]
 
     visit_AsyncWith = visit_With
 
@@ -382,8 +416,7 @@ class Collect(ast.NodeVisitor):
 
     def visit_Global(self, node):
         for name in node.names:
-            # this rightfully creates aliasing
-            self.definitions[-1][name] = self.definitions[0][name]
+            self.promoted_locals[-1].add(name)
 
     def visit_Nonlocal(self, node):
         for name in node.names:
@@ -545,8 +578,12 @@ class Collect(ast.NodeVisitor):
     def visit_Name(self, node):
         dnode = self.chains[node] = Def(node)
         if isinstance(node.ctx, (ast.Param, ast.Store)):
-            self.definitions[-1][node.id] = [dnode]
-            self.heads[self.currenthead[-1]].append(dnode)
+            if node.id in self.promoted_locals[-1]:
+                self.definitions[-1][node.id].append(dnode)
+                self.heads[self.module].append(dnode)
+            else:
+                self.definitions[-1][node.id] = [dnode]
+                self.heads[self.currenthead[-1]].append(dnode)
         elif isinstance(node.ctx, ast.Load):
             for d in self.defs(node):
                 d.add_user(dnode)
