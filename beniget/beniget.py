@@ -4,6 +4,19 @@ import sys
 
 import gast as ast
 
+class Ancestors(ast.NodeVisitor):
+
+    def __init__(self):
+        self.parents = dict()
+        self.current = list()
+
+    def generic_visit(self, node):
+        self.parents[node] = list(self.current)
+        self.current.push(node)
+        super(Ancestors, self).generic_visit(node)
+        self.current.pop()
+
+
 class Def(object):
     __slots__ = 'node', 'uses'
     def __init__(self, node):
