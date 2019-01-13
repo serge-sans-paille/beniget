@@ -56,9 +56,10 @@ class TestGlobals(TestCase):
         code = 'x = 1'
         self.checkGlobals(code, ['x'])
 
-    def testGlobalAnnotatedDef(self):
-        code = 'x : 1'
-        self.checkGlobals(code, ['x'])
+    if sys.version_info.major >= 3:
+        def testGlobalAnnotatedDef(self):
+            code = 'x : 1'
+            self.checkGlobals(code, ['x'])
 
     def testMultipleGlobalDef(self):
         code = 'x = 1; x = 2'
@@ -154,13 +155,14 @@ class TestGlobals(TestCase):
         code = 'x = 1\ndef foo(): global x, y'
         self.checkGlobals(code, ['foo', 'x', 'y'])
 
-    def testGlobalAfterKeyword(self):
-        code = 'def foo(): global x\nx : 1'
-        self.checkGlobals(code, ['foo', 'x'])
+    if sys.version_info.major >= 3:
+        def testGlobalAfterKeyword(self):
+            code = 'def foo(): global x\nx : 1'
+            self.checkGlobals(code, ['foo', 'x'])
 
-    def testGlobalsAfterKeyword(self):
-        code = 'def foo(): global x, y\ny : 1'
-        self.checkGlobals(code, ['foo', 'x', 'y'])
+        def testGlobalsAfterKeyword(self):
+            code = 'def foo(): global x, y\ny : 1'
+            self.checkGlobals(code, ['foo', 'x', 'y'])
 
     def testGlobalImport(self):
         code = 'import foo'

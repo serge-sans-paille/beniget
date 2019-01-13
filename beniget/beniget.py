@@ -36,7 +36,7 @@ Builtins = {
 }
 
 if sys.version_info.major == 2:
-    BuiltinsSrc = __builtins__.__dict__
+    BuiltinsSrc = __builtins__
 else:
     import builtins
     BuiltinsSrc = builtins.__dict__
