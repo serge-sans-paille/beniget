@@ -303,9 +303,10 @@ class Collect(ast.NodeVisitor):
                 self.definitions[-1][d].extend(orelse_defs[d])
 
     def visit_With(self, node):
-        for withitem in node.items:
-            self.visit(withitem)
-        self.process_body(node.body)
+        with self.DefinitionContext(node):
+            for withitem in node.items:
+                self.visit(withitem)
+            self.process_body(node.body)
 
     visit_AsyncWith = visit_With
 
