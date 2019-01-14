@@ -1,0 +1,165 @@
+from unittest import TestCase
+import gast as ast
+import beniget
+import sys
+
+class TestChains(TestCase):
+
+    def checkChains(self, code, ref):
+        class StrictDefUseChains(beniget.DefUseChains):
+            def unbound_identifier(self, name, node):
+                raise RuntimeError("W: unbound identifier '{}' at {}:{}".format(name, node.lineno, node.col_offset))
+
+        node = ast.parse(code)
+        c = StrictDefUseChains()
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node), ref)
+
+    def test_simple_expression(self):
+        code  = 'a = 1; a + 2'
+        self.checkChains(code,
+                         ['a -> (a -> (BinOp -> ()))'])
+
+    def test_expression_chain(self):
+        code  = 'a = 1; (- a + 2) > 0'
+        self.checkChains(code,
+                         ['a -> (a -> (UnaryOp -> (BinOp -> (Compare -> ()))))'])
+
+    def test_ifexp_chain(self):
+        code  = 'a = 1; a + 1 if a else - a'
+        self.checkChains(code,
+                         ['a -> ('
+                              'a -> (IfExp -> ()), '
+                              'a -> (BinOp -> (IfExp -> ())), '
+                              'a -> (UnaryOp -> (IfExp -> ()))'
+                           ')'])
+
+    def test_type_destructuring_tuple(self):
+        code = 'a, b = range(2); a'
+        self.checkChains(code,
+                         ['a -> (a -> ())', 'b -> ()'])
+
+    def test_type_destructuring_list(self):
+        code = '[a, b] = range(2); a'
+        self.checkChains(code,
+                         ['a -> (a -> ())', 'b -> ()'])
+
+    def test_type_destructuring_for(self):
+        code = 'for a, b in ((1,2), (3,4)): a'
+        self.checkChains(code,
+                         ['a -> (a -> ())', 'b -> ()'])
+
+    def test_assign_in_loop(self):
+        code  = 'a = 2\nwhile 1: a = 1\na'
+        self.checkChains(code,
+                         ['a -> (a -> ())',
+                          'a -> (a -> ())'])
+
+    def test_augassign(self):
+        code  = 'a = 1; a += 2'
+        self.checkChains(code,
+                         ['a -> (AugAssign -> ())',
+                          'a -> ()'])
+
+    def test_expanded_augassign(self):
+        code  = 'a = 1; a = a + 2'
+        self.checkChains(code,
+                         ['a -> (a -> (BinOp -> ()))',
+                          'a -> ()'])
+
+    def test_simple_print(self):
+        code  = 'a = 1; print(a)'
+        if sys.version_info.major >= 3:
+            self.checkChains(code, ['a -> (a -> (Call -> ()))'])
+        else:
+            self.checkChains(code, ['a -> (a -> ())'])
+
+    def test_simple_redefinition(self):
+        code  = 'a = 1; a + 2; a = 3; +a'
+        self.checkChains(code, ['a -> (a -> (BinOp -> ()))',
+                                'a -> (a -> (UnaryOp -> ()))'])
+
+    def test_simple_for(self):
+        code = 'for i in [1,2,3]: j = i'
+        self.checkChains(code, ['i -> (i -> ())', 'j -> ()',])
+
+    def test_simple_for_orelse(self):
+        code = 'for i in [1,2,3]: pass\nelse: i = 4\ni'
+        self.checkChains(code, [
+            # assign in loop iteration
+            'i -> (i -> ())',
+            # assign in orelse
+            'i -> (i -> ())'])
+
+    def test_simple_while(self):
+        code = 'i = 2\nwhile i: i = i - 1\ni'
+        self.checkChains(code, [
+            # first assign, out of loop
+            'i -> (i -> (), i -> (BinOp -> ()), i -> ())',
+            # second assign, in loop
+            'i -> (i -> (), i -> ())'
+        ])
+
+    def test_if_true_branch(self):
+        code = 'if 1: i = 0\ni'
+        self.checkChains(code, ['i -> (i -> ())'])
+
+    def test_if_false_branch(self):
+        code = 'if 1: pass\nelse: i = 0\ni'
+        self.checkChains(code, ['i -> (i -> ())'])
+
+    def test_if_both_branch(self):
+        code = 'if 1: i = 1\nelse: i = 0\ni'
+        self.checkChains(code, ['i -> (i -> ())'] * 2)
+
+    def test_if_in_loop(self):
+        code = 'for _ in [0, 1]:\n  if _: i = 1\nelse: j = i\ni'
+        self.checkChains(code, [
+            '_ -> (_ -> ())',
+            'i -> (i -> (), i -> ())',
+            'j -> ()',
+        ])
+
+    def test_with_handler(self):
+        code = 'with open("/dev/null") as x: pass\nx'
+        self.checkChains(code, ['x -> (x -> ())'])
+
+    def test_simple_try(self):
+        code = 'try: e = open("/dev/null")\nexcept Exception: pass\ne'
+        self.checkChains(code, ['e -> (e -> ())'])
+
+    def test_simple_except(self):
+        code = 'try: pass\nexcept Exception as e: pass\ne'
+        self.checkChains(code, ['e -> (e -> ())'])
+
+    def test_simple_try_except(self):
+        code = 'try: f = open("")\nexcept Exception as e: pass\ne;f'
+        self.checkChains(code, ['f -> (f -> ())', 'e -> (e -> ())'])
+
+    def test_redef_try_except(self):
+        code = 'try: f = open("")\nexcept Exception as f: pass\nf'
+        self.checkChains(code, ['f -> (f -> ())', 'f -> (f -> ())'])
+
+    def test_simple_import(self):
+        code = 'import x; x'
+        self.checkChains(code, ['x -> (x -> ())'])
+
+    def test_simple_import_as(self):
+        code = 'import x as y; y()'
+        self.checkChains(code, ['y -> (y -> (Call -> ()))'])
+
+    def test_multiple_import_as(self):
+        code = 'import x as y, z; y'
+        self.checkChains(code, ['y -> (y -> ())', 'z -> ()'])
+
+    def test_import_from(self):
+        code = 'from  y import x; x'
+        self.checkChains(code, ['x -> (x -> ())'])
+
+    def test_import_from_as(self):
+        code = 'from  y import x as z; z'
+        self.checkChains(code, ['z -> (z -> ())'])
+
+    def test_multiple_import_from_as(self):
+        code = 'from  y import x as z, w; z'
+        self.checkChains(code, ['z -> (z -> ())', 'w -> ()'])

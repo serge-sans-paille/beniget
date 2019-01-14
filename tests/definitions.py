@@ -6,12 +6,12 @@ import sys
 class TestGlobals(TestCase):
 
     def checkGlobals(self, code, ref):
-        class StrictCollect(beniget.Collect):
+        class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
                 raise RuntimeError("W: unbound identifier '{}' at {}:{}".format(name, node.lineno, node.col_offset))
 
         node = ast.parse(code)
-        c = StrictCollect()
+        c = StrictDefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_definitions(node), ref)
 
@@ -249,7 +249,7 @@ class TestLocals(TestCase):
 
     def checkLocals(self, code, ref):
         node = ast.parse(code)
-        c = beniget.Collect()
+        c = beniget.DefUseChains()
         c.visit(node)
         functions = [n for n in node.body if isinstance(n, ast.FunctionDef)]
         assert len(functions) == 1, "only one top-level function per test case"
