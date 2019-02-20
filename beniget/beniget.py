@@ -4,32 +4,82 @@ import sys
 
 import gast as ast
 
+class Ancestors(ast.NodeVisitor):
+    """
+    Build the ancestor tree, that associates a node to the list of node visited
+    from the root node (the Module) to the current node
+
+    >>> import gast as ast
+    >>> code = 'def foo(x): return x + 1'
+    >>> module = ast.parse(code)
+
+    >>> from beniget import Ancestors
+    >>> ancestors = Ancestors()
+    >>> ancestors.visit(module)
+
+    >>> binop = module.body[0].body[0].value
+    >>> for n in ancestors.parents[binop]:
+    ...    print(type(n))
+    <class 'gast.gast.Module'>
+    <class 'gast.gast.FunctionDef'>
+    <class 'gast.gast.Return'>
+    """
+
+    def __init__(self):
+        self.parents = dict()
+        self.current = list()
+
+    def generic_visit(self, node):
+        self.parents[node] = list(self.current)
+        self.current.append(node)
+        super(Ancestors, self).generic_visit(node)
+        self.current.pop()
+
+
 class Def(object):
-    __slots__ = 'node', 'uses'
+    """
+    Model a definition, either named or unamed, and its users.
+    """
+
+    __slots__ = 'node', '_users'
+
     def __init__(self, node):
         self.node = node
-        self.uses = list()
+        self._users = list()
 
     def add_user(self, node):
         assert isinstance(node, Def)
-        self.uses.append(node)
-
-    def __repr__(self):
-        return '{} -> ({})'.format(self.node, ", ".join(map(repr, self.uses)))
+        self._users.append(node)
 
     def name(self):
+        '''
+        If the node associated to this Def has a name, returns this name.
+        Otherwise returns its type
+        '''
         if isinstance(self.node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            name = self.node.name
+            return self.node.name
         elif isinstance(self.node, ast.Name):
-            name = self.node.id
+            return self.node.id
         elif isinstance(self.node, ast.alias):
             base = self.node.name.split('.', 1)[0]
-            name = self.node.asname or base
+            return self.node.asname or base
         elif isinstance(self.node, tuple):
-            name = self.node[1]
+            return self.node[1]
         else:
-            name = None
-        return name
+            return type(self.node).__name__
+
+    def users(self):
+        '''
+        The list of ast entity that holds a reference to this node
+        '''
+        return self._users
+
+    def __repr__(self):
+        return '{} -> ({})'.format(self.node, ", ".join(map(repr, self._users)))
+
+    def __str__(self):
+        return '{} -> ({})'.format(self.name(), ", ".join(map(str, self._users)))
+
 
 
 Builtins = {
@@ -56,24 +106,62 @@ class CollectGlobals(ast.NodeVisitor):
         for name in node.names:
             self.Globals[name].append((node, name))
 
-class Collect(ast.NodeVisitor):
+
+class DefUseChains(ast.NodeVisitor):
+    '''
+    Module visitor that gather two kinds of informations:
+        - locals: Dict[node, List[Def]], a mapping between a node and the list
+          of variable defined in this node,
+        - chains: Dict[node, Def], a mapping between nodes and their chains.
+
+    >>> import gast as ast
+    >>> module = ast.parse("from b import c, d; c()")
+    >>> duc = DefUseChains()
+    >>> duc.visit(module)
+    >>> for head in duc.locals[module]:
+    ...     print("{}: {}".format(head.name(), len(head.users())))
+    c: 1
+    d: 0
+    >>> alias_def = duc.chains[module.body[0].names[0]]
+    >>> print(alias_def)
+    c -> (c -> (Call -> ()))
+    '''
 
     def __init__(self):
-        self.defered = []
         self.chains = {}
-        self.definitions = []
-        self.undefs = []
-        self.heads = defaultdict(list)
-        self.currenthead = []
+        self.locals = defaultdict(list)
+
+        # function body are not executed when the function definition is met
+        # this holds a stack of the functions met during body processing
+        self._defered = []
+
+        # stack of mapping between an id and Names
+        self._definitions = []
+
+        # stack of variable defined with the global keywords
+        self._promoted_locals = []
+
+        # stack of variable that were undefined when we met them, but that may
+        # be defined in another path of the control flow (esp. in loop)
+        self._undefs = []
+
+        # stack of current node holding definitions (class, module, function...)
+        self._currenthead = []
 
     # helpers
 
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, ast.Module) and not ignore_builtins:
             builtins = {d[0] for d in Builtins.values()}
-            return sorted(d.name() for d in self.heads[node] if d not in builtins)
+            return sorted(d.name() for d in self.locals[node] if d not in builtins)
         else:
-            return sorted(d.name() for d in self.heads[node])
+            return sorted(d.name() for d in self.locals[node])
+
+    def dump_chains(self, node):
+        chains = []
+        for d in self.locals[node]:
+            chains.append(str(d))
+        return chains
 
     def unbound_identifier(self, name, node):
         print("W: unbound identifier '{}' at {}:{}".format(name, node.lineno, node.col_offset))
@@ -81,19 +169,19 @@ class Collect(ast.NodeVisitor):
     def defs(self, node):
         name = node.id
         stars = []
-        for d in reversed(self.definitions):
+        for d in reversed(self._definitions):
             if name in d:
                 return d[name] if not stars else stars + d[name]
             if '*' in d:
                 stars.extend(d['*'])
         d = Def(node)
-        if self.undefs:
-            self.undefs[-1][name].append((d, stars))
+        if self._undefs:
+            self._undefs[-1][name].append((d, stars))
 
         if stars:
             return stars + [d]
         else:
-            if not self.undefs:
+            if not self._undefs:
                 self.unbound_identifier(name, node)
             return [d]
 
@@ -102,44 +190,49 @@ class Collect(ast.NodeVisitor):
             self.visit(stmt)
 
     def process_undefs(self):
-        for undef_name, undefs in self.undefs[-1].items():
-            if undef_name in self.definitions[-1]:
-                for newdef in self.definitions[-1][undef_name]:
-                    for undef, stars in undefs:
-                        for user in undef.uses:
+        for undef_name, _undefs in self._undefs[-1].items():
+            if undef_name in self._definitions[-1]:
+                for newdef in self._definitions[-1][undef_name]:
+                    for undef, stars in _undefs:
+                        for user in undef.users:
                             newdef.add_user(user)
             else:
-                for undef, stars in undefs:
+                for undef, stars in _undefs:
                     if not stars:
                         self.unbound_identifier(undef_name, undef.node)
-        self.undefs.pop()
+        self._undefs.pop()
 
     @contextmanager
     def DefinitionContext(self, node):
-        self.currenthead.append(node)
-        self.definitions.append(defaultdict(list))
+        self._currenthead.append(node)
+        self._definitions.append(defaultdict(list))
+        self._promoted_locals.append(set())
         yield
-        self.definitions.pop()
-        self.currenthead.pop()
+        self._promoted_locals.pop()
+        self._definitions.pop()
+        self._currenthead.pop()
 
     @contextmanager
     def CompDefinitionContext(self, node):
         if sys.version_info.major >= 3:
-            self.currenthead.append(node)
-            self.definitions.append(defaultdict(list))
+            self._currenthead.append(node)
+            self._definitions.append(defaultdict(list))
+            self._promoted_locals.append(set())
         yield
         if sys.version_info.major >= 3:
-            self.definitions.pop()
-            self.currenthead.pop()
+            self._promoted_locals.pop()
+            self._definitions.pop()
+            self._currenthead.pop()
 
 
     # stmt
     def visit_Module(self, node):
+        self.module = node
         with self.DefinitionContext(node):
 
-            self.definitions[-1].update(Builtins)
+            self._definitions[-1].update(Builtins)
 
-            self.defered.append([])
+            self._defered.append([])
             self.process_body(node.body)
 
             # handle `global' keyword specifically
@@ -147,43 +240,50 @@ class Collect(ast.NodeVisitor):
             cg.visit(node)
             for d, nodes in cg.Globals.items():
                 for n, name in nodes:
-                    if name not in self.definitions[-1]:
+                    if name not in self._definitions[-1]:
                         dnode = Def((n, name))
-                        self.definitions[-1][name] = [dnode]
-                        self.heads[node].append(dnode)
+                        self._definitions[-1][name] = [dnode]
+                        self.locals[node].append(dnode)
 
             # handle function bodies
-            for fnode, ctx in self.defered[-1]:
+            for fnode, ctx in self._defered[-1]:
                 visitor = getattr(self,
                                   'visit_{}'.format(type(fnode).__name__))
-                defs, self.definitions = self.definitions, ctx
+                defs, self._definitions = self._definitions, ctx
                 visitor(fnode, step=DefinitionStep)
-                self.definitions = defs
-            self.defered.pop()
+                self._definitions = defs
+            self._defered.pop()
 
             # various sanity checks
             if __debug__:
                 overloaded_builtins = set()
-                for d in self.heads[node]:
+                for d in self.locals[node]:
                     name = d.name()
                     if name in Builtins:
                         overloaded_builtins.add(name)
-                    assert name in self.definitions[0], (name, d.node)
-                assert len(self.definitions[0]) == len({d.name() for d in self.heads[node]}) + len(Builtins) - len(overloaded_builtins)
+                    assert name in self._definitions[0], (name, d.node)
 
-        assert not self.definitions
-        assert not self.defered
+                nb_defs = len(self._definitions[0])
+                nb_bltns = len(Builtins)
+                nb_overloaded_bltns = len(overloaded_builtins)
+                nb_heads = len({d.name() for d in self.locals[node]})
+                assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns
+
+        assert not self._definitions
+        assert not self._defered
 
     def visit_FunctionDef(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains[node] = Def(node)
-            self.definitions[-1][node.name] = [dnode]
-            self.heads[self.currenthead[-1]].append(dnode)
+            self._definitions[-1][node.name] = [dnode]
+            self.locals[self._currenthead[-1]].append(dnode)
             for kw_default in filter(None, node.args.kw_defaults):
                 self.visit(kw_default).add_user(dnode)
             for default in node.args.defaults:
                 self.visit(default).add_user(dnode)
-            self.defered[-1].append((node, list(self.definitions)))
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            self._defered[-1].append((node, list(self._definitions)))
         elif step is DefinitionStep:
             with self.DefinitionContext(node):
                 self.visit(node.args)
@@ -195,13 +295,13 @@ class Collect(ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         dnode = self.chains[node] = Def(node)
-        self.heads[self.currenthead[-1]].append(dnode)
-        self.definitions[-1][node.name] = [dnode]
+        self.locals[self._currenthead[-1]].append(dnode)
+        self._definitions[-1][node.name] = [dnode]
         for base in node.bases:
             self.visit(base).add_user(dnode)
 
         with self.DefinitionContext(node):
-            self.definitions[-1]['__class__'] = [Def('__class__')]
+            self._definitions[-1]['__class__'] = [Def('__class__')]
             self.process_body(node.body)
 
     def visit_Return(self, node):
@@ -215,7 +315,7 @@ class Collect(ast.NodeVisitor):
     def visit_Assign(self, node):
         dvalue = self.visit(node.value)
         for target in node.targets:
-            dvalue.add_user(self.visit(target))
+            self.visit(target)
 
     def visit_AnnAssign(self, node):
         if node.value:
@@ -227,8 +327,12 @@ class Collect(ast.NodeVisitor):
             dvalue.add_user(dtarget)
 
     def visit_AugAssign(self, node):
-        dvalue = self.visit(node.value)
-        self.visit(node.target).add_user(dvalue)
+        dnode = self.chains[node] = Def(node)
+        dvalue = self.visit(node.value).add_user(dnode)
+        if isinstance(node.target, ast.Name):
+            for d in self.defs(node.target):
+                d.add_user(dnode)
+        self.visit(node.target)
 
     def visit_Print(self, node):
         if node.dest:
@@ -240,73 +344,85 @@ class Collect(ast.NodeVisitor):
         self.visit(node.iter)
         self.visit(node.target)
 
-        self.definitions.append(defaultdict(list))
-        self.undefs.append(defaultdict(list))
+        self._definitions.append(defaultdict(list))
+        self._undefs.append(defaultdict(list))
         self.process_body(node.body)
+
+        # extra round to ``emulate'' looping
+        #self.visit(node.target)
+        #self.process_body(node.body)
+
         self.process_undefs()
 
-        self.definitions.append(defaultdict(list))
+        self._definitions.append(defaultdict(list))
         self.process_body(node.orelse)
 
-        orelse_defs = self.definitions.pop()
-        body_defs = self.definitions.pop()
+        orelse_defs = self._definitions.pop()
+        body_defs = self._definitions.pop()
 
         for d, u in orelse_defs.items():
-            self.definitions[-1][d].extend(u)
+            self._definitions[-1][d].extend(u)
 
         for d, u in body_defs.items():
-            self.definitions[-1][d].extend(u)
+            self._definitions[-1][d].extend(u)
 
 
 
     visit_AsyncFor = visit_For
 
     def visit_While(self, node):
-        self.visit(node.test)
 
-        self.definitions.append(defaultdict(list))
+        self._definitions.append(defaultdict(list))
+
+        self.visit(node.test)
         self.process_body(node.body)
 
-        self.definitions.append(defaultdict(list))
+        # extra round to simulate loop
+        #self.visit(node.test)
+        #self.process_body(node.body)
+
+        # the false branch of the eval
+        self.visit(node.test)
+
+        self._definitions.append(defaultdict(list))
         self.process_body(node.orelse)
 
-        orelse_defs = self.definitions.pop()
-        body_defs = self.definitions.pop()
+        orelse_defs = self._definitions.pop()
+        body_defs = self._definitions.pop()
 
         for d, u in orelse_defs.items():
-            self.definitions[-1][d].extend(u)
+            self._definitions[-1][d].extend(u)
 
         for d, u in body_defs.items():
-            self.definitions[-1][d].extend(u)
+            self._definitions[-1][d].extend(u)
 
     def visit_If(self, node):
         self.visit(node.test)
 
-        self.definitions.append(defaultdict(list))
+        self._definitions.append(defaultdict(list))
         self.process_body(node.body)
-        body_defs = self.definitions.pop()
+        body_defs = self._definitions.pop()
 
-        self.definitions.append(defaultdict(list))
+        self._definitions.append(defaultdict(list))
         self.process_body(node.orelse)
-        orelse_defs = self.definitions.pop()
+        orelse_defs = self._definitions.pop()
 
         for d in body_defs:
             if d in orelse_defs:
-                self.definitions[-1][d] = body_defs[d] + orelse_defs[d]
+                self._definitions[-1][d] = body_defs[d] + orelse_defs[d]
             else:
-                self.definitions[-1][d].extend(body_defs[d])
+                self._definitions[-1][d].extend(body_defs[d])
 
         for d in orelse_defs:
             if d in body_defs:
                 pass  # already done in the previous loop
             else:
-                self.definitions[-1][d].extend(orelse_defs[d])
+                self._definitions[-1][d].extend(orelse_defs[d])
 
     def visit_With(self, node):
-        with self.DefinitionContext(node):
-            for withitem in node.items:
-                self.visit(withitem)
-            self.process_body(node.body)
+        for withitem in node.items:
+            self.visit(withitem)
+        self.process_body(node.body)
 
     visit_AsyncWith = visit_With
 
@@ -318,9 +434,15 @@ class Collect(ast.NodeVisitor):
 
     def visit_Try(self, node):
         self.process_body(node.body)
-        for excepthandler in node.handlers:
-            self.visit(excepthandler)
         self.process_body(node.orelse)
+
+        for excepthandler in node.handlers:
+            self._definitions.append(defaultdict(list))
+            self.visit(excepthandler)
+            handler_def = self._definitions.pop()
+            for hd in handler_def:
+                self._definitions[-1][hd].extend(handler_def[hd])
+
         self.process_body(node.finalbody)
 
     def visit_Assert(self, node):
@@ -332,14 +454,14 @@ class Collect(ast.NodeVisitor):
         for alias in node.names:
             dalias = Def(alias)
             base = alias.name.split('.', 1)[0]
-            self.definitions[-1][alias.asname or base] = [dalias]
-            self.heads[self.currenthead[-1]].append(dalias)
+            self._definitions[-1][alias.asname or base] = [dalias]
+            self.locals[self._currenthead[-1]].append(dalias)
 
     def visit_ImportFrom(self, node):
         for alias in node.names:
-            dalias = Def(alias)
-            self.definitions[-1][alias.asname or alias.name] = [dalias]
-            self.heads[self.currenthead[-1]].append(dalias)
+            dalias = self.chains[alias] = Def(alias)
+            self._definitions[-1][alias.asname or alias.name] = [dalias]
+            self.locals[self._currenthead[-1]].append(dalias)
 
     def visit_Exec(self, node):
         dnode = self.chains[node] = Def(node)
@@ -349,7 +471,7 @@ class Collect(ast.NodeVisitor):
             self.visit(node.globals)
         else:
             # any global may be used by this exec!
-            for defs in self.definitions[0].values():
+            for defs in self._definitions[0].values():
                 for d in defs:
                     d.add_user(dnode)
 
@@ -358,28 +480,27 @@ class Collect(ast.NodeVisitor):
         else:
             # any local may be used by this exec!
             visible_locals = set()
-            for definitions in reversed(self.definitions[1:]):
-                for dname, defs in definitions.items():
+            for _definitions in reversed(self._definitions[1:]):
+                for dname, defs in _definitions.items():
                     if dname not in visible_locals:
                         visible_locals.add(dname)
                         for d in defs:
                             d.add_user(dnode)
 
-        self.definitions[-1]['*'].append(dnode)
+        self._definitions[-1]['*'].append(dnode)
 
     def visit_Global(self, node):
         for name in node.names:
-            # this rightfully creates aliasing
-            self.definitions[-1][name] = self.definitions[0][name]
+            self._promoted_locals[-1].add(name)
 
     def visit_Nonlocal(self, node):
         for name in node.names:
-            for d in reversed(self.definitions[:-1]):
+            for d in reversed(self._definitions[:-1]):
                 if name not in d:
                     continue
                 else:
                     # this rightfully creates aliasing
-                    self.definitions[-1][name] = d[name]
+                    self._definitions[-1][name] = d[name]
                     break
             else:
                 self.unbound_identifier(name, node)
@@ -408,7 +529,7 @@ class Collect(ast.NodeVisitor):
     def visit_Lambda(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains[node] = Def(node)
-            self.defered[-1].append((node, list(self.definitions)))
+            self._defered[-1].append((node, list(self._definitions)))
             return dnode
         elif step is DefinitionStep:
             dnode = self.chains[node]
@@ -532,22 +653,45 @@ class Collect(ast.NodeVisitor):
     def visit_Name(self, node):
         dnode = self.chains[node] = Def(node)
         if isinstance(node.ctx, (ast.Param, ast.Store)):
-            self.definitions[-1][node.id] = [dnode]
-            self.heads[self.currenthead[-1]].append(dnode)
+            if node.id in self._promoted_locals[-1]:
+                self._definitions[-1][node.id].append(dnode)
+                self.locals[self.module].append(dnode)
+            else:
+                self._definitions[-1][node.id] = [dnode]
+                self.locals[self._currenthead[-1]].append(dnode)
         elif isinstance(node.ctx, ast.Load):
             for d in self.defs(node):
                 d.add_user(dnode)
         elif isinstance(node.ctx, ast.Del):
-            self.definitions[-1][node.id].clear()
+            self._definitions[-1][node.id].clear()
         else:
             raise NotImplementedError()
         return dnode
 
-    def visit_List(self, node):
+    def visit_Destructured(self, node):
         dnode = self.chains[node] = Def(node)
+        tmp_store = ast.Store()
         for elt in node.elts:
-            self.visit(elt).add_user(dnode)
+            if isinstance(elt, ast.Name):
+                tmp_store, elt.ctx = elt.ctx, tmp_store
+                self.visit(elt)
+                tmp_store, elt.ctx = elt.ctx, tmp_store
+            elif isinstance(elt, ast.Subscript):
+                self.visit(elt)
+            elif isinstance(elt, (ast.List, ast.Tuple)):
+                self.visit_Destructured(elt)
         return dnode
+
+    def visit_List(self, node):
+        if isinstance(node.ctx, ast.Load):
+            dnode = self.chains[node] = Def(node)
+            for elt in node.elts:
+                self.visit(elt).add_user(dnode)
+            return dnode
+        # unfortunately, destructured node are marked as Load,
+        # only the parent List/Tuple is marked as Store
+        elif isinstance(node.ctx, ast.Store):
+            return self.visit_Destructured(node)
 
     visit_Tuple = visit_List
 
@@ -587,8 +731,7 @@ class Collect(ast.NodeVisitor):
             self.visit(node.type).add_user(dnode)
         if node.name:
             self.visit(node.name).add_user(dnode)
-        for stmt in node.body:
-            self.visit(stmt)
+        self.process_body(node.body)
         return dnode
 
     def visit_arguments(self, node):
@@ -608,26 +751,3 @@ class Collect(ast.NodeVisitor):
         if node.optional_vars:
             self.visit(node.optional_vars)
         return dnode
-
-
-
-
-if __name__ == '__main__':
-    import sys
-    import pprint
-    for fname in sys.argv[1:]:
-        print("== {} ==".format(fname))
-        with open(fname) as text:
-            try:
-                module = ast.parse(text.read())
-            except (SyntaxError, UnicodeDecodeError):
-                continue
-            c = Collect()
-            c.visit(module)
-#            for defs in c.heads.values():
-#                for d in defs:
-#                    if not d.uses:
-#                        n = d.node
-#                        print(getattr(n, 'name', getattr(n, 'id', None)), getattr(n, 'lineno', 0))
-#
-
