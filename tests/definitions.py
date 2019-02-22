@@ -3,13 +3,13 @@ import gast as ast
 import beniget
 import sys
 
+class StrictDefUseChains(beniget.DefUseChains):
+    def unbound_identifier(self, name, node):
+        raise RuntimeError("W: unbound identifier '{}' at {}:{}".format(name, node.lineno, node.col_offset))
+
 class TestGlobals(TestCase):
 
     def checkGlobals(self, code, ref):
-        class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
-                raise RuntimeError("W: unbound identifier '{}' at {}:{}".format(name, node.lineno, node.col_offset))
-
         node = ast.parse(code)
         c = StrictDefUseChains()
         c.visit(node)
@@ -244,12 +244,27 @@ class TestGlobals(TestCase):
         code = 'lambda x: x'
         self.checkGlobals(code, [])
 
+class TestClasses(TestCase):
+
+    def checkClasses(self, code, ref):
+        node = ast.parse(code)
+        c = StrictDefUseChains()
+        c.visit(node)
+        classes = [n for n in node.body if isinstance(n, ast.ClassDef)]
+        assert len(classes) == 1, "only one top-level function per test case"
+        cls = classes[0]
+        self.assertEqual(c.dump_definitions(cls), ref)
+
+    def test_class_method_assign(self):
+        code = 'class C:\n def foo(self):pass\n bar = foo'
+        self.checkClasses(code, ['bar', 'foo'])
+
 
 class TestLocals(TestCase):
 
     def checkLocals(self, code, ref):
         node = ast.parse(code)
-        c = beniget.DefUseChains()
+        c = StrictDefUseChains()
         c.visit(node)
         functions = [n for n in node.body if isinstance(n, ast.FunctionDef)]
         assert len(functions) == 1, "only one top-level function per test case"
@@ -314,3 +329,10 @@ class TestLocals(TestCase):
     def test_LocalGlobal(self):
         code = 'def foo(): global a; a = 1'
         self.checkLocals(code, [])
+
+    def test_ListCompInLoop(self):
+        code = 'def foo(i):\n for j in i:\n  [k for k in j]'
+        if sys.version_info.major == 2:
+            self.checkLocals(code, ['i', 'j', 'k'])
+        else:
+            self.checkLocals(code, ['i', 'j'])

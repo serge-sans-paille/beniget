@@ -2,7 +2,6 @@ from unittest import TestCase
 from textwrap import dedent
 import gast as ast
 import beniget
-import sys
 
 class Capture(ast.NodeVisitor):
 

@@ -55,6 +55,13 @@ class TestChains(TestCase):
                          ['a -> (a -> ())',
                           'a -> (a -> ())'])
 
+    def test_reassign_in_loop(self):
+        code = 'm = 1\nfor i in [1, 2]:\n m = m + 1'
+        self.checkChains(code,
+                         ['m -> (m -> (BinOp -> ()))',
+                          'i -> ()',
+                          'm -> (m -> (BinOp -> ()))'])
+
     def test_augassign(self):
         code  = 'a = 1; a += 2'
         self.checkChains(code,
@@ -97,7 +104,7 @@ class TestChains(TestCase):
             # first assign, out of loop
             'i -> (i -> (), i -> (BinOp -> ()), i -> ())',
             # second assign, in loop
-            'i -> (i -> (), i -> ())'
+            'i -> (i -> (), i -> (BinOp -> ()), i -> ())',
         ])
 
     def test_if_true_branch(self):
@@ -163,3 +170,8 @@ class TestChains(TestCase):
     def test_multiple_import_from_as(self):
         code = 'from  y import x as z, w; z'
         self.checkChains(code, ['z -> (z -> ())', 'w -> ()'])
+
+    def test_method_function_conflict(self):
+        code = 'def foo():pass\nclass C:\n def foo(self): foo()'
+        self.checkChains(code, ['foo -> (foo -> (Call -> ()))',
+                                'C -> ()'])

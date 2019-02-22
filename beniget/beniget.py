@@ -49,7 +49,8 @@ class Def(object):
 
     def add_user(self, node):
         assert isinstance(node, Def)
-        self._users.append(node)
+        if node not in self._users:
+            self._users.append(node)
 
     def name(self):
         '''
@@ -164,7 +165,11 @@ class DefUseChains(ast.NodeVisitor):
         return chains
 
     def unbound_identifier(self, name, node):
-        print("W: unbound identifier '{}' at {}:{}".format(name, node.lineno, node.col_offset))
+        if hasattr(node, 'lineno'):
+            location = ' at {}:{}'.format(node.lineno, node.col_offset)
+        else:
+            location =''
+        print("W: unbound identifier '{}'{}".format(name, location))
 
     def defs(self, node):
         name = node.id
@@ -174,7 +179,12 @@ class DefUseChains(ast.NodeVisitor):
                 return d[name] if not stars else stars + d[name]
             if '*' in d:
                 stars.extend(d['*'])
-        d = Def(node)
+
+        if node in self.chains:
+            d = self.chains[node]
+        else:
+            d = Def(node)
+
         if self._undefs:
             self._undefs[-1][name].append((d, stars))
 
@@ -224,7 +234,6 @@ class DefUseChains(ast.NodeVisitor):
             self._definitions.pop()
             self._currenthead.pop()
 
-
     # stmt
     def visit_Module(self, node):
         self.module = node
@@ -238,7 +247,7 @@ class DefUseChains(ast.NodeVisitor):
             # handle `global' keyword specifically
             cg = CollectGlobals()
             cg.visit(node)
-            for d, nodes in cg.Globals.items():
+            for nodes in cg.Globals.values():
                 for n, name in nodes:
                     if name not in self._definitions[-1]:
                         dnode = Def((n, name))
@@ -274,16 +283,21 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node, step=DeclarationStep):
         if step is DeclarationStep:
-            dnode = self.chains[node] = Def(node)
+            dnode = self.chains.setdefault(node, Def(node))
             self._definitions[-1][node.name] = [dnode]
             self.locals[self._currenthead[-1]].append(dnode)
+
             for kw_default in filter(None, node.args.kw_defaults):
                 self.visit(kw_default).add_user(dnode)
             for default in node.args.defaults:
                 self.visit(default).add_user(dnode)
             for decorator in node.decorator_list:
                 self.visit(decorator)
-            self._defered[-1].append((node, list(self._definitions)))
+
+            definitions = list(self._definitions)
+            if isinstance(self._currenthead[-1], ast.ClassDef):
+                definitions.pop()
+            self._defered[-1].append((node, definitions))
         elif step is DefinitionStep:
             with self.DefinitionContext(node):
                 self.visit(node.args)
@@ -294,7 +308,7 @@ class DefUseChains(ast.NodeVisitor):
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_ClassDef(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.locals[self._currenthead[-1]].append(dnode)
         self._definitions[-1][node.name] = [dnode]
         for base in node.bases:
@@ -327,7 +341,7 @@ class DefUseChains(ast.NodeVisitor):
             dvalue.add_user(dtarget)
 
     def visit_AugAssign(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         dvalue = self.visit(node.value).add_user(dnode)
         if isinstance(node.target, ast.Name):
             for d in self.defs(node.target):
@@ -348,11 +362,11 @@ class DefUseChains(ast.NodeVisitor):
         self._undefs.append(defaultdict(list))
         self.process_body(node.body)
 
-        # extra round to ``emulate'' looping
-        #self.visit(node.target)
-        #self.process_body(node.body)
-
         self.process_undefs()
+
+        # extra round to ``emulate'' looping
+        self.visit(node.target)
+        self.process_body(node.body)
 
         self._definitions.append(defaultdict(list))
         self.process_body(node.orelse)
@@ -378,8 +392,8 @@ class DefUseChains(ast.NodeVisitor):
         self.process_body(node.body)
 
         # extra round to simulate loop
-        #self.visit(node.test)
-        #self.process_body(node.body)
+        self.visit(node.test)
+        self.process_body(node.body)
 
         # the false branch of the eval
         self.visit(node.test)
@@ -459,12 +473,12 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node):
         for alias in node.names:
-            dalias = self.chains[alias] = Def(alias)
+            dalias = self.chains.setdefault(alias, Def(alias))
             self._definitions[-1][alias.asname or alias.name] = [dalias]
             self.locals[self._currenthead[-1]].append(dalias)
 
     def visit_Exec(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.body)
 
         if node.globals:
@@ -510,25 +524,25 @@ class DefUseChains(ast.NodeVisitor):
 
     # expr
     def visit_BoolOp(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         for value in node.values:
             self.visit(value).add_user(dnode)
         return dnode
 
     def visit_BinOp(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.left).add_user(dnode)
         self.visit(node.right).add_user(dnode)
         return dnode
 
     def visit_UnaryOp(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.operand).add_user(dnode)
         return dnode
 
     def visit_Lambda(self, node, step=DeclarationStep):
         if step is DeclarationStep:
-            dnode = self.chains[node] = Def(node)
+            dnode = self.chains.setdefault(node, Def(node))
             self._defered[-1].append((node, list(self._definitions)))
             return dnode
         elif step is DefinitionStep:
@@ -541,14 +555,14 @@ class DefUseChains(ast.NodeVisitor):
             raise NotImplementedError()
 
     def visit_IfExp(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.test).add_user(dnode)
         self.visit(node.body).add_user(dnode)
         self.visit(node.orelse).add_user(dnode)
         return dnode
 
     def visit_Dict(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         for key in filter(None, node.keys):
             self.visit(key).add_user(dnode)
         for value in node.values:
@@ -556,13 +570,13 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_Set(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         for elt in node.elts:
             self.visit(elt).add_user(dnode)
         return dnode
 
     def visit_ListComp(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
 
         with self.CompDefinitionContext(node):
             for comprehension in node.generators:
@@ -574,7 +588,7 @@ class DefUseChains(ast.NodeVisitor):
     visit_SetComp = visit_ListComp
 
     def visit_DictComp(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
 
         with self.CompDefinitionContext(node):
             for comprehension in node.generators:
@@ -587,12 +601,12 @@ class DefUseChains(ast.NodeVisitor):
     visit_GeneratorExp = visit_ListComp
 
     def visit_Await(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.value).add_user(dnode)
         return dnode
 
     def visit_Yield(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         if node.value:
             self.visit(node.value).add_user(dnode)
         return dnode
@@ -600,14 +614,14 @@ class DefUseChains(ast.NodeVisitor):
     visit_YieldFrom = visit_Await
 
     def visit_Compare(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.left).add_user(dnode)
         for expr in node.comparators:
             self.visit(expr).add_user(dnode)
         return dnode
 
     def visit_Call(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.func).add_user(dnode)
         for arg in node.args:
             self.visit(arg).add_user(dnode)
@@ -618,20 +632,20 @@ class DefUseChains(ast.NodeVisitor):
     visit_Repr = visit_Await
 
     def visit_Num(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         return dnode
 
     visit_Str = visit_Num
 
     def visit_FormattedValue(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.value).add_user(dnode)
         if node.format_spec:
             self.visit(node.format_spec).add_user(dnode)
         return dnode
 
     def visit_JoinedStr(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         for value in node.values:
             self.visit(value).add_user(dnode)
         return dnode
@@ -643,7 +657,7 @@ class DefUseChains(ast.NodeVisitor):
     visit_Attribute = visit_Await
 
     def visit_Subscript(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.value).add_user(dnode)
         self.visit(node.slice).add_user(dnode)
         return dnode
@@ -651,14 +665,23 @@ class DefUseChains(ast.NodeVisitor):
     visit_Starred = visit_Await
 
     def visit_Name(self, node):
-        dnode = self.chains[node] = Def(node)
+        already_visited = node in self.chains
+
+        if already_visited:
+            dnode = self.chains[node]
+        else:
+            dnode = self.chains[node] = Def(node)
+
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             if node.id in self._promoted_locals[-1]:
                 self._definitions[-1][node.id].append(dnode)
-                self.locals[self.module].append(dnode)
+                if dnode not in self.locals[self.module]:
+                    self.locals[self.module].append(dnode)
             else:
                 self._definitions[-1][node.id] = [dnode]
-                self.locals[self._currenthead[-1]].append(dnode)
+                if dnode not in self.locals[self._currenthead[-1]]:
+                    self.locals[self._currenthead[-1]].append(dnode)
+
         elif isinstance(node.ctx, ast.Load):
             for d in self.defs(node):
                 d.add_user(dnode)
@@ -669,7 +692,7 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_Destructured(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         tmp_store = ast.Store()
         for elt in node.elts:
             if isinstance(elt, ast.Name):
@@ -684,7 +707,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_List(self, node):
         if isinstance(node.ctx, ast.Load):
-            dnode = self.chains[node] = Def(node)
+            dnode = self.chains.setdefault(node, Def(node))
             for elt in node.elts:
                 self.visit(elt).add_user(dnode)
             return dnode
@@ -698,7 +721,7 @@ class DefUseChains(ast.NodeVisitor):
     # slice
 
     def visit_Slice(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         if node.lower:
             self.visit(node.lower).add_user(dnode)
         if node.upper:
@@ -708,7 +731,7 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_ExtSlice(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         for dim in node.dims:
             self.visit(dim).add_user(dnode)
         return dnode
@@ -718,7 +741,7 @@ class DefUseChains(ast.NodeVisitor):
     # misc
 
     def visit_comprehension(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.iter).add_user(dnode)
         self.visit(node.target)
         for if_ in node.ifs:
@@ -726,7 +749,7 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_excepthandler(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         if node.type:
             self.visit(node.type).add_user(dnode)
         if node.name:
@@ -746,8 +769,85 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(node.kwarg)
 
     def visit_withitem(self, node):
-        dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.context_expr).add_user(dnode)
         if node.optional_vars:
             self.visit(node.optional_vars)
         return dnode
+
+if __name__ == '__main__':
+    import sys
+
+    class DefUseChainsX(DefUseChains):
+
+        def __init__(self, filename):
+            super(DefUseChainsX, self).__init__()
+            self.filename = filename
+
+        def unbound_identifier(self, name, node):
+            if hasattr(node, 'lineno'):
+                location = ' at {}:{}:'.format(node.lineno, node.col_offset)
+            else:
+                location =''
+            print("W: unbound identifier '{}'{}{}".format(name, location,
+                                                          self.filename))
+
+
+    class Beniget(ast.NodeVisitor):
+
+        def __init__(self, filename, module):
+            super(Beniget, self).__init__()
+
+            self.filename = filename or '<stdin>'
+
+            self.ancestors = Ancestors()
+            self.ancestors.visit(module)
+
+            self.defuses = DefUseChainsX(self.filename)
+            self.defuses.visit(module)
+
+            self.visit(module)
+
+        def check_unused(self, node, skipped_types=()):
+            for local_def in self.defuses.locals[node]:
+                if not local_def.users():
+                    if local_def.name() == '_':
+                        continue  # typical naming by-pass
+                    if isinstance(local_def.node, skipped_types):
+                        continue
+
+                    location = local_def.node
+                    while not hasattr(location, 'lineno'):
+                        location = self.ancestors.parents[location][-1]
+
+                    if isinstance(location, ast.ImportFrom):
+                        if location.module == '__future__':
+                            continue
+
+                    print("W: '{}' is defined but not used at {}:{}:{}"
+                          .format(local_def.name(),
+                                  self.filename,
+                                  location.lineno,
+                                  location.col_offset))
+
+
+        def visit_Module(self, node):
+            self.generic_visit(node)
+            if self.filename.endswith('__init__.py'):
+                return
+            self.check_unused(node, skipped_types=(ast.FunctionDef,
+                                                   ast.ClassDef,
+                                                   ast.Name))
+
+        def visit_FunctionDef(self, node):
+            self.generic_visit(node)
+            self.check_unused(node)
+
+    paths = sys.argv[1:] or (None,)
+
+    for path in paths:
+        with open(path) if path else sys.stdin as target:
+            module = ast.parse(target.read())
+            Beniget(path, module)
+
+
