@@ -110,7 +110,7 @@ class CollectGlobals(ast.NodeVisitor):
 
 class DefUseChains(ast.NodeVisitor):
     '''
-    Module visitor that gather two kinds of informations:
+    Module visitor that gathers two kinds of informations:
         - locals: Dict[node, List[Def]], a mapping between a node and the list
           of variable defined in this node,
         - chains: Dict[node, Def], a mapping between nodes and their chains.
@@ -170,6 +170,12 @@ class DefUseChains(ast.NodeVisitor):
         else:
             location =''
         print("W: unbound identifier '{}'{}".format(name, location))
+
+    def lookup_identifier(self, name):
+        for d in reversed(self._definitions):
+            if name in d:
+                return d[name]
+        return []
 
     def defs(self, node):
         name = node.id
@@ -413,14 +419,14 @@ class DefUseChains(ast.NodeVisitor):
     def visit_If(self, node):
         self.visit(node.test)
 
-        self._definitions.append(defaultdict(list))
+        # putting a copy of current level to handle nested conditions
+        self._definitions.append(self._definitions[-1].copy())
         self.process_body(node.body)
         body_defs = self._definitions.pop()
 
         self._definitions.append(defaultdict(list))
         self.process_body(node.orelse)
         orelse_defs = self._definitions.pop()
-
         for d in body_defs:
             if d in orelse_defs:
                 self._definitions[-1][d] = body_defs[d] + orelse_defs[d]
@@ -447,8 +453,14 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(node.cause)
 
     def visit_Try(self, node):
+        self._definitions.append(self._definitions[-1].copy())
         self.process_body(node.body)
         self.process_body(node.orelse)
+        failsafe_defs = self._definitions.pop()
+
+        # handle the fact that definitions may have fail
+        for d in failsafe_defs:
+            self._definitions[-1][d].extend(failsafe_defs[d])
 
         for excepthandler in node.handlers:
             self._definitions.append(defaultdict(list))
@@ -775,6 +787,27 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(node.optional_vars)
         return dnode
 
+
+class UseDefChains(object):
+    """
+    Module visitor that builds a mapping between each user and the Def that
+    defines this user:
+        - chains: Dict[node, Def], a mapping between nodes and the Def that
+        defines it.
+    """
+
+    def __init__(self):
+        self.chains = {}
+
+    def visit(self, node):
+        du = DefUseChains()
+        du.visit(node)
+        for chain in du.chains.values():
+            for use in chain.users():
+                self.chains[use.node] = chain
+
+
+
 if __name__ == '__main__':
     import sys
 
@@ -849,5 +882,3 @@ if __name__ == '__main__':
         with open(path) if path else sys.stdin as target:
             module = ast.parse(target.read())
             Beniget(path, module)
-
-

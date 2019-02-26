@@ -175,3 +175,14 @@ class TestChains(TestCase):
         code = 'def foo():pass\nclass C:\n def foo(self): foo()'
         self.checkChains(code, ['foo -> (foo -> (Call -> ()))',
                                 'C -> ()'])
+
+    def test_nested_if(self):
+        code = 'f = 1\nif 1:\n if 1:pass\n else: f=1\nelse: f = 1\nf'
+        self.checkChains(code, ['f -> (f -> ())',
+                                'f -> (f -> ())',
+                                'f -> (f -> ())'])
+
+    def test_try_except(self):
+        code = 'f = 1\ntry: \n len(); f = 2\nexcept: pass\nf'
+        self.checkChains(code, ['f -> (f -> ())',
+                                'f -> (f -> ())'])

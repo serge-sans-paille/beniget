@@ -142,7 +142,7 @@ then walking through all loaded identifier and checking whether it's local or no
     ...         self.chains = beniget.DefUseChains()
     ...         self.chains.visit(module_node)
     ...         self.users = set()  # users of local definitions
-    ...         self.captured = set()  # identifiers that d'ont belong to local users
+    ...         self.captured = set()  # identifiers that don't belong to local users
     ...
     ...     def visit_FunctionDef(self, node):
     ...         # initialize the set of node using a local variable
@@ -163,3 +163,51 @@ then walking through all loaded identifier and checking whether it's local or no
     >>> capture.visit(inner_function)
     >>> list(capture.captured)
     ['x']
+
+Compute the set of instructions required to compute a function
+**************************************************************
+
+This is actually very similar to the computation of the closure, but this time
+let's use the UseDef chains combined with the ancestors.
+
+.. code:: python
+
+    >>> import gast as ast
+    >>> import beniget
+    >>> class CaptureX(ast.NodeVisitor):
+    ...
+    ...     def __init__(self, module_node, fun):
+    ...         self.fun = fun
+    ...         # initialize def-use chains
+    ...         self.chains = beniget.UseDefChains()
+    ...         self.chains.visit(module_node)
+    ...         self.ancestors = beniget.Ancestors()
+    ...         self.ancestors.visit(module_node)
+    ...         self.external = set()
+    ...
+    ...     def visit_Name(self, node):
+    ...         # register load of identifiers not locally definied
+    ...         if isinstance(node.ctx, ast.Load):
+    ...             def_ = self.chains.chains[node]
+    ...             parents = self.ancestors.parents[def_.node]
+    ...             if self.fun not in parents:
+    ...                 parent = parents[-1]
+    ...                 if parent not in self.external:
+    ...                     self.external.add(parent)
+    ...                     self.rec(parent)
+    ...
+    ...     def rec(self, node):
+    ...         "walk definitions to find their operands's def"
+    ...         if isinstance(node, ast.Assign):
+    ...             self.visit(node.value)
+    ...         # TODO: implement this for AugAssign etc
+
+
+    >>> code = 'a = 1; b = [a, a]\ndef foo():\n return b'
+    >>> module = ast.parse(code)
+    >>> function = module.body[2]
+    >>> capturex = CaptureX(module, function)
+    >>> capturex.visit(function)
+    >>> # the two top level assignments have been captured!
+    >>> list(map(type, capturex.external))
+    [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
