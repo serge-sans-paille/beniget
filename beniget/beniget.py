@@ -1,5 +1,6 @@
 from collections import defaultdict
 from contextlib import contextmanager
+from copy import deepcopy
 import sys
 
 import gast as ast
@@ -18,7 +19,7 @@ class Ancestors(ast.NodeVisitor):
     >>> ancestors.visit(module)
 
     >>> binop = module.body[0].body[0].value
-    >>> for n in ancestors.parents[binop]:
+    >>> for n in ancestors.parents(binop):
     ...    print(type(n))
     <class 'gast.gast.Module'>
     <class 'gast.gast.FunctionDef'>
@@ -26,14 +27,33 @@ class Ancestors(ast.NodeVisitor):
     """
 
     def __init__(self):
-        self.parents = dict()
-        self.current = list()
+        self._parents = dict()
+        self._current = list()
 
     def generic_visit(self, node):
-        self.parents[node] = list(self.current)
-        self.current.append(node)
+        self._parents[node] = list(self._current)
+        self._current.append(node)
         super(Ancestors, self).generic_visit(node)
-        self.current.pop()
+        self._current.pop()
+
+    def parent(self, node):
+        return self._parents[node][-1]
+
+    def parents(self, node):
+        return self._parents[node]
+
+    def parentInstance(self, node, cls):
+        for n in reversed(self._parents[node]):
+            if isinstance(n, cls):
+                return n
+        raise ValueError("{} has no parent of type {}".format(node, cls))
+
+    def parentFunction(self, node):
+        return self.parentInstance(node,
+                                   (ast.FunctionDef, ast.AsyncFunctionDef))
+
+    def parentStmt(self, node):
+        return self.parentInstance(node, ast.stmt)
 
 
 class Def(object):
@@ -92,9 +112,9 @@ else:
     import builtins
     BuiltinsSrc = builtins.__dict__
 
-Builtins = {k: [Def(v)] for k, v in BuiltinsSrc.items()}
+Builtins = {k: Def(v) for k, v in BuiltinsSrc.items()}
 
-Builtins['__file__'] = [Def(__file__)]
+Builtins['__file__'] = Def(__file__)
 
 DeclarationStep, DefinitionStep = object(), object()
 
@@ -132,6 +152,9 @@ class DefUseChains(ast.NodeVisitor):
         self.chains = {}
         self.locals = defaultdict(list)
 
+        # deep copy of builtins, to remain reentrant
+        self._builtins = deepcopy(Builtins)
+
         # function body are not executed when the function definition is met
         # this holds a stack of the functions met during body processing
         self._defered = []
@@ -153,7 +176,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, ast.Module) and not ignore_builtins:
-            builtins = {d[0] for d in Builtins.values()}
+            builtins = {d for d in self._builtins.values()}
             return sorted(d.name() for d in self.locals[node] if d not in builtins)
         else:
             return sorted(d.name() for d in self.locals[node])
@@ -245,7 +268,8 @@ class DefUseChains(ast.NodeVisitor):
         self.module = node
         with self.DefinitionContext(node):
 
-            self._definitions[-1].update(Builtins)
+            self._definitions[-1].update({k: [v]
+                                          for k, v in self._builtins.items()})
 
             self._defered.append([])
             self.process_body(node.body)
@@ -274,12 +298,12 @@ class DefUseChains(ast.NodeVisitor):
                 overloaded_builtins = set()
                 for d in self.locals[node]:
                     name = d.name()
-                    if name in Builtins:
+                    if name in self._builtins:
                         overloaded_builtins.add(name)
                     assert name in self._definitions[0], (name, d.node)
 
                 nb_defs = len(self._definitions[0])
-                nb_bltns = len(Builtins)
+                nb_bltns = len(self._builtins)
                 nb_overloaded_bltns = len(overloaded_builtins)
                 nb_heads = len({d.name() for d in self.locals[node]})
                 assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns
@@ -790,23 +814,21 @@ class DefUseChains(ast.NodeVisitor):
 
 class UseDefChains(object):
     """
-    Module visitor that builds a mapping between each user and the Def that
-    defines this user:
+    DefUseChains adapatator that builds a mapping between each user
+    and the Def that defines this user:
         - chains: Dict[node, Def], a mapping between nodes and the Def that
         defines it.
     """
 
-    def __init__(self):
-        self.chains = {}
-
-    def visit(self, node):
-        du = DefUseChains()
-        du.visit(node)
-        for chain in du.chains.values():
-            for use in chain.users():
-                self.chains[use.node] = chain
-
-
+    def __init__(self, defuses):
+        self.chains = {use.node:chain
+                       for chain in defuses.chains.values()
+                       for use in chain.users()
+                      }
+        self.chains.update((use.node, chain)
+                           for chain in defuses._builtins.values()
+                           for use in chain.users()
+                          )
 
 if __name__ == '__main__':
     import sys
@@ -851,7 +873,7 @@ if __name__ == '__main__':
 
                     location = local_def.node
                     while not hasattr(location, 'lineno'):
-                        location = self.ancestors.parents[location][-1]
+                        location = self.ancestors.parent(location)
 
                     if isinstance(location, ast.ImportFrom):
                         if location.module == '__future__':

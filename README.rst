@@ -73,7 +73,7 @@ of this decorator to find which functions are decorated.
     # walkthrough its users
     >>> for use in nice.users():
     ...   # we're interested in the parent of the decorator
-    ...   parents = ancestors.parents[use.node]
+    ...   parents = ancestors.parents(use.node)
     ...   # direct parent of the decorator is the function
     ...   fdef = parents[-1]
     ...   print(fdef.name)
@@ -178,9 +178,10 @@ let's use the UseDef chains combined with the ancestors.
     ...
     ...     def __init__(self, module_node, fun):
     ...         self.fun = fun
-    ...         # initialize def-use chains
-    ...         self.chains = beniget.UseDefChains()
-    ...         self.chains.visit(module_node)
+    ...         # initialize use-def chains
+    ...         du = beniget.DefUseChains()
+    ...         du.visit(module_node)
+    ...         self.chains = beniget.UseDefChains(du)
     ...         self.ancestors = beniget.Ancestors()
     ...         self.ancestors.visit(module_node)
     ...         self.external = set()
@@ -189,12 +190,15 @@ let's use the UseDef chains combined with the ancestors.
     ...         # register load of identifiers not locally definied
     ...         if isinstance(node.ctx, ast.Load):
     ...             def_ = self.chains.chains[node]
-    ...             parents = self.ancestors.parents[def_.node]
+    ...             try:
+    ...                 parents = self.ancestors.parents(def_.node)
+    ...             except KeyError:
+    ...                 return # a builtin
     ...             if self.fun not in parents:
-    ...                 parent = parents[-1]
-    ...                 if parent not in self.external:
-    ...                     self.external.add(parent)
-    ...                     self.rec(parent)
+    ...                     parent = self.ancestors.parentStmt(def_.node)
+    ...                     if parent not in self.external:
+    ...                         self.external.add(parent)
+    ...                         self.rec(parent)
     ...
     ...     def rec(self, node):
     ...         "walk definitions to find their operands's def"
@@ -203,11 +207,11 @@ let's use the UseDef chains combined with the ancestors.
     ...         # TODO: implement this for AugAssign etc
 
 
-    >>> code = 'a = 1; b = [a, a]\ndef foo():\n return b'
+    >>> code = 'a = 1; b = [a, a]; c = len(b)\ndef foo():\n return c'
     >>> module = ast.parse(code)
-    >>> function = module.body[2]
+    >>> function = module.body[3]
     >>> capturex = CaptureX(module, function)
     >>> capturex.visit(function)
     >>> # the two top level assignments have been captured!
     >>> list(map(type, capturex.external))
-    [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
+    [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
