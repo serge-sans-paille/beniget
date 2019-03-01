@@ -58,7 +58,7 @@ class Ancestors(ast.NodeVisitor):
 
 class Def(object):
     """
-    Model a definition, either named or unamed, and its users.
+    Model a definition, either named or unnamed, and its users.
     """
 
     __slots__ = 'node', '_users'
@@ -112,16 +112,16 @@ else:
     import builtins
     BuiltinsSrc = builtins.__dict__
 
-Builtins = {k: Def(v) for k, v in BuiltinsSrc.items()}
+Builtins = {k: v for k, v in BuiltinsSrc.items()}
 
-Builtins['__file__'] = Def(__file__)
+Builtins['__file__'] = __file__
 
 DeclarationStep, DefinitionStep = object(), object()
 
 class CollectGlobals(ast.NodeVisitor):
 
     def __init__(self):
-        self.Globals= defaultdict(list)
+        self.Globals = defaultdict(list)
 
     def visit_Global(self, node):
         for name in node.names:
@@ -153,7 +153,7 @@ class DefUseChains(ast.NodeVisitor):
         self.locals = defaultdict(list)
 
         # deep copy of builtins, to remain reentrant
-        self._builtins = deepcopy(Builtins)
+        self._builtins = {k: Def(v) for k, v in Builtins.items()}
 
         # function body are not executed when the function definition is met
         # this holds a stack of the functions met during body processing
@@ -806,7 +806,7 @@ class DefUseChains(ast.NodeVisitor):
 
 class UseDefChains(object):
     """
-    DefUseChains adapatator that builds a mapping between each user
+    DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
         - chains: Dict[node, Def], a mapping between nodes and the Def that
         defines it.

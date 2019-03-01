@@ -5,7 +5,7 @@ Beniget is a collection of Compile-time analyse on Python Abstract Syntax Tree(A
 It's a building block to write static analyzer or compiler for Python.
 
 Beniget relies on `gast <https://pypi.org/project/gast/>`_ to provide a cross
-version abstraction of the AST, effictively working on both Python2 and
+version abstraction of the AST, effectively working on both Python2 and
 Python3.
 
 
@@ -46,7 +46,7 @@ into ``globals()``.
 Find all functions marked with a given decorator
 ************************************************
 
-Let's assume we've got a ``@nice`` decorator applied to some functions. We can tranverse the users
+Let's assume we've got a ``@nice`` decorator applied to some functions. We can traverse the users
 of this decorator to find which functions are decorated.
 
 .. code:: python
@@ -127,7 +127,7 @@ a analysis using def-use chains though ;-)
 Compute the identifiers captured by a function
 **********************************************
 
-In Python, inner functions (and lambdas) can capture identifiers definined in the outer scope.
+In Python, inner functions (and lambdas) can capture identifiers defined in the outer scope.
 This analysis computes such identifiers by registering each identifier defined in the function,
 then walking through all loaded identifier and checking whether it's local or not.
 
@@ -188,7 +188,7 @@ let's use the UseDef chains combined with the ancestors.
     ...         self.visited_external = set()
     ...
     ...     def visit_Name(self, node):
-    ...         # register load of identifiers not locally definied
+    ...         # register load of identifiers not locally defined
     ...         if isinstance(node.ctx, ast.Load):
     ...             def_ = self.chains.chains[node]
     ...             try:
@@ -214,6 +214,6 @@ let's use the UseDef chains combined with the ancestors.
     >>> function = module.body[3]
     >>> capturex = CaptureX(module, function)
     >>> capturex.visit(function)
-    >>> # the two top level assignments have been captured!
+    >>> # the three top level assignments have been captured!
     >>> list(map(type, capturex.external))
     [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
