@@ -184,7 +184,8 @@ let's use the UseDef chains combined with the ancestors.
     ...         self.chains = beniget.UseDefChains(du)
     ...         self.ancestors = beniget.Ancestors()
     ...         self.ancestors.visit(module_node)
-    ...         self.external = set()
+    ...         self.external = list()
+    ...         self.visited_external = set()
     ...
     ...     def visit_Name(self, node):
     ...         # register load of identifiers not locally definied
@@ -196,8 +197,9 @@ let's use the UseDef chains combined with the ancestors.
     ...                 return # a builtin
     ...             if self.fun not in parents:
     ...                     parent = self.ancestors.parentStmt(def_.node)
-    ...                     if parent not in self.external:
-    ...                         self.external.add(parent)
+    ...                     if parent not in self.visited_external:
+    ...                         self.visited_external.add(parent)
+    ...                         self.external.append(parent)
     ...                         self.rec(parent)
     ...
     ...     def rec(self, node):

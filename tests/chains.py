@@ -186,3 +186,8 @@ class TestChains(TestCase):
         code = 'f = 1\ntry: \n len(); f = 2\nexcept: pass\nf'
         self.checkChains(code, ['f -> (f -> ())',
                                 'f -> (f -> ())'])
+
+    def test_attr(self):
+        code = 'import numpy as bar\ndef foo():\n return bar.zeros(2)'
+        self.checkChains(code, ['bar -> (bar -> (Attribute -> (Call -> ())))',
+                                'foo -> ()'])

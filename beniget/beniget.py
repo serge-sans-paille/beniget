@@ -209,10 +209,7 @@ class DefUseChains(ast.NodeVisitor):
             if '*' in d:
                 stars.extend(d['*'])
 
-        if node in self.chains:
-            d = self.chains[node]
-        else:
-            d = Def(node)
+        d = self.chains.setdefault(node, Def(node))
 
         if self._undefs:
             self._undefs[-1][name].append((d, stars))
@@ -502,7 +499,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_Import(self, node):
         for alias in node.names:
-            dalias = Def(alias)
+            dalias = self.chains.setdefault(alias, Def(alias))
             base = alias.name.split('.', 1)[0]
             self._definitions[-1][alias.asname or base] = [dalias]
             self.locals[self._currenthead[-1]].append(dalias)
@@ -701,12 +698,7 @@ class DefUseChains(ast.NodeVisitor):
     visit_Starred = visit_Await
 
     def visit_Name(self, node):
-        already_visited = node in self.chains
-
-        if already_visited:
-            dnode = self.chains[node]
-        else:
-            dnode = self.chains[node] = Def(node)
+        dnode = self.chains.setdefault(node, Def(node))
 
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             if node.id in self._promoted_locals[-1]:
