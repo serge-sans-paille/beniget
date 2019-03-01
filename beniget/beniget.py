@@ -5,6 +5,7 @@ import sys
 
 import gast as ast
 
+
 class Ancestors(ast.NodeVisitor):
     """
     Build the ancestor tree, that associates a node to the list of node visited
@@ -49,8 +50,7 @@ class Ancestors(ast.NodeVisitor):
         raise ValueError("{} has no parent of type {}".format(node, cls))
 
     def parentFunction(self, node):
-        return self.parentInstance(node,
-                                   (ast.FunctionDef, ast.AsyncFunctionDef))
+        return self.parentInstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
 
     def parentStmt(self, node):
         return self.parentInstance(node, ast.stmt)
@@ -58,10 +58,10 @@ class Ancestors(ast.NodeVisitor):
 
 class Def(object):
     """
-    Model a definition, either named or unamed, and its users.
+    Model a definition, either named or unnamed, and its users.
     """
 
-    __slots__ = 'node', '_users'
+    __slots__ = "node", "_users"
 
     def __init__(self, node):
         self.node = node
@@ -73,16 +73,18 @@ class Def(object):
             self._users.append(node)
 
     def name(self):
-        '''
+        """
         If the node associated to this Def has a name, returns this name.
         Otherwise returns its type
-        '''
-        if isinstance(self.node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        """
+        if isinstance(
+            self.node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
             return self.node.name
         elif isinstance(self.node, ast.Name):
             return self.node.id
         elif isinstance(self.node, ast.alias):
-            base = self.node.name.split('.', 1)[0]
+            base = self.node.name.split(".", 1)[0]
             return self.node.asname or base
         elif isinstance(self.node, tuple):
             return self.node[1]
@@ -90,38 +92,37 @@ class Def(object):
             return type(self.node).__name__
 
     def users(self):
-        '''
+        """
         The list of ast entity that holds a reference to this node
-        '''
+        """
         return self._users
 
     def __repr__(self):
-        return '{} -> ({})'.format(self.node, ", ".join(map(repr, self._users)))
+        return "{} -> ({})".format(self.node, ", ".join(map(repr, self._users)))
 
     def __str__(self):
-        return '{} -> ({})'.format(self.name(), ", ".join(map(str, self._users)))
+        return "{} -> ({})".format(self.name(), ", ".join(map(str, self._users)))
 
 
-
-Builtins = {
-}
+Builtins = {}
 
 if sys.version_info.major == 2:
     BuiltinsSrc = __builtins__
 else:
     import builtins
+
     BuiltinsSrc = builtins.__dict__
 
 Builtins = {k: Def(v) for k, v in BuiltinsSrc.items()}
 
-Builtins['__file__'] = Def(__file__)
+Builtins["__file__"] = Def(__file__)
 
 DeclarationStep, DefinitionStep = object(), object()
 
-class CollectGlobals(ast.NodeVisitor):
 
+class CollectGlobals(ast.NodeVisitor):
     def __init__(self):
-        self.Globals= defaultdict(list)
+        self.Globals = defaultdict(list)
 
     def visit_Global(self, node):
         for name in node.names:
@@ -129,7 +130,7 @@ class CollectGlobals(ast.NodeVisitor):
 
 
 class DefUseChains(ast.NodeVisitor):
-    '''
+    """
     Module visitor that gathers two kinds of informations:
         - locals: Dict[node, List[Def]], a mapping between a node and the list
           of variable defined in this node,
@@ -146,14 +147,22 @@ class DefUseChains(ast.NodeVisitor):
     >>> alias_def = duc.chains[module.body[0].names[0]]
     >>> print(alias_def)
     c -> (c -> (Call -> ()))
-    '''
+    """
 
     def __init__(self):
         self.chains = {}
         self.locals = defaultdict(list)
 
         # deep copy of builtins, to remain reentrant
-        self._builtins = deepcopy(Builtins)
+        # this line
+        # self._builtins = deepcopy(Builtins)
+        # can lead to a TypeError when used in IPython
+        self._builtins = {}
+        for key, value in Builtins.items():
+            try:
+                self._builtins[key] = deepcopy(value)
+            except TypeError:
+                pass
 
         # function body are not executed when the function definition is met
         # this holds a stack of the functions met during body processing
@@ -177,7 +186,9 @@ class DefUseChains(ast.NodeVisitor):
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, ast.Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
-            return sorted(d.name() for d in self.locals[node] if d not in builtins)
+            return sorted(
+                d.name() for d in self.locals[node] if d not in builtins
+            )
         else:
             return sorted(d.name() for d in self.locals[node])
 
@@ -188,10 +199,10 @@ class DefUseChains(ast.NodeVisitor):
         return chains
 
     def unbound_identifier(self, name, node):
-        if hasattr(node, 'lineno'):
-            location = ' at {}:{}'.format(node.lineno, node.col_offset)
+        if hasattr(node, "lineno"):
+            location = " at {}:{}".format(node.lineno, node.col_offset)
         else:
-            location =''
+            location = ""
         print("W: unbound identifier '{}'{}".format(name, location))
 
     def lookup_identifier(self, name):
@@ -206,8 +217,8 @@ class DefUseChains(ast.NodeVisitor):
         for d in reversed(self._definitions):
             if name in d:
                 return d[name] if not stars else stars + d[name]
-            if '*' in d:
-                stars.extend(d['*'])
+            if "*" in d:
+                stars.extend(d["*"])
 
         if node in self.chains:
             d = self.chains[node]
@@ -268,8 +279,9 @@ class DefUseChains(ast.NodeVisitor):
         self.module = node
         with self.DefinitionContext(node):
 
-            self._definitions[-1].update({k: [v]
-                                          for k, v in self._builtins.items()})
+            self._definitions[-1].update(
+                {k: [v] for k, v in self._builtins.items()}
+            )
 
             self._defered.append([])
             self.process_body(node.body)
@@ -286,8 +298,7 @@ class DefUseChains(ast.NodeVisitor):
 
             # handle function bodies
             for fnode, ctx in self._defered[-1]:
-                visitor = getattr(self,
-                                  'visit_{}'.format(type(fnode).__name__))
+                visitor = getattr(self, "visit_{}".format(type(fnode).__name__))
                 defs, self._definitions = self._definitions, ctx
                 visitor(fnode, step=DefinitionStep)
                 self._definitions = defs
@@ -345,7 +356,7 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(base).add_user(dnode)
 
         with self.DefinitionContext(node):
-            self._definitions[-1]['__class__'] = [Def('__class__')]
+            self._definitions[-1]["__class__"] = [Def("__class__")]
             self.process_body(node.body)
 
     def visit_Return(self, node):
@@ -409,8 +420,6 @@ class DefUseChains(ast.NodeVisitor):
 
         for d, u in body_defs.items():
             self._definitions[-1][d].extend(u)
-
-
 
     visit_AsyncFor = visit_For
 
@@ -503,7 +512,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Import(self, node):
         for alias in node.names:
             dalias = Def(alias)
-            base = alias.name.split('.', 1)[0]
+            base = alias.name.split(".", 1)[0]
             self._definitions[-1][alias.asname or base] = [dalias]
             self.locals[self._currenthead[-1]].append(dalias)
 
@@ -537,7 +546,7 @@ class DefUseChains(ast.NodeVisitor):
                         for d in defs:
                             d.add_user(dnode)
 
-        self._definitions[-1]['*'].append(dnode)
+        self._definitions[-1]["*"].append(dnode)
 
     def visit_Global(self, node):
         for name in node.names:
@@ -814,46 +823,49 @@ class DefUseChains(ast.NodeVisitor):
 
 class UseDefChains(object):
     """
-    DefUseChains adapatator that builds a mapping between each user
+    DefUseChains adaptator that builds a mapping between each user
     and the Def that defines this user:
         - chains: Dict[node, Def], a mapping between nodes and the Def that
         defines it.
     """
 
     def __init__(self, defuses):
-        self.chains = {use.node:chain
-                       for chain in defuses.chains.values()
-                       for use in chain.users()
-                      }
-        self.chains.update((use.node, chain)
-                           for chain in defuses._builtins.values()
-                           for use in chain.users()
-                          )
+        self.chains = {
+            use.node: chain
+            for chain in defuses.chains.values()
+            for use in chain.users()
+        }
+        self.chains.update(
+            (use.node, chain)
+            for chain in defuses._builtins.values()
+            for use in chain.users()
+        )
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import sys
 
     class DefUseChainsX(DefUseChains):
-
         def __init__(self, filename):
             super(DefUseChainsX, self).__init__()
             self.filename = filename
 
         def unbound_identifier(self, name, node):
-            if hasattr(node, 'lineno'):
-                location = ' at {}:{}:'.format(node.lineno, node.col_offset)
+            if hasattr(node, "lineno"):
+                location = " at {}:{}:".format(node.lineno, node.col_offset)
             else:
-                location =''
-            print("W: unbound identifier '{}'{}{}".format(name, location,
-                                                          self.filename))
-
+                location = ""
+            print(
+                "W: unbound identifier '{}'{}{}".format(
+                    name, location, self.filename
+                )
+            )
 
     class Beniget(ast.NodeVisitor):
-
         def __init__(self, filename, module):
             super(Beniget, self).__init__()
 
-            self.filename = filename or '<stdin>'
+            self.filename = filename or "<stdin>"
 
             self.ancestors = Ancestors()
             self.ancestors.visit(module)
@@ -866,33 +878,35 @@ if __name__ == '__main__':
         def check_unused(self, node, skipped_types=()):
             for local_def in self.defuses.locals[node]:
                 if not local_def.users():
-                    if local_def.name() == '_':
+                    if local_def.name() == "_":
                         continue  # typical naming by-pass
                     if isinstance(local_def.node, skipped_types):
                         continue
 
                     location = local_def.node
-                    while not hasattr(location, 'lineno'):
+                    while not hasattr(location, "lineno"):
                         location = self.ancestors.parent(location)
 
                     if isinstance(location, ast.ImportFrom):
-                        if location.module == '__future__':
+                        if location.module == "__future__":
                             continue
 
-                    print("W: '{}' is defined but not used at {}:{}:{}"
-                          .format(local_def.name(),
-                                  self.filename,
-                                  location.lineno,
-                                  location.col_offset))
-
+                    print(
+                        "W: '{}' is defined but not used at {}:{}:{}".format(
+                            local_def.name(),
+                            self.filename,
+                            location.lineno,
+                            location.col_offset,
+                        )
+                    )
 
         def visit_Module(self, node):
             self.generic_visit(node)
-            if self.filename.endswith('__init__.py'):
+            if self.filename.endswith("__init__.py"):
                 return
-            self.check_unused(node, skipped_types=(ast.FunctionDef,
-                                                   ast.ClassDef,
-                                                   ast.Name))
+            self.check_unused(
+                node, skipped_types=(ast.FunctionDef, ast.ClassDef, ast.Name)
+            )
 
         def visit_FunctionDef(self, node):
             self.generic_visit(node)

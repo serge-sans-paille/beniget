@@ -5,7 +5,7 @@ Beniget is a collection of Compile-time analyse on Python Abstract Syntax Tree(A
 It's a building block to write static analyzer or compiler for Python.
 
 Beniget relies on `gast <https://pypi.org/project/gast/>`_ to provide a cross
-version abstraction of the AST, effictively working on both Python2 and
+version abstraction of the AST, effectively working on both Python2 and
 Python3.
 
 
@@ -127,7 +127,7 @@ a analysis using def-use chains though ;-)
 Compute the identifiers captured by a function
 **********************************************
 
-In Python, inner functions (and lambdas) can capture identifiers definined in the outer scope.
+In Python, inner functions (and lambdas) can capture identifiers defined in the outer scope.
 This analysis computes such identifiers by registering each identifier defined in the function,
 then walking through all loaded identifier and checking whether it's local or not.
 
@@ -172,46 +172,52 @@ let's use the UseDef chains combined with the ancestors.
 
 .. code:: python
 
-    >>> import gast as ast
-    >>> import beniget
-    >>> class CaptureX(ast.NodeVisitor):
-    ...
-    ...     def __init__(self, module_node, fun):
-    ...         self.fun = fun
-    ...         # initialize use-def chains
-    ...         du = beniget.DefUseChains()
-    ...         du.visit(module_node)
-    ...         self.chains = beniget.UseDefChains(du)
-    ...         self.ancestors = beniget.Ancestors()
-    ...         self.ancestors.visit(module_node)
-    ...         self.external = set()
-    ...
-    ...     def visit_Name(self, node):
-    ...         # register load of identifiers not locally definied
-    ...         if isinstance(node.ctx, ast.Load):
-    ...             def_ = self.chains.chains[node]
-    ...             try:
-    ...                 parents = self.ancestors.parents(def_.node)
-    ...             except KeyError:
-    ...                 return # a builtin
-    ...             if self.fun not in parents:
-    ...                     parent = self.ancestors.parentStmt(def_.node)
-    ...                     if parent not in self.external:
-    ...                         self.external.add(parent)
-    ...                         self.rec(parent)
-    ...
-    ...     def rec(self, node):
-    ...         "walk definitions to find their operands's def"
-    ...         if isinstance(node, ast.Assign):
-    ...             self.visit(node.value)
-    ...         # TODO: implement this for AugAssign etc
+    import gast as ast
+    import beniget
 
+    class CaptureX(ast.NodeVisitor):
+        def __init__(self, module_node, fun):
+            self.fun = fun
+            # initialize use-def chains
+            self.du_chains = du = beniget.DefUseChains()
+            du.visit(module_node)
+            self.ud_chains = beniget.UseDefChains(du)
+            self.ancestors = beniget.Ancestors()
+            self.ancestors.visit(module_node)
+            self.external = {}
+
+        def visit_Name(self, node):
+            # register load of identifiers not locally definied
+            if isinstance(node.ctx, ast.Load):
+                print(astunparse.dump(node))
+                def_ = self.ud_chains.chains[node]
+                try:
+                    parents = self.ancestors.parents(def_.node)
+                except KeyError:
+                    return  # a builtin
+                if self.fun not in parents:
+                    parent = self.ancestors.parentStmt(def_.node)
+                    if parent not in self.external:
+                        # we would need an ordered set but
+                        # https://stackoverflow.com/a/45589769
+                        # a dict is ok
+                        self.external[parent] = True
+                        self.rec(parent)
+
+        def rec(self, node):
+            "walk definitions to find their operands's def"
+            if isinstance(node, ast.Assign):
+                self.visit(node.value)
+            # TODO: implement this for AugAssign etc
+
+
+.. code:: python
 
     >>> code = 'a = 1; b = [a, a]; c = len(b)\ndef foo():\n return c'
     >>> module = ast.parse(code)
     >>> function = module.body[3]
     >>> capturex = CaptureX(module, function)
     >>> capturex.visit(function)
-    >>> # the two top level assignments have been captured!
+    >>> # the three top level assignments have been captured!
     >>> list(map(type, capturex.external))
     [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]

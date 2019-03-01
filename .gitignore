@@ -1,0 +1,10 @@
+*.pyc
+build
+dist
+
+.eggs/*
+beniget.egg-info/*
+
+docs/_build/*
+
+**/.vscode/*
