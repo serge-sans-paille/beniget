@@ -191,3 +191,8 @@ class TestChains(TestCase):
         code = 'import numpy as bar\ndef foo():\n return bar.zeros(2)'
         self.checkChains(code, ['bar -> (bar -> (Attribute -> (Call -> ())))',
                                 'foo -> ()'])
+
+    def test_class_decorator(self):
+        code = 'from some import decorator\n@decorator\nclass C:pass'
+        self.checkChains(code, ['decorator -> (decorator -> (C -> ()))',
+                                'C -> ()'])

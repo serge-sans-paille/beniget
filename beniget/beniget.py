@@ -340,6 +340,10 @@ class DefUseChains(ast.NodeVisitor):
         self._definitions[-1][node.name] = [dnode]
         for base in node.bases:
             self.visit(base).add_user(dnode)
+        for keyword in node.keywords:
+            self.visit(keyword.value).add_user(dnode)
+        for decorator in node.decorator_list:
+            self.visit(decorator).add_user(dnode)
 
         with self.DefinitionContext(node):
             self._definitions[-1]['__class__'] = [Def('__class__')]
