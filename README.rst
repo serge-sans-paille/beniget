@@ -217,3 +217,9 @@ let's use the UseDef chains combined with the ancestors.
     >>> # the three top level assignments have been captured!
     >>> list(map(type, capturex.external))
     [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
+
+Acknowledgments
+---------------
+
+Beniget is in Pierre Augier's debt, for he triggered the birth of beniget and provided
+countless meaningful bug reports and advices. Trugarez!
