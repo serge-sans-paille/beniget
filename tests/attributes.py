@@ -3,8 +3,8 @@ from textwrap import dedent
 import gast as ast
 import beniget
 
-class Attributes(ast.NodeVisitor):
 
+class Attributes(ast.NodeVisitor):
     def __init__(self, module_node):
         self.chains = beniget.DefUseChains()
         self.chains.visit(module_node)
@@ -22,8 +22,8 @@ class Attributes(ast.NodeVisitor):
         if node.value in self.users:
             self.attributes.add(node.attr)
 
-class TestAttributes(TestCase):
 
+class TestAttributes(TestCase):
     def checkAttribute(self, code, extract, ref):
         module = ast.parse(dedent(code))
         c = Attributes(module)
@@ -31,70 +31,69 @@ class TestAttributes(TestCase):
         self.assertEqual(c.attributes, ref)
 
     def test_simple_attribute(self):
-        code = '''
+        code = """
             class F:
                 def bar(self):
-                    return self.bar'''
-        self.checkAttribute(code, lambda n: n.body[0], {'bar'})
-
+                    return self.bar"""
+        self.checkAttribute(code, lambda n: n.body[0], {"bar"})
 
     def test_no_attribute(self):
-        code = '''
+        code = """
             class F(object):
                 def bar(self):
-                    return 1'''
+                    return 1"""
         self.checkAttribute(code, lambda n: n.body[0], set())
 
     def test_non_standard_self(self):
-        code = '''
+        code = """
             class F:
                 def bar(fels):
-                    return fels.bar + fels.foo'''
-        self.checkAttribute(code, lambda n: n.body[0], {'bar', 'foo'})
+                    return fels.bar + fels.foo"""
+        self.checkAttribute(code, lambda n: n.body[0], {"bar", "foo"})
 
     def test_self_redefinition(self):
-        code = '''
+        code = """
             class F:
                 def bar(self, other):
                     self.foo = 1
                     self = other
-                    return self.bar'''
-        self.checkAttribute(code, lambda n: n.body[0], {'foo'})
+                    return self.bar"""
+        self.checkAttribute(code, lambda n: n.body[0], {"foo"})
 
     def test_self_redefinition_in_args(self):
-        code = '''
+        code = """
             class F:
                 def bar(self, self):
-                    self.foo = 1'''
+                    self.foo = 1"""
         self.checkAttribute(code, lambda n: n.body[0], set())
 
     def test_self_redefinition_in_branch_true(self):
-        code = '''
+        code = """
             class F:
                 def bar(self, other):
                     if other:
                         self = other
-                    self.foo = 1'''
-        self.checkAttribute(code, lambda n: n.body[0], {'foo'})
+                    self.foo = 1"""
+        self.checkAttribute(code, lambda n: n.body[0], {"foo"})
 
     def test_self_redefinition_in_branch_false(self):
-        code = '''
+        code = """
             class F:
                 def bar(self, other):
                     if not other:
                         pass
                     else:
                         self = other
-                    self.foo = 1'''
-        self.checkAttribute(code, lambda n: n.body[0], {'foo'})
+                    self.foo = 1"""
+        self.checkAttribute(code, lambda n: n.body[0], {"foo"})
 
     def test_self_redefinition_in_both_branch(self):
-        code = '''
+        code = """
             class F:
                 def bar(self, other):
                     if other:
                         self = other
                     else:
                         self = list
-                    return self.pop'''
+                    return self.pop"""
         self.checkAttribute(code, lambda n: n.body[0], set())
