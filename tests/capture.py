@@ -2,10 +2,9 @@ from unittest import TestCase
 from textwrap import dedent
 import gast as ast
 import beniget
-import sys
+
 
 class Capture(ast.NodeVisitor):
-
     def __init__(self, module_node):
         self.chains = beniget.DefUseChains()
         self.chains.visit(module_node)
@@ -23,8 +22,8 @@ class Capture(ast.NodeVisitor):
                 # FIXME: IRL, should be the definition of this use
                 self.captured.add(node.id)
 
-class TestCapture(TestCase):
 
+class TestCapture(TestCase):
     def checkCapture(self, code, extract, ref):
         module = ast.parse(dedent(code))
         c = Capture(module)
@@ -32,17 +31,15 @@ class TestCapture(TestCase):
         self.assertEqual(c.captured, ref)
 
     def test_simple_capture(self):
-        code = '''
+        code = """
             def foo(x):
                 def bar():
-                    return x'''
-        self.checkCapture(code, lambda n: n.body[0].body[0], {'x'})
-
+                    return x"""
+        self.checkCapture(code, lambda n: n.body[0].body[0], {"x"})
 
     def test_no_capture(self):
-        code = '''
+        code = """
             def foo(x):
                 def bar(x):
-                    return x'''
+                    return x"""
         self.checkCapture(code, lambda n: n.body[0].body[0], set())
-

@@ -5,7 +5,7 @@ Beniget is a collection of Compile-time analyse on Python Abstract Syntax Tree(A
 It's a building block to write static analyzer or compiler for Python.
 
 Beniget relies on `gast <https://pypi.org/project/gast/>`_ to provide a cross
-version abstraction of the AST, effictively working on both Python2 and
+version abstraction of the AST, effectively working on both Python2 and
 Python3.
 
 
@@ -46,7 +46,7 @@ into ``globals()``.
 Find all functions marked with a given decorator
 ************************************************
 
-Let's assume we've got a ``@nice`` decorator applied to some functions. We can tranverse the users
+Let's assume we've got a ``@nice`` decorator applied to some functions. We can traverse the users
 of this decorator to find which functions are decorated.
 
 .. code:: python
@@ -73,7 +73,7 @@ of this decorator to find which functions are decorated.
     # walkthrough its users
     >>> for use in nice.users():
     ...   # we're interested in the parent of the decorator
-    ...   parents = ancestors.parents[use.node]
+    ...   parents = ancestors.parents(use.node)
     ...   # direct parent of the decorator is the function
     ...   fdef = parents[-1]
     ...   print(fdef.name)
@@ -127,7 +127,7 @@ a analysis using def-use chains though ;-)
 Compute the identifiers captured by a function
 **********************************************
 
-In Python, inner functions (and lambdas) can capture identifiers definined in the outer scope.
+In Python, inner functions (and lambdas) can capture identifiers defined in the outer scope.
 This analysis computes such identifiers by registering each identifier defined in the function,
 then walking through all loaded identifier and checking whether it's local or not.
 
@@ -142,7 +142,7 @@ then walking through all loaded identifier and checking whether it's local or no
     ...         self.chains = beniget.DefUseChains()
     ...         self.chains.visit(module_node)
     ...         self.users = set()  # users of local definitions
-    ...         self.captured = set()  # identifiers that d'ont belong to local users
+    ...         self.captured = set()  # identifiers that don't belong to local users
     ...
     ...     def visit_FunctionDef(self, node):
     ...         # initialize the set of node using a local variable
@@ -163,3 +163,64 @@ then walking through all loaded identifier and checking whether it's local or no
     >>> capture.visit(inner_function)
     >>> list(capture.captured)
     ['x']
+
+Compute the set of instructions required to compute a function
+**************************************************************
+
+This is actually very similar to the computation of the closure, but this time
+let's use the UseDef chains combined with the ancestors.
+
+.. code:: python
+
+    >>> import gast as ast
+    >>> import beniget
+    >>> class CaptureX(ast.NodeVisitor):
+    ...
+    ...     def __init__(self, module_node, fun):
+    ...         self.fun = fun
+    ...         # initialize use-def chains
+    ...         du = beniget.DefUseChains()
+    ...         du.visit(module_node)
+    ...         self.chains = beniget.UseDefChains(du)
+    ...         self.ancestors = beniget.Ancestors()
+    ...         self.ancestors.visit(module_node)
+    ...         self.external = list()
+    ...         self.visited_external = set()
+    ...
+    ...     def visit_Name(self, node):
+    ...         # register load of identifiers not locally defined
+    ...         if isinstance(node.ctx, ast.Load):
+    ...             uses = self.chains.chains[node]
+    ...             for use in uses:
+    ...                 try:
+    ...                     parents = self.ancestors.parents(use.node)
+    ...                 except KeyError:
+    ...                     return # a builtin
+    ...                 if self.fun not in parents:
+    ...                         parent = self.ancestors.parentStmt(use.node)
+    ...                         if parent not in self.visited_external:
+    ...                             self.visited_external.add(parent)
+    ...                             self.external.append(parent)
+    ...                             self.rec(parent)
+    ...
+    ...     def rec(self, node):
+    ...         "walk definitions to find their operands's def"
+    ...         if isinstance(node, ast.Assign):
+    ...             self.visit(node.value)
+    ...         # TODO: implement this for AugAssign etc
+
+
+    >>> code = 'a = 1; b = [a, a]; c = len(b)\ndef foo():\n return c'
+    >>> module = ast.parse(code)
+    >>> function = module.body[3]
+    >>> capturex = CaptureX(module, function)
+    >>> capturex.visit(function)
+    >>> # the three top level assignments have been captured!
+    >>> list(map(type, capturex.external))
+    [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
+
+Acknowledgments
+---------------
+
+Beniget is in Pierre Augier's debt, for he triggered the birth of beniget and provided
+countless meaningful bug reports and advices. Trugarez!

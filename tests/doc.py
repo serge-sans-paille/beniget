@@ -4,8 +4,8 @@ import os
 
 import beniget
 
-class TestDoctest(unittest.TestCase):
 
+class TestDoctest(unittest.TestCase):
     def test_beniget_documentation(self):
         failed, _ = doctest.testmod(beniget.beniget)
         self.assertEqual(failed, 0)
