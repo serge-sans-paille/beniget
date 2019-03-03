@@ -190,17 +190,18 @@ let's use the UseDef chains combined with the ancestors.
     ...     def visit_Name(self, node):
     ...         # register load of identifiers not locally defined
     ...         if isinstance(node.ctx, ast.Load):
-    ...             def_ = self.chains.chains[node]
-    ...             try:
-    ...                 parents = self.ancestors.parents(def_.node)
-    ...             except KeyError:
-    ...                 return # a builtin
-    ...             if self.fun not in parents:
-    ...                     parent = self.ancestors.parentStmt(def_.node)
-    ...                     if parent not in self.visited_external:
-    ...                         self.visited_external.add(parent)
-    ...                         self.external.append(parent)
-    ...                         self.rec(parent)
+    ...             uses = self.chains.chains[node]
+    ...             for use in uses:
+    ...                 try:
+    ...                     parents = self.ancestors.parents(use.node)
+    ...                 except KeyError:
+    ...                     return # a builtin
+    ...                 if self.fun not in parents:
+    ...                         parent = self.ancestors.parentStmt(use.node)
+    ...                         if parent not in self.visited_external:
+    ...                             self.visited_external.add(parent)
+    ...                             self.external.append(parent)
+    ...                             self.rec(parent)
     ...
     ...     def rec(self, node):
     ...         "walk definitions to find their operands's def"

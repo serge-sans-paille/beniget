@@ -807,21 +807,30 @@ class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
-        - chains: Dict[node, Def], a mapping between nodes and the Def that
+        - chains: Dict[node, List[Def]], a mapping between nodes and the Def that
         defines it.
     """
 
     def __init__(self, defuses):
-        self.chains = {
-            use.node: chain
-            for chain in defuses.chains.values()
-            for use in chain.users()
-        }
-        self.chains.update(
-            (use.node, chain)
-            for chain in defuses._builtins.values()
-            for use in chain.users()
-        )
+        self.chains = {}
+        for chain in defuses.chains.values():
+            for use in chain.users():
+                self.chains.setdefault(use.node, []).append(chain)
+
+        for chain in defuses._builtins.values():
+            for use in chain.users():
+                self.chains.setdefault(use.node, []).append(chain)
+
+    def __str__(self):
+        out = []
+        for k, uses in self.chains.items():
+            kname = Def(k).name()
+            kstr = "{} <- {{{}}}".format(
+                kname, ", ".join(sorted(use.name() for use in uses))
+            )
+            out.append((kname, kstr))
+        out.sort()
+        return ", ".join(s for k, s in out)
 
 
 if __name__ == "__main__":

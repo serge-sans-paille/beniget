@@ -4,7 +4,7 @@ import beniget
 import sys
 
 
-class TestChains(TestCase):
+class TestDefUseChains(TestCase):
     def checkChains(self, code, ref):
         class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
@@ -192,3 +192,29 @@ class TestChains(TestCase):
     def test_class_decorator(self):
         code = "from some import decorator\n@decorator\nclass C:pass"
         self.checkChains(code, ["decorator -> (decorator -> (C -> ()))", "C -> ()"])
+
+
+class TestUseDefChains(TestCase):
+    def checkChains(self, code, ref):
+        class StrictDefUseChains(beniget.DefUseChains):
+            def unbound_identifier(self, name, node):
+                raise RuntimeError(
+                    "W: unbound identifier '{}' at {}:{}".format(
+                        name, node.lineno, node.col_offset
+                    )
+                )
+
+        node = ast.parse(code)
+        c = StrictDefUseChains()
+        c.visit(node)
+        cc = beniget.UseDefChains(c)
+
+        self.assertEqual(str(cc), ref)
+
+    def test_simple_expression(self):
+        code = "a = 1; a"
+        self.checkChains(code, "a <- {a}")
+
+    def test_call(self):
+        code = "from foo import bar; bar(1, 2)"
+        self.checkChains(code, "Call <- {Num, Num, bar}, bar <- {bar}")
