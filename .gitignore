@@ -1,0 +1,7 @@
+*.pyc
+
+.eggs
+beniget.egg-info
+
+.pytest_cache
+.vscode
