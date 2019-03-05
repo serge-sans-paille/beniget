@@ -1,4 +1,4 @@
-from unittest import TestCase
+from unittest import TestCase, skipIf
 import gast as ast
 import beniget
 import sys
@@ -192,6 +192,11 @@ class TestDefUseChains(TestCase):
     def test_class_decorator(self):
         code = "from some import decorator\n@decorator\nclass C:pass"
         self.checkChains(code, ["decorator -> (decorator -> (C -> ()))", "C -> ()"])
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_class_annotation(self):
+        code = "type_ = int\ndef foo(bar: type_): pass"
+        self.checkChains(code, ['type_ -> (type_ -> ())', 'foo -> ()'])
 
 
 class TestUseDefChains(TestCase):
