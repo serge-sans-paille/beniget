@@ -709,6 +709,9 @@ class DefUseChains(ast.NodeVisitor):
                 if dnode not in self.locals[self._currenthead[-1]]:
                     self.locals[self._currenthead[-1]].append(dnode)
 
+            if node.annotation is not None:
+                self.visit(node.annotation)
+
         elif isinstance(node.ctx, ast.Load):
             for d in self.defs(node):
                 d.add_user(dnode)
