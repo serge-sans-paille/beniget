@@ -350,3 +350,20 @@ class TestLocals(TestCase):
             self.checkLocals(code, ["i", "j", "k"])
         else:
             self.checkLocals(code, ["i", "j"])
+
+    def test_AugAssignInLoop(self):
+        code = """
+def foo(X, f):
+    for i in range(2):
+        if i == 0: A = f * X[:, i]
+        else: A += f * X[:, i]
+    return A"""
+        self.checkLocals(code, ["A", "A", "X", "f", "i"])
+
+    def test_IfInWhile(self):
+        code = """
+def foo(a):
+    while(a):
+        if a == 1: print(b)
+        else: b = a"""
+        self.checkLocals(code, ["a", "b"])
