@@ -229,7 +229,7 @@ class DefUseChains(ast.NodeVisitor):
             if undef_name in self._definitions[-1]:
                 for newdef in self._definitions[-1][undef_name]:
                     for undef, stars in _undefs:
-                        for user in undef.users:
+                        for user in undef.users():
                             newdef.add_user(user)
             else:
                 for undef, stars in _undefs:
@@ -413,9 +413,12 @@ class DefUseChains(ast.NodeVisitor):
     def visit_While(self, node):
 
         self._definitions.append(defaultdict(list))
+        self._undefs.append(defaultdict(list))
 
         self.visit(node.test)
         self.process_body(node.body)
+
+        self.process_undefs()
 
         # extra round to simulate loop
         self.visit(node.test)
@@ -810,8 +813,8 @@ class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
-        - chains: Dict[node, List[Def]], a mapping between nodes and the Def that
-        defines it.
+        - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
+          that define it.
     """
 
     def __init__(self, defuses):

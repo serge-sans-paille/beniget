@@ -196,7 +196,7 @@ class TestDefUseChains(TestCase):
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_class_annotation(self):
         code = "type_ = int\ndef foo(bar: type_): pass"
-        self.checkChains(code, ['type_ -> (type_ -> ())', 'foo -> ()'])
+        self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
 
 
 class TestUseDefChains(TestCase):
