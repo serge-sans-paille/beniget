@@ -386,20 +386,28 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.iter)
         self.visit(node.target)
 
-        self._definitions.append(defaultdict(list))
-        self._undefs.append(defaultdict(list))
-        self.process_body(node.body)
 
+        # process else clause in the case of an early break
+        self._undefs.append(defaultdict(list))
+        self._definitions.append(defaultdict(list))
+        self.process_body(node.orelse)
+        self._definitions.pop()  # drop defs because they don't dominate body
+        self._undefs.pop()
+
+        self._undefs.append(defaultdict(list))
+        self._definitions.append(defaultdict(list))
+        self.process_body(node.body)
         self.process_undefs()
 
         # extra round to ``emulate'' looping
         self.visit(node.target)
         self.process_body(node.body)
 
+        # reprocess else clause in case of late break
         self._definitions.append(defaultdict(list))
         self.process_body(node.orelse)
-
         orelse_defs = self._definitions.pop()
+
         body_defs = self._definitions.pop()
 
         for d, u in orelse_defs.items():
@@ -414,6 +422,12 @@ class DefUseChains(ast.NodeVisitor):
 
         self._definitions.append(defaultdict(list))
         self._undefs.append(defaultdict(list))
+
+        self.process_body(node.orelse)
+
+        self._definitions.pop()
+
+        self._definitions.append(defaultdict(list))
 
         self.visit(node.test)
         self.process_body(node.body)
