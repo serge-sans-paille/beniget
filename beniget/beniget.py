@@ -447,7 +447,7 @@ class DefUseChains(ast.NodeVisitor):
         self.process_body(node.body)
         body_defs = self._definitions.pop()
 
-        self._definitions.append(defaultdict(list))
+        self._definitions.append(self._definitions[-1].copy())
         self.process_body(node.orelse)
         orelse_defs = self._definitions.pop()
         for d in body_defs:
