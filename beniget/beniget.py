@@ -740,7 +740,7 @@ class DefUseChains(ast.NodeVisitor):
                 self.chains[node] = dnode
         elif isinstance(node.ctx, ast.Del):
             dnode = self.chains.setdefault(node, Def(node))
-            self._definitions[-1][node.id].clear()
+            self._definitions[-1][node.id] = []  # .clear not available in py2
             # should we also remove node.id from locals?
             # for d in self._definitions[-1][node.id]:
             #    try:
