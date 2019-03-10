@@ -124,7 +124,7 @@ class TestDefUseChains(TestCase):
         self.checkChains(code, ["i -> (i -> ())"] * 2)
 
     def test_if_in_loop(self):
-        code = "for _ in [0, 1]:\n  if _: i = 1\nelse: j = i\ni"
+        code = "for _ in [0, 1]:\n if _: i = 1\n else: j = i\ni"
         self.checkChains(code, ["_ -> (_ -> ())", "i -> (i -> (), i -> ())", "j -> ()"])
 
     def test_with_handler(self):

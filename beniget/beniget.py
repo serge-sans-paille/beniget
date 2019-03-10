@@ -700,9 +700,9 @@ class DefUseChains(ast.NodeVisitor):
     visit_Starred = visit_Await
 
     def visit_Name(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
 
         if isinstance(node.ctx, (ast.Param, ast.Store)):
+            dnode = self.chains.setdefault(node, Def(node))
             if node.id in self._promoted_locals[-1]:
                 self._definitions[-1][node.id].append(dnode)
                 if dnode not in self.locals[self.module]:
@@ -716,10 +716,25 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(node.annotation)
 
         elif isinstance(node.ctx, ast.Load):
+            node_in_chains = node in self.chains
+            if node_in_chains:
+                dnode = self.chains[node]
+            else:
+                dnode = Def(node)
             for d in self.defs(node):
                 d.add_user(dnode)
+            if not node_in_chains:
+                self.chains[node] = dnode
         elif isinstance(node.ctx, ast.Del):
+            dnode = self.chains.setdefault(node, Def(node))
             self._definitions[-1][node.id].clear()
+            # should we also remove node.id from locals?
+            #for d in self._definitions[-1][node.id]:
+            #    try:
+            #        self.locals[self._currenthead[-1]].remove(d)
+            #    except ValueError:
+            #        pass
+            #del self._definitions[-1][node.id]
         else:
             raise NotImplementedError()
         return dnode
