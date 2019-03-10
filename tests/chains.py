@@ -103,11 +103,13 @@ class TestDefUseChains(TestCase):
         code = "I = J = 0\nfor i in [1,2]:\n if i < 3: I = i\nelse:\n if 1: J = I\nJ"
         self.checkChains(
             code,
-            ['I -> (I -> ())',
-             'J -> (J -> ())',
-             'i -> (i -> (Compare -> ()), i -> ())',
-             'J -> (J -> ())',
-             'I -> (I -> ())']
+            [
+                "I -> (I -> ())",
+                "J -> (J -> ())",
+                "i -> (i -> (Compare -> ()), i -> ())",
+                "J -> (J -> ())",
+                "I -> (I -> ())",
+            ],
         )
 
     def test_simple_while(self):
@@ -126,14 +128,14 @@ class TestDefUseChains(TestCase):
         code = "I = J = i = 0\nwhile i:\n if i < 3: I = i\nelse:\n if 1: J = I\nJ"
         self.checkChains(
             code,
-            ['I -> (I -> ())',
-             'J -> (J -> ())',
-             'i -> (i -> (), i -> (Compare -> ()), i -> ())',
-             'J -> (J -> ())',
-             'I -> (I -> ())']
-
+            [
+                "I -> (I -> ())",
+                "J -> (J -> ())",
+                "i -> (i -> (), i -> (Compare -> ()), i -> ())",
+                "J -> (J -> ())",
+                "I -> (I -> ())",
+            ],
         )
-
 
     def test_if_true_branch(self):
         code = "if 1: i = 0\ni"

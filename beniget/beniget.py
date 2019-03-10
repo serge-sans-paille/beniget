@@ -386,7 +386,6 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.iter)
         self.visit(node.target)
 
-
         # process else clause in the case of an early break
         self._undefs.append(defaultdict(list))
         self._definitions.append(defaultdict(list))
@@ -743,12 +742,12 @@ class DefUseChains(ast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             self._definitions[-1][node.id].clear()
             # should we also remove node.id from locals?
-            #for d in self._definitions[-1][node.id]:
+            # for d in self._definitions[-1][node.id]:
             #    try:
             #        self.locals[self._currenthead[-1]].remove(d)
             #    except ValueError:
             #        pass
-            #del self._definitions[-1][node.id]
+            # del self._definitions[-1][node.id]
         else:
             raise NotImplementedError()
         return dnode
