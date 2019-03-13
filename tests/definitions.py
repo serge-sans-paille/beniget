@@ -86,7 +86,7 @@ class TestGlobals(TestCase):
 
     def testGlobalAugAssign(self):
         code = "x = 1; x += 2"
-        self.checkGlobals(code, ["x", "x"])
+        self.checkGlobals(code, ["x"])
 
     def testGlobalFor(self):
         code = "for x in (1,2): pass"
@@ -362,7 +362,7 @@ def foo(X, f):
         if i == 0: A = f * X[:, i]
         else: A += f * X[:, i]
     return A"""
-        self.checkLocals(code, ["A", "A", "X", "f", "i"])
+        self.checkLocals(code, ["A", "X", "f", "i"])
 
     def test_IfInWhile(self):
         code = """

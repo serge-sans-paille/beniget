@@ -63,12 +63,38 @@ class TestDefUseChains(TestCase):
         )
 
     def test_augassign(self):
-        code = "a = 1; a += 2"
-        self.checkChains(code, ["a -> (AugAssign -> ())", "a -> ()"])
+        code = "a = 1; a += 2; a"
+        self.checkChains(code, ['a -> (a -> (a -> ()))'])
 
     def test_expanded_augassign(self):
         code = "a = 1; a = a + 2"
         self.checkChains(code, ["a -> (a -> (BinOp -> ()))", "a -> ()"])
+
+    def test_augassign_in_loop(self):
+        code = "a = 1\nfor i in [1]:\n a += 2\na"
+        self.checkChains(code, ['a -> (a -> ((#1), a -> ()), a -> ())',
+                                'i -> ()'])
+
+    def test_assign_in_while_in_conditional(self):
+        code = """
+G = 1
+while 1:
+    if 1:
+        G = 1
+    G"""
+        self.checkChains(code, ['G -> (G -> ())',
+                                'G -> (G -> ())'])
+
+    def test_assign_in_loop_in_conditional(self):
+        code = """
+G = 1
+for _ in [1]:
+    if 1:
+        G = 1
+    G"""
+        self.checkChains(code, ['G -> (G -> ())',
+                                '_ -> ()',
+                                'G -> (G -> ())'])
 
     def test_simple_print(self):
         code = "a = 1; print(a)"
@@ -99,17 +125,31 @@ class TestDefUseChains(TestCase):
             ],
         )
 
+    def test_for_break(self):
+        code = "i = 8\nfor i in [1,2]:\n break\n i = 3\ni"
+        self.checkChains(
+            code,
+            ['i -> (i -> ())',
+             'i -> (i -> ())',
+             'i -> ()'])
+
+    def test_for_pass(self):
+        code = "i = 8\nfor i in []:\n pass\ni"
+        self.checkChains(
+            code,
+            ['i -> (i -> ())',
+             'i -> (i -> ())'])
+
     def test_complex_for_orelse(self):
         code = "I = J = 0\nfor i in [1,2]:\n if i < 3: I = i\nelse:\n if 1: J = I\nJ"
         self.checkChains(
             code,
-            [
-                "I -> (I -> ())",
-                "J -> (J -> ())",
-                "i -> (i -> (Compare -> ()), i -> ())",
-                "J -> (J -> ())",
-                "I -> (I -> ())",
-            ],
+            ['I -> (I -> ())',
+             'J -> (J -> ())',
+             'J -> (J -> ())',
+             'i -> (i -> (Compare -> ()), i -> ())',
+             'I -> (I -> ())']
+            ,
         )
 
     def test_simple_while(self):
@@ -124,6 +164,13 @@ class TestDefUseChains(TestCase):
             ],
         )
 
+    def test_while_break(self):
+        code = "i = 8\nwhile 1:\n break\n i = 3\ni"
+        self.checkChains(
+            code,
+            ['i -> (i -> ())',
+             'i -> ()'])
+
     def test_complex_while_orelse(self):
         code = "I = J = i = 0\nwhile i:\n if i < 3: I = i\nelse:\n if 1: J = I\nJ"
         self.checkChains(
@@ -136,6 +183,13 @@ class TestDefUseChains(TestCase):
                 "I -> (I -> ())",
             ],
         )
+
+    def test_while_nested_break(self):
+        code = "i = 8\nwhile i:\n if i: break\n i = 3\ni"
+        self.checkChains(
+            code,
+            ['i -> (i -> (), i -> (), i -> ())',
+             'i -> (i -> (), i -> (), i -> ())'])
 
     def test_if_true_branch(self):
         code = "if 1: i = 0\ni"
@@ -248,7 +302,7 @@ class TestUseDefChains(TestCase):
 
     def test_simple_expression(self):
         code = "a = 1; a"
-        self.checkChains(code, "a <- {a}")
+        self.checkChains(code, "a <- {a}, a <- {}")
 
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
