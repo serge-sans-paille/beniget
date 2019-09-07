@@ -755,11 +755,9 @@ class DefUseChains(ast.NodeVisitor):
 
     visit_Repr = visit_Await
 
-    def visit_Num(self, node):
+    def visit_Constant(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         return dnode
-
-    visit_Str = visit_Num
 
     def visit_FormattedValue(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -773,10 +771,6 @@ class DefUseChains(ast.NodeVisitor):
         for value in node.values:
             self.visit(value).add_user(dnode)
         return dnode
-
-    visit_Bytes = visit_Num
-    visit_NameConstant = visit_Num
-    visit_Ellipsis = visit_Num
 
     visit_Attribute = visit_Await
 
@@ -899,8 +893,12 @@ class DefUseChains(ast.NodeVisitor):
         for arg in node.args:
             self.visit(arg)
 
+        for arg in node.posonlyargs:
+            self.visit(arg)
+
         if node.vararg:
             self.visit(node.vararg)
+
         for arg in node.kwonlyargs:
             self.visit(arg)
         if node.kwarg:

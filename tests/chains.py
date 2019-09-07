@@ -306,4 +306,4 @@ class TestUseDefChains(TestCase):
 
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
-        self.checkChains(code, "Call <- {Num, Num, bar}, bar <- {bar}")
+        self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
