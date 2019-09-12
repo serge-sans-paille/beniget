@@ -1,6 +1,5 @@
 from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
-from copy import deepcopy
 import sys
 
 import gast as ast
@@ -75,7 +74,8 @@ class Ancestors(ast.NodeVisitor):
         raise ValueError("{} has no parent of type {}".format(node, cls))
 
     def parentFunction(self, node):
-        return self.parentInstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        return self.parentInstance(node, (ast.FunctionDef,
+                                          ast.AsyncFunctionDef))
 
     def parentStmt(self, node):
         return self.parentInstance(node, ast.stmt)
@@ -101,7 +101,9 @@ class Def(object):
         If the node associated to this Def has a name, returns this name.
         Otherwise returns its type
         """
-        if isinstance(self.node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(self.node, (ast.ClassDef,
+                                  ast.FunctionDef,
+                                  ast.AsyncFunctionDef)):
             return self.node.name
         elif isinstance(self.node, ast.Name):
             return self.node.id
@@ -128,7 +130,8 @@ class Def(object):
         else:
             nodes[self] = len(nodes)
             return "{} -> ({})".format(
-                self.node, ", ".join(u._repr(nodes.copy()) for u in self._users)
+                self.node, ", ".join(u._repr(nodes.copy())
+                                     for u in self._users)
             )
 
     def __str__(self):
@@ -140,7 +143,8 @@ class Def(object):
         else:
             nodes[self] = len(nodes)
             return "{} -> ({})".format(
-                self.name(), ", ".join(u._str(nodes.copy()) for u in self._users)
+                self.name(), ", ".join(u._str(nodes.copy())
+                                       for u in self._users)
             )
 
 
@@ -210,7 +214,7 @@ class DefUseChains(ast.NodeVisitor):
         # be defined in another path of the control flow (esp. in loop)
         self._undefs = []
 
-        # stack of current node holding definitions (class, module, function...)
+        # stack of current node holding definitions: class, module, function...
         self._currenthead = []
 
         # dead code levels
@@ -221,7 +225,8 @@ class DefUseChains(ast.NodeVisitor):
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, ast.Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
-            return sorted(d.name() for d in self.locals[node] if d not in builtins)
+            return sorted(d.name()
+                          for d in self.locals[node] if d not in builtins)
         else:
             return sorted(d.name() for d in self.locals[node])
 
@@ -335,7 +340,8 @@ class DefUseChains(ast.NodeVisitor):
 
             # handle function bodies
             for fnode, ctx in self._defered[-1]:
-                visitor = getattr(self, "visit_{}".format(type(fnode).__name__))
+                visitor = getattr(self,
+                                  "visit_{}".format(type(fnode).__name__))
                 defs, self._definitions = self._definitions, ctx
                 visitor(fnode, step=DefinitionStep)
                 self._definitions = defs
@@ -428,7 +434,8 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(target)
 
     def visit_Assign(self, node):
-        dvalue = self.visit(node.value)
+        # link is implicit through ctx
+        self.visit(node.value)
         for target in node.targets:
             self.visit(target)
 
@@ -961,7 +968,9 @@ if __name__ == "__main__":
             else:
                 location = ""
             print(
-                "W: unbound identifier '{}'{}{}".format(name, location, self.filename)
+                "W: unbound identifier '{}'{}{}".format(name,
+                                                        location,
+                                                        self.filename)
             )
 
     class Beniget(ast.NodeVisitor):

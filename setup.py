@@ -15,7 +15,8 @@ setup(
     long_description="""
 A static analyzer for Python2 and Python3 code.
 
-Beniget provides a static over-approximation of the global and local definitions inside Python Module/Class/Function.
+Beniget provides a static over-approximation of the global and
+local definitions inside Python Module/Class/Function.
 It can also compute def-use chains from each definition.""",
     author="serge-sans-paille",
     author_email="serge.guelton@telecom-bretagne.eu",
