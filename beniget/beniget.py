@@ -393,6 +393,9 @@ class DefUseChains(ast.NodeVisitor):
                 definitions.pop()
             self._defered[-1].append((node, definitions))
         elif step is DefinitionStep:
+            # function is not considered as defined when evaluating returns
+            if node.returns:
+                self.visit(node.returns)
             with self.DefinitionContext(node):
                 self.visit(node.args)
                 self.process_body(node.body)
