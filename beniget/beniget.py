@@ -841,7 +841,10 @@ class DefUseChains(ast.NodeVisitor):
         if isinstance(node.ctx, ast.Load):
             dnode = self.chains.setdefault(node, Def(node))
             for elt in node.elts:
-                self.visit(elt).add_user(dnode)
+                try:
+                    self.visit(elt).add_user(dnode)
+                except AttributeError:
+                    pass
             return dnode
         # unfortunately, destructured node are marked as Load,
         # only the parent List/Tuple is marked as Store
