@@ -278,6 +278,11 @@ for _ in [1]:
         self.checkChains(code, ["decorator -> (decorator -> (C -> ()))", "C -> ()"])
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_functiondef_returns(self):
+        code = "x = 1\ndef foo() -> x: pass"
+        self.checkChains(code, ['x -> (x -> ())', 'foo -> ()'])
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_class_annotation(self):
         code = "type_ = int\ndef foo(bar: type_): pass"
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
