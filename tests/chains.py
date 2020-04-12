@@ -62,6 +62,18 @@ class TestDefUseChains(TestCase):
             code, ["m -> (m -> (BinOp -> ()))", "i -> ()", "m -> (m -> (BinOp -> ()))"]
         )
 
+    def test_continue_in_loop(self):
+        code = "for i in [1, 2]:\n if i: m = 1; continue\n m = 1\nm"
+        self.checkChains(
+            code, ['i -> (i -> ())', 'm -> (m -> ())', 'm -> (m -> ())']
+        )
+
+    def test_break_in_loop(self):
+        code = "for i in [1, 2]:\n if i: m = 1; continue\n m = 1\nm"
+        self.checkChains(
+            code, ['i -> (i -> ())', 'm -> (m -> ())', 'm -> (m -> ())']
+        )
+
     def test_augassign(self):
         code = "a = 1; a += 2; a"
         self.checkChains(code, ['a -> (a -> (a -> ()))'])
@@ -146,10 +158,9 @@ for _ in [1]:
             code,
             ['I -> (I -> ())',
              'J -> (J -> ())',
-             'J -> (J -> ())',
              'i -> (i -> (Compare -> ()), i -> ())',
-             'I -> (I -> ())']
-            ,
+             'I -> (I -> ())',
+             'J -> (J -> ())']
         )
 
     def test_simple_while(self):
@@ -171,6 +182,38 @@ for _ in [1]:
             ['i -> (i -> ())',
              'i -> ()'])
 
+    def test_while_cond_break(self):
+        code = "i = 8\nwhile 1:\n if i: i=1;break\ni"
+        self.checkChains(
+            code,
+            ['i -> (i -> (), i -> ())', 'i -> (i -> ())'])
+
+    def test_nested_while(self):
+        code = '''
+done = 1
+while done:
+
+    while done:
+        if 1:
+            done = 1
+            break
+
+        if 1:
+            break'''
+
+
+        self.checkChains(
+            code,
+            ['done -> (done -> (), done -> ())',
+             'done -> (done -> (), done -> ())']
+            )
+
+    def test_while_cond_continue(self):
+        code = "i = 8\nwhile 1:\n if i: i=1;continue\ni"
+        self.checkChains(
+            code,
+            ['i -> (i -> (), i -> ())', 'i -> (i -> (), i -> ())'])
+
     def test_complex_while_orelse(self):
         code = "I = J = i = 0\nwhile i:\n if i < 3: I = i\nelse:\n if 1: J = I\nJ"
         self.checkChains(
@@ -182,6 +225,14 @@ for _ in [1]:
                 "J -> (J -> ())",
                 "I -> (I -> ())",
             ],
+        )
+
+    def test_while_orelse_break(self):
+        code = "I = 0\nwhile I:\n if 1: I = 1; break\nelse: I"
+        self.checkChains(
+            code,
+            ['I -> (I -> (), I -> ())',
+             'I -> ()'],
         )
 
     def test_while_nested_break(self):
