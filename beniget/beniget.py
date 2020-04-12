@@ -217,6 +217,9 @@ class DefUseChains(ast.NodeVisitor):
         # stack of current node holding definitions: class, module, function...
         self._currenthead = []
 
+        self._breaks = []
+        self._continues = []
+
         # dead code levels
         self.deadcode = 0
 
@@ -373,13 +376,18 @@ class DefUseChains(ast.NodeVisitor):
         else:
             self._definitions[-1][name] = ordered_set(dnode_or_dnodes)
 
+    @staticmethod
+    def add_to_definition(definition, name, dnode_or_dnodes):
+        if isinstance(dnode_or_dnodes, Def):
+            definition[name].add(dnode_or_dnodes)
+        else:
+            definition[name].update(dnode_or_dnodes)
+
     def extend_definition(self, name, dnode_or_dnodes):
         if self.deadcode:
             return
-        if isinstance(dnode_or_dnodes, Def):
-            self._definitions[-1][name].add(dnode_or_dnodes)
-        else:
-            self._definitions[-1][name].update(dnode_or_dnodes)
+        DefUseChains.add_to_definition(self._definitions[-1], name,
+                                       dnode_or_dnodes)
 
     def visit_FunctionDef(self, node, step=DeclarationStep):
         if step is DeclarationStep:
@@ -429,6 +437,16 @@ class DefUseChains(ast.NodeVisitor):
         if node.value:
             self.visit(node.value)
 
+    def visit_Break(self, node):
+        for k, v in self._definitions[-1].items():
+            DefUseChains.add_to_definition(self._breaks[-1], k, v)
+        self._definitions[-1].clear()
+
+    def visit_Continue(self, node):
+        for k, v in self._definitions[-1].items():
+            DefUseChains.add_to_definition(self._continues[-1], k, v)
+        self._definitions[-1].clear()
+
     def visit_Delete(self, node):
         for target in node.targets:
             self.visit(target)
@@ -471,12 +489,8 @@ class DefUseChains(ast.NodeVisitor):
     def visit_For(self, node):
         self.visit(node.iter)
 
-        # process else clause in the case of an early break
-        self._undefs.append(defaultdict(list))
-        self._definitions.append(self._definitions[-1].copy())
-        self.process_body(node.orelse)
-        self._definitions.pop()  # drop defs because they don't dominate body
-        self._undefs.pop()
+        self._breaks.append(defaultdict(ordered_set))
+        self._continues.append(defaultdict(ordered_set))
 
         self._undefs.append(defaultdict(list))
         self._definitions.append(self._definitions[-1].copy())
@@ -484,18 +498,32 @@ class DefUseChains(ast.NodeVisitor):
         self.process_body(node.body)
         self.process_undefs()
 
+        continue_defs = self._continues.pop()
+        for d, u in continue_defs.items():
+            self.extend_definition(d, u)
+        self._continues.append(defaultdict(ordered_set))
+
         # extra round to ``emulate'' looping
         self.visit(node.target)
         self.process_body(node.body)
 
-        # reprocess else clause in case of late break
+        # process else clause in case of late break
         self._definitions.append(defaultdict(ordered_set))
         self.process_body(node.orelse)
         orelse_defs = self._definitions.pop()
 
+        break_defs = self._breaks.pop()
+        continue_defs = self._continues.pop()
+
         body_defs = self._definitions.pop()
 
         for d, u in orelse_defs.items():
+            self.extend_definition(d, u)
+
+        for d, u in continue_defs.items():
+            self.extend_definition(d, u)
+
+        for d, u in break_defs.items():
             self.extend_definition(d, u)
 
         for d, u in body_defs.items():
@@ -507,6 +535,8 @@ class DefUseChains(ast.NodeVisitor):
 
         self._definitions.append(self._definitions[-1].copy())
         self._undefs.append(defaultdict(list))
+        self._breaks.append(defaultdict(ordered_set))
+        self._continues.append(defaultdict(ordered_set))
 
         self.process_body(node.orelse)
 
@@ -518,6 +548,11 @@ class DefUseChains(ast.NodeVisitor):
         self.process_body(node.body)
 
         self.process_undefs()
+
+        continue_defs = self._continues.pop()
+        for d, u in continue_defs.items():
+            self.extend_definition(d, u)
+        self._continues.append(defaultdict(ordered_set))
 
         # extra round to simulate loop
         self.visit(node.test)
@@ -531,6 +566,14 @@ class DefUseChains(ast.NodeVisitor):
 
         orelse_defs = self._definitions.pop()
         body_defs = self._definitions.pop()
+        break_defs = self._breaks.pop()
+        continue_defs = self._continues.pop()
+
+        for d, u in continue_defs.items():
+            self.extend_definition(d, u)
+
+        for d, u in break_defs.items():
+            self.extend_definition(d, u)
 
         for d, u in orelse_defs.items():
             self.extend_definition(d, u)
