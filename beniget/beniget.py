@@ -257,7 +257,9 @@ class DefUseChains(ast.NodeVisitor):
         stars = []
         for d in reversed(self._definitions):
             if name in d:
-                return d[name] if not stars else stars + d[name]
+                # have to make sure stars and d[name] are lists otherwise
+                # they can't be concatenated
+                return d[name] if not stars else list(stars) + list(d[name])
             if "*" in d:
                 stars.extend(d["*"])
 
