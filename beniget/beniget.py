@@ -193,9 +193,13 @@ class DefUseChains(ast.NodeVisitor):
     c -> (c -> (Call -> ()))
     """
 
-    def __init__(self):
+    def __init__(self, filename=None):
+        """
+            - filename: str, included in error messages if specified
+        """
         self.chains = {}
         self.locals = defaultdict(list)
+        self.filename = "{}:".format(filename) if filename else ""
 
         # deep copy of builtins, to remain reentrant
         self._builtins = {k: Def(v) for k, v in Builtins.items()}
@@ -241,7 +245,9 @@ class DefUseChains(ast.NodeVisitor):
 
     def unbound_identifier(self, name, node):
         if hasattr(node, "lineno"):
-            location = " at {}:{}".format(node.lineno, node.col_offset)
+            location = " at {}{}:{}".format(self.filename,
+                                            node.lineno,
+                                            node.col_offset)
         else:
             location = ""
         print("W: unbound identifier '{}'{}".format(name, location))
@@ -1000,22 +1006,6 @@ class UseDefChains(object):
 if __name__ == "__main__":
     import sys
 
-    class DefUseChainsX(DefUseChains):
-        def __init__(self, filename):
-            super(DefUseChainsX, self).__init__()
-            self.filename = filename
-
-        def unbound_identifier(self, name, node):
-            if hasattr(node, "lineno"):
-                location = " at {}:{}:".format(node.lineno, node.col_offset)
-            else:
-                location = ""
-            print(
-                "W: unbound identifier '{}'{}{}".format(name,
-                                                        location,
-                                                        self.filename)
-            )
-
     class Beniget(ast.NodeVisitor):
         def __init__(self, filename, module):
             super(Beniget, self).__init__()
@@ -1025,7 +1015,7 @@ if __name__ == "__main__":
             self.ancestors = Ancestors()
             self.ancestors.visit(module)
 
-            self.defuses = DefUseChainsX(self.filename)
+            self.defuses = DefUseChains(self.filename)
             self.defuses.visit(module)
 
             self.visit(module)
