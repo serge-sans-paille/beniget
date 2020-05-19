@@ -266,7 +266,7 @@ class DefUseChains(ast.NodeVisitor):
         stars = []
         for d in reversed(self._definitions):
             if name in d:
-                return d[name] if not stars else stars + d[name]
+                return d[name] if not stars else stars + list(d[name])
             if "*" in d:
                 stars.extend(d["*"])
 
@@ -860,7 +860,7 @@ class DefUseChains(ast.NodeVisitor):
             if node.annotation is not None:
                 self.visit(node.annotation)
 
-        elif isinstance(node.ctx, ast.Load):
+        elif isinstance(node.ctx, (ast.Load, ast.Del)):
             node_in_chains = node in self.chains
             if node_in_chains:
                 dnode = self.chains[node]
@@ -870,17 +870,7 @@ class DefUseChains(ast.NodeVisitor):
                 d.add_user(dnode)
             if not node_in_chains:
                 self.chains[node] = dnode
-
-        elif isinstance(node.ctx, ast.Del):
-            dnode = self.chains.setdefault(node, Def(node))
-            self.set_definition(node.id, [])
-            # should we also remove node.id from locals?
-            # for d in self._definitions[-1][node.id]:
-            #    try:
-            #        self.locals[self._currenthead[-1]].remove(d)
-            #    except ValueError:
-            #        pass
-            # del self._definitions[-1][node.id]
+            # currently ignore the effect of a del
         else:
             raise NotImplementedError()
         return dnode
