@@ -50,6 +50,10 @@ class TestGlobals(TestCase):
         code = "class C:pass\ndel C"
         self.checkGlobals(code, ["C"])
 
+    def testDelClassDefReDef(self):
+        code = "class C:pass\ndel C\nclass C:pass"
+        self.checkGlobals(code, ["C", "C"])
+
     def testNestedClassDef(self):
         code = "class C:\n class D: pass"
         self.checkGlobals(code, ["C"])
