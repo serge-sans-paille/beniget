@@ -1,7 +1,23 @@
+from contextlib import contextmanager
 from unittest import TestCase, skipIf
 import gast as ast
 import beniget
+import io
 import sys
+
+
+@contextmanager
+def captured_output():
+    if sys.version_info.major >= 3:
+        new_out, new_err = io.StringIO(), io.StringIO()
+    else:
+        new_out, new_err = io.BytesIO(), io.BytesIO()
+    old_out, old_err = sys.stdout, sys.stderr
+    try:
+        sys.stdout, sys.stderr = new_out, new_err
+        yield sys.stdout, sys.stderr
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
 
 
 class TestDefUseChains(TestCase):
@@ -337,6 +353,22 @@ while done:
     def test_class_annotation(self):
         code = "type_ = int\ndef foo(bar: type_): pass"
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
+
+    def check_unbound_identifier_message(self, code, expected_messages, filename=None):
+        node = ast.parse(code)
+        c = beniget.DefUseChains(filename)
+        with captured_output() as (out, err):
+            c.visit(node)
+        produced_messages = out.getvalue().strip().split("\n")
+
+        self.assertEqual(len(expected_messages), len(produced_messages))
+        for expected, produced in zip(expected_messages, produced_messages):
+            self.assertIn(expected, produced, "actual message contains expected message")
+
+    def test_unbound_identifier_message_format(self):
+        code = "foo(1)\nbar(2)"
+        self.check_unbound_identifier_message(code, ["<unknown>:1", "<unknown>:2"])
+        self.check_unbound_identifier_message(code, ["foo.py:1", "foo.py:2"], filename="foo.py")
 
 
 class TestUseDefChains(TestCase):
