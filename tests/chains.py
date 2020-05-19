@@ -370,6 +370,20 @@ while done:
         self.check_unbound_identifier_message(code, ["<unknown>:1", "<unknown>:2"])
         self.check_unbound_identifier_message(code, ["foo.py:1", "foo.py:2"], filename="foo.py")
 
+    def test_star_import_with_conditional_redef(self):
+        code = '''
+from math import *
+
+if 1:
+    def pop():
+        cos()
+cos = pop()'''
+        self.checkChains(code, [
+            '* -> (cos -> (Call -> ()))',
+            'pop -> (pop -> (Call -> ()))',
+            'cos -> (cos -> (Call -> ()))'
+        ])
+
 
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
