@@ -199,7 +199,7 @@ class DefUseChains(ast.NodeVisitor):
         """
         self.chains = {}
         self.locals = defaultdict(list)
-        self.filename = "{}:".format(filename) if filename else ""
+        self.filename = filename
 
         # deep copy of builtins, to remain reentrant
         self._builtins = {k: Def(v) for k, v in Builtins.items()}
@@ -245,7 +245,10 @@ class DefUseChains(ast.NodeVisitor):
 
     def unbound_identifier(self, name, node):
         if hasattr(node, "lineno"):
-            location = " at {}{}:{}".format(self.filename,
+            filename = "{}:".format(
+                "<unknown>" if self.filename is None else self.filename
+            )
+            location = " at {}{}:{}".format(filename,
                                             node.lineno,
                                             node.col_offset)
         else:
