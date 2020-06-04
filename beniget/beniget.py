@@ -297,7 +297,7 @@ class DefUseChains(ast.NodeVisitor):
         for undef_name, _undefs in self._undefs[-1].items():
             if undef_name in self._definitions[-1]:
                 for newdef in self._definitions[-1][undef_name]:
-                    for undef, stars in _undefs:
+                    for undef, _ in _undefs:
                         for user in undef.users():
                             newdef.add_user(user)
             else:
@@ -446,12 +446,12 @@ class DefUseChains(ast.NodeVisitor):
         if node.value:
             self.visit(node.value)
 
-    def visit_Break(self, node):
+    def visit_Break(self, _):
         for k, v in self._definitions[-1].items():
             DefUseChains.add_to_definition(self._breaks[-1], k, v)
         self._definitions[-1].clear()
 
-    def visit_Continue(self, node):
+    def visit_Continue(self, _):
         for k, v in self._definitions[-1].items():
             DefUseChains.add_to_definition(self._continues[-1], k, v)
         self._definitions[-1].clear()
