@@ -1048,7 +1048,8 @@ if __name__ == "__main__":
             if self.filename.endswith("__init__.py"):
                 return
             self.check_unused(
-                node, skipped_types=(ast.FunctionDef, ast.ClassDef, ast.Name)
+                node, skipped_types=(ast.FunctionDef, ast.AsyncFunctionDef,
+                                     ast.ClassDef, ast.Name)
             )
 
         def visit_FunctionDef(self, node):
