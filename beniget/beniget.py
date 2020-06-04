@@ -485,7 +485,12 @@ class DefUseChains(ast.NodeVisitor):
             if node.target.id in self._promoted_locals[-1]:
                 self.extend_definition(node.target.id, dtarget)
             else:
+                loaded_from = [d.name() for d in self.defs(node.target)]
                 self.set_definition(node.target.id, dtarget)
+                # If we augassign from a value that comes from '*', let's use
+                # this node as the definition point.
+                if '*' in loaded_from:
+                    self.locals[self._currenthead[-1]].append(dtarget)
         else:
             self.visit(node.target).add_user(dvalue)
 

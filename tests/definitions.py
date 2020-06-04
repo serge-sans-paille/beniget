@@ -222,6 +222,10 @@ class TestGlobals(TestCase):
         code = "from foo import *"
         self.checkGlobals(code, ["*"])
 
+    def testGlobalImportFromStarRedefine(self):
+        code = "from foo import *\nx+=1"
+        self.checkGlobals(code, ["*", "x"])
+
     def testGlobalImportsFrom(self):
         code = "from foo import bar, man"
         self.checkGlobals(code, ["bar", "man"])
