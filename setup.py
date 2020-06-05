@@ -9,7 +9,7 @@ except ImportError:
 
 setup(
     name="beniget",  # gast, beniget!
-    version="0.2.1",
+    version="0.2.2",
     packages=["beniget"],
     description="Extract semantic information about static Python code",
     long_description="""
