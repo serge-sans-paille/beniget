@@ -919,14 +919,6 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(node.step).add_user(dnode)
         return dnode
 
-    def visit_ExtSlice(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
-        for dim in node.dims:
-            self.visit(dim).add_user(dnode)
-        return dnode
-
-    visit_Index = visit_Await
-
     # misc
 
     def visit_comprehension(self, node):
