@@ -384,6 +384,7 @@ cos = pop()'''
             'cos -> (cos -> (Call -> ()))'
         ])
 
+    @skipIf(sys.version_info < (3, 8), "Python 3.8 syntax")
     def test_named_expr(self):
         code = '''
 if (x := (y := 1) + 1):
