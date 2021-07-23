@@ -384,6 +384,16 @@ cos = pop()'''
             'cos -> (cos -> (Call -> ()))'
         ])
 
+    def test_named_expr(self):
+        code = '''
+if (x := (y := 1) + 1):
+    z = x + y'''
+        self.checkChains(code, [
+            'x -> (x -> (BinOp -> ()))',
+            'y -> (y -> (BinOp -> ()))',
+            'z -> ()'
+        ])
+
 
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):

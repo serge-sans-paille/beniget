@@ -849,6 +849,12 @@ class DefUseChains(ast.NodeVisitor):
 
     visit_Starred = visit_Await
 
+    def visit_NamedExpr(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        self.visit(node.target)
+        self.visit(node.value).add_user(dnode)
+        return dnode
+
     def visit_Name(self, node):
 
         if isinstance(node.ctx, (ast.Param, ast.Store)):
