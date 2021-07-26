@@ -384,16 +384,33 @@ cos = pop()'''
             'cos -> (cos -> (Call -> ()))'
         ])
 
-    @skipIf(sys.version_info < (3, 8), "Python 3.8 syntax")
-    def test_named_expr(self):
+    @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
+    def test_named_expr_simple(self):
+        code = '''
+if (x := 1):
+    y = x + 1'''
+        self.checkChains(
+            code, ['x -> (x -> (BinOp -> ()))', 'y -> ()']
+        )
+
+    @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
+    def test_named_expr_complex(self):
         code = '''
 if (x := (y := 1) + 1):
     z = x + y'''
-        self.checkChains(code, [
-            'x -> (x -> (BinOp -> ()))',
-            'y -> (y -> (BinOp -> ()))',
-            'z -> ()'
-        ])
+        self.checkChains(
+            code, ['y -> (y -> (BinOp -> ()))', 'x -> (x -> (BinOp -> ()))', 'z -> ()']
+        )
+
+    @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
+    def test_named_expr_with_rename(self):
+        code = '''
+a = 1
+if (a := a + a):
+    pass'''
+        self.checkChains(
+            code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
+        )
 
 
 class TestUseDefChains(TestCase):
