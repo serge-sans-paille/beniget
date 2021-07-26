@@ -851,8 +851,8 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_NamedExpr(self, node):
         dnode = self.chains.setdefault(node, Def(node))
-        self.visit(node.target)
         self.visit(node.value).add_user(dnode)
+        self.visit(node.target)
         return dnode
 
     def visit_Name(self, node):
