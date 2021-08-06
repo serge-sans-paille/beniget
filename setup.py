@@ -7,9 +7,14 @@ except ImportError:
 
     kw = {}
 
+import os
+
+versionfile = os.path.join('beniget', 'version.py')
+exec(open(versionfile).read())
+
 setup(
     name="beniget",  # gast, beniget!
-    version="0.4.1",
+    version=__version__,
     packages=["beniget"],
     description="Extract semantic information about static Python code",
     long_description="""
