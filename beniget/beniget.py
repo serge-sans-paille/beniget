@@ -89,8 +89,8 @@ class Def(object):
     __slots__ = "node", "_users"
 
     def __init__(self, node):
-        self.node = node
-        self._users = ordered_set()
+        self.node = node # type:ast.AST
+        self._users = ordered_set() # type:set[Def]
 
     def add_user(self, node):
         assert isinstance(node, Def)
@@ -117,7 +117,7 @@ class Def(object):
 
     def users(self):
         """
-        The list of ast entity that holds a reference to this node
+        The list of `Def` instances that holds a reference to this node
         """
         return self._users
 
@@ -195,11 +195,21 @@ class DefUseChains(ast.NodeVisitor):
 
     def __init__(self, filename=None):
         """
-            - filename: str, included in error messages if specified
+        :param filename: included in error messages if specified
+        :type filename: str
         """
-        self.chains = {}
-        self.locals = defaultdict(list)
-        self.filename = filename
+        
+        self.chains = {} #type:dict[ast.AST, Def]
+        """
+        Mapping from AST nodes to their respective Def instance.
+        """
+        
+        self.locals = defaultdict(list) #type:dict[ast.AST, list[Def]]
+        """
+        Mapping from AST nodes to their local name definitions list.
+        """
+        
+        self.filename = filename #type:str|None
 
         # deep copy of builtins, to remain reentrant
         self._builtins = {k: Def(v) for k, v in Builtins.items()}
@@ -230,6 +240,11 @@ class DefUseChains(ast.NodeVisitor):
     # helpers
 
     def dump_definitions(self, node, ignore_builtins=True):
+        """
+        Sorted list of names defined in the locals of the given AST node.
+        
+        :rtype: list[str]
+        """
         if isinstance(node, ast.Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
             return sorted(d.name()
@@ -244,6 +259,10 @@ class DefUseChains(ast.NodeVisitor):
         return chains
 
     def unbound_identifier(self, name, node):
+        """
+        Called for each unbound identifiers. 
+        Override this method to stop printing unbound warnings.
+        """
         if hasattr(node, "lineno"):
             filename = "{}:".format(
                 "<unknown>" if self.filename is None else self.filename
