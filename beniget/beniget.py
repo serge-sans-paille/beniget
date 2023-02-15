@@ -4,7 +4,32 @@ import sys
 
 import gast as ast #type:ignore[import]
 
-if sys.version_info >= (3,6):
+class _ordered_set(object):
+    def __init__(self, elements=None):#type:ignore
+        self.values = OrderedDict.fromkeys(elements or [])
+
+    def add(self, value):#type:ignore
+        self.values[value] = None
+
+    def update(self, values):#type:ignore
+        self.values.update((k, None) for k in values)
+
+    def __iter__(self):#type:ignore
+        return iter(self.values.keys())
+
+    def __contains__(self, value):#type:ignore
+        return value in self.values
+
+    def __add__(self, other):#type:ignore
+        out = self.values.copy()
+        out.update(other.values)
+        return out
+
+    def __len__(self):#type:ignore
+        return len(self.values)
+
+if sys.version_info.major == 3 and sys.version_info.minor >= 6:
+    
     import itertools
     from typing import Any, Iterator, Iterable, Dict, Union, Tuple, Optional, List, Mapping, TypeVar, MutableSet, Type
 
@@ -58,29 +83,8 @@ if sys.version_info >= (3,6):
             return f"<ordered_set {self}>"
 
 else:
-    class ordered_set(object):
-        def __init__(self, elements=None):
-            self.values = OrderedDict.fromkeys(elements or [])
+    ordered_set = _ordered_set #type:ignore
 
-        def add(self, value):
-            self.values[value] = None
-
-        def update(self, values):
-            self.values.update((k, None) for k in values)
-
-        def __iter__(self):
-            return iter(self.values.keys())
-
-        def __contains__(self, value):
-            return value in self.values
-
-        def __add__(self, other):
-            out = self.values.copy()
-            out.update(other.values)
-            return out
-
-        def __len__(self):
-            return len(self.values)
 
 
 class Ancestors(ast.NodeVisitor):
