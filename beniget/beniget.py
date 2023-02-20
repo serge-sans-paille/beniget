@@ -91,11 +91,18 @@ class Def(object):
     Model a definition, either named or unnamed, and its users.
     """
 
-    __slots__ = "node", "_users"
+    __slots__ = "node", "_users", "islive"
 
     def __init__(self, node):
         self.node = node
         self._users = ordered_set()
+        self.islive = True
+        """
+        Whether this definition might reach the final block of it's scope.
+        Meaning if islive is `False`, the definition will always be overriden 
+        at the time we finished executing the module/class/function body.
+        So the definition could be ignored in the context of an attribute access for instance.
+        """
 
     def add_user(self, node):
         assert isinstance(node, Def)
@@ -281,6 +288,19 @@ class DefUseChains(ast.NodeVisitor):
     #
     ## helpers
     #
+    def _dump_locals(self, node, only_live=False):
+        """
+        Like `dump_definitions` but returns the result grouped by symbol name and it includes linenos.
+
+        :Returns: List of string formatted like: '{symbol name}:{def lines}'
+        """
+        groupped = defaultdict(list)
+        for d in self.locals[node]:
+            if not only_live or d.islive:
+                groupped[d.name()].append(d)
+        return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', -1)) for d in defs])) \
+            for name,defs in groupped.items()]
+
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, ast.Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
@@ -433,9 +453,14 @@ class DefUseChains(ast.NodeVisitor):
         yield
         self._precomputed_locals.pop()
         self._globals.pop()
-        self._definitions.pop()
+        current_defs = self._definitions.pop()
         self._scope_depths.pop()
         self._scopes.pop()
+
+        # set the islive flag to False on killed Defs
+        for local in self.locals[node]:
+            if local not in current_defs[local.name()]:
+                local.islive = False
 
     if sys.version_info.major >= 3:
         CompScopeContext = ScopeContext
@@ -444,6 +469,7 @@ class DefUseChains(ast.NodeVisitor):
         def CompScopeContext(self, node):
             yield
 
+
     @contextmanager
     def DefinitionContext(self, definitions):
         self._definitions.append(definitions)
@@ -451,6 +477,7 @@ class DefUseChains(ast.NodeVisitor):
         yield self._definitions[-1]
         self._scope_depths[-1] += 1
         self._definitions.pop()
+
 
     @contextmanager
     def SwitchScopeContext(self, defs, scopes, scope_depths, precomputed_locals):

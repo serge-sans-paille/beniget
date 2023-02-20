@@ -1,3 +1,4 @@
+from textwrap import dedent
 from unittest import TestCase
 import gast as ast
 import beniget
@@ -289,7 +290,7 @@ class TestClasses(TestCase):
 
 class TestLocals(TestCase):
     def checkLocals(self, code, ref):
-        node = ast.parse(code)
+        node = ast.parse(dedent(code))
         c = StrictDefUseChains()
         c.visit(node)
         functions = [n for n in node.body if isinstance(n, ast.FunctionDef)]
@@ -340,6 +341,17 @@ class TestLocals(TestCase):
     def test_LocalAssignRedef(self):
         code = "def foo(a): a = 1"
         self.checkLocals(code, ["a", "a"])
+    
+    def test_LocalAssignRedefIfElseOverride(self):
+        code = """
+            def foo(): 
+                if NotImplemented:
+                    x = 2
+                else:
+                    x = 3
+                x = 0
+        """
+        self.checkLocals(code, ["x", "x", "x"])
 
     def test_LocalNestedFun(self):
         code = "def foo(a):\n def bar(): return a\n return bar"
@@ -384,3 +396,76 @@ def foo(a):
         if a == 1: print(b)
         else: b = a"""
         self.checkLocals(code, ["a", "b"])
+
+class TestDefIsLive(TestCase):
+    
+    def checkLiveLocals(self, code, livelocals, locals):
+        node = ast.parse(dedent(code))
+        c = StrictDefUseChains()
+        c.visit(node)
+
+        def checkDefs(dumped, ref):
+            for r in ref:
+                var = r.split(':')[0]
+                starts = [d for d in dumped if d.startswith(var+':')]
+                # there are tons of builtins always accessible,
+                # so we don't do exact matches
+                if starts:
+                    self.assertIn(r, dumped, "wrong lineno(s): {}".format(starts))
+                else:
+                    raise AssertionError('{} not found in {}'.format(var, node))
+
+        checkDefs(c._dump_locals(node, only_live=True), livelocals)
+        checkDefs(c._dump_locals(node), locals)
+    
+    def test_LocalAssignRedefIfElseOverride(self):
+        code = """
+            if NotImplemented:
+                x = 2
+            else:
+                x = 3
+            x = 0
+        """
+        self.checkLiveLocals(code, ["x:6"], ["x:3,5,6"])
+    
+    def test_LocalAssignmentRedefInEachBranch(self):
+        code = """
+        x = 10
+        if NotImplemented:
+            x = 100
+        else:
+            x = 1000
+        """
+        self.checkLiveLocals(code, ["x:4,6"], ["x:2,4,6"])
+
+    def test_AssignmentInsideBothBranchesOfTryExcept(self):
+        code = """
+            try:
+                1 / 0
+            except ZeroDivisionError:
+                x = 10
+            except RuntimeError:
+                x = -1
+        """
+        self.checkLiveLocals(code, ["x:5,7"], ["x:5,7"])
+
+    def test_AssignmentOverrideFinallyBlock(self):
+        code = """
+            try:
+                1 / 0
+            except ZeroDivisionError:
+                x = 10
+            except RuntimeError:
+                x = -1
+            finally:
+                x = None
+        """
+        self.checkLiveLocals(code, ["x:9"], ["x:5,7,9"])
+    
+    def test_AssignmentSimple(self):
+        code = """
+            a = 1
+            a = a + 1
+            a = a + 1
+            """
+        self.checkLiveLocals(code, ["a:4"], ["a:2,3,4"])
