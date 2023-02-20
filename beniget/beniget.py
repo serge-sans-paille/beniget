@@ -86,11 +86,18 @@ class Def(object):
     Model a definition, either named or unnamed, and its users.
     """
 
-    __slots__ = "node", "_users"
+    __slots__ = "node", "_users", "reaches"
 
     def __init__(self, node):
         self.node = node
         self._users = ordered_set()
+        self.reaches = True
+        """
+        Whether this definition might reach the final block of it's scope.
+        Meaning if reaches is `False`, the definition will always be overriden 
+        at the time we finished executing the module/class/function body.
+        So the definition could be ignored in the context of an attribute access for instance.
+        """
 
     def add_user(self, node):
         assert isinstance(node, Def)
@@ -229,6 +236,33 @@ class DefUseChains(ast.NodeVisitor):
 
     # helpers
 
+    def dump_locals(self, node):
+        # type: (ast.AST) -> List[str]
+        """
+        Like `dump_definitions` but returns the result groupped by symbol name and it inludes linenos.
+
+        :Returns: List of string formatted like: '{symbol name}:{def lines}'
+        """
+        groupped = defaultdict(list)
+        for d in self.locals[node]: 
+            groupped[d.name()].append(d)
+        return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', -1)) for d in defs])) \
+            for name,defs in groupped.items()]
+
+    def dump_reachable(self, node):
+        # type: (ast.AST) -> List[str]
+        """
+        Like `dump_locals` but only includes reachable definitions.
+
+        :Returns: List of string formatted like: '{symbol name}:{def lines}'
+        """
+        groupped = defaultdict(list)
+        for d in self.locals[node]: 
+            if d.reaches: 
+                groupped[d.name()].append(d)
+        return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', -1)) for d in defs])) \
+            for name,defs in groupped.items()]
+
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, ast.Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
@@ -313,8 +347,13 @@ class DefUseChains(ast.NodeVisitor):
         self._promoted_locals.append(set())
         yield
         self._promoted_locals.pop()
-        self._definitions.pop()
+        current_defs = self._definitions.pop()
         self._currenthead.pop()
+
+        # set the reaches flag to False on killed Defs
+        for local in self.locals[node]:
+            if local not in current_defs[local.name()]:
+                local.reaches = False
 
     @contextmanager
     def CompDefinitionContext(self, node):
