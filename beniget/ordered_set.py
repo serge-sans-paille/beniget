@@ -42,7 +42,6 @@ if TYPE_CHECKING:
     from typing import TypeVar, Iterator, Iterable, Optional
     T = TypeVar("T")
 
-# tests at https://github.com/bustawin/ordered-set-37/blob/master/ordered_set_37/__init__.py
 class ordered_set(MutableSet['T']):
     """
     A set that preserves insertion order by internally using a dict.
