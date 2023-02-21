@@ -1,5 +1,5 @@
 """
-Stolen from https://github.com/bustawin/ordered-set-37
+Copied from https://github.com/bustawin/ordered-set-37
 """
 # Unlicense
 # This is free and unencumbered software released into the public domain.
