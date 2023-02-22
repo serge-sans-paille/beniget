@@ -239,7 +239,7 @@ class DefUseChains(ast.NodeVisitor):
     def dump_locals(self, node):
         # type: (ast.AST) -> List[str]
         """
-        Like `dump_definitions` but returns the result groupped by symbol name and it inludes linenos.
+        Like `dump_definitions` but returns the result grouped by symbol name and it includes linenos.
 
         :Returns: List of string formatted like: '{symbol name}:{def lines}'
         """
