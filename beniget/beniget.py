@@ -4,8 +4,8 @@ import sys
 
 import gast as ast
 
-
-class ordered_set(object):
+# TODO: remove me when python 2 is not supported anymore
+class _ordered_set(object):
     def __init__(self, elements=None):
         self.values = OrderedDict.fromkeys(elements or [])
 
@@ -29,6 +29,11 @@ class ordered_set(object):
     def __len__(self):
         return len(self.values)
 
+if sys.version_info >= (3,6):
+    from .ordered_set import ordered_set
+else:
+    # python < 3,6 we fall back on older version of the ordered_set
+    ordered_set = _ordered_set
 
 class Ancestors(ast.NodeVisitor):
     """
