@@ -4,8 +4,9 @@ import sys
 
 import gast as ast #type:ignore[import]
 
+# TODO: remove me when python 2 is not supported anymore
 class _ordered_set(object):
-    def __init__(self, elements=None):#type:ignore
+    def __init__(self, elements=None):
         self.values = OrderedDict.fromkeys(elements or [])
 
     def add(self, value):#type:ignore
@@ -28,64 +29,11 @@ class _ordered_set(object):
     def __len__(self):#type:ignore
         return len(self.values)
 
-if sys.version_info.major == 3 and sys.version_info.minor >= 6:
-    
-    import itertools
-    from typing import Any, Iterator, Iterable, Dict, Union, Tuple, Optional, List, Mapping, TypeVar, MutableSet, Type
-
-    T = TypeVar("T")
-
-    # tests at https://github.com/bustawin/ordered-set-37/blob/master/ordered_set_37/__init__.py
-    class ordered_set(MutableSet[T]):
-        """
-        A set that preserves insertion order by internally using a dict.
-        """
-        
-        __slots__ = ('values',)
-
-        def __init__(self, elements: Optional[Iterable[T]] = None):
-            self.values = OrderedDict.fromkeys(elements or [])
-
-        def add(self, x: T) -> None:
-            self.values[x] = None
-        
-        def update(self, values:Iterable[T]) -> None:
-            self.values.update((k, None) for k in values)
-
-        def clear(self) -> None:
-            self.values.clear()
-
-        def discard(self, x: T) -> None:
-            self.values.pop(x, None)
-
-        def __getitem__(self, index:int) -> T:
-            try:
-                return next(itertools.islice(self.values, index, index + 1))
-            except StopIteration:
-                raise IndexError(f"index {index} out of range")
-
-        def __contains__(self, x: object) -> bool:
-            return self.values.__contains__(x)
-        
-        def __add__(self, other:'ordered_set[T]') -> 'ordered_set[T]':
-            return ordered_set(itertools.chain(self, other))
-
-        def __len__(self) -> int:
-            return self.values.__len__()
-
-        def __iter__(self) -> Iterator[T]:
-            return self.values.__iter__()
-
-        def __str__(self) -> str:
-            return f"{{{', '.join(str(i) for i in self)}}}"
-
-        def __repr__(self) -> str:
-            return f"<ordered_set {self}>"
-
+if sys.version_info >= (3,6):
+    from .ordered_set import ordered_set
 else:
-    ordered_set = _ordered_set #type:ignore
-
-
+    # python < 3,6 we fall back on older version of the ordered_set
+    ordered_set = _ordered_set
 
 class Ancestors(ast.NodeVisitor):
     """
