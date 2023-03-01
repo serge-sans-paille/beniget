@@ -2,11 +2,17 @@ from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
 import sys
 
+from typing import TYPE_CHECKING
+
 import gast as ast #type:ignore[import]
+
+if TYPE_CHECKING:
+    from typing import Union, Optional, Tuple, Iterable, Iterator, List, Dict, Any, Mapping, Type, TypeVar
+    T = TypeVar('T', bound=Type[ast.AST])
 
 # TODO: remove me when python 2 is not supported anymore
 class _ordered_set(object):
-    def __init__(self, elements=None):
+    def __init__(self, elements=None):#type:ignore
         self.values = OrderedDict.fromkeys(elements or [])
 
     def add(self, value):#type:ignore
