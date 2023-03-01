@@ -1,10 +1,13 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
+import unittest
 import gast as ast
 import beniget
 import io
 import sys
 
+# Show full diff in unittest
+unittest.util._MAX_LENGTH=2000
 
 @contextmanager
 def captured_output():
@@ -21,7 +24,7 @@ def captured_output():
 
 
 class TestDefUseChains(TestCase):
-    def checkChains(self, code, ref):
+    def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
                 raise RuntimeError(
@@ -31,9 +34,13 @@ class TestDefUseChains(TestCase):
                 )
 
         node = ast.parse(code)
-        c = StrictDefUseChains()
+        if strict:
+            c = StrictDefUseChains()
+        else:
+            c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
+        return node, c
 
     def test_simple_expression(self):
         code = "a = 1; a + 2"
@@ -411,7 +418,168 @@ if (a := a + a):
         self.checkChains(
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
+    
+    @skipIf(sys.version_info < (3, 6), 'Python 3.6 syntax')
+    def test_annotation_use_upper_scope_variables(self):
+        code = '''
+from typing import Type
+class System:
+    def Thing():...
+    @property
+    def Attribute(self) -> Type[Attribute, Thing]:...
+    
+class Attribute:
+    ...
+class Thing:
+    ...'''
+        self.checkChains(
+            code, ['Type -> (Type -> (Subscript -> ()))',
+                    'System -> ()',
+                    'Attribute -> (Attribute -> (Tuple -> (Subscript -> ())))',
+                    'Thing -> (Thing -> (Tuple -> (Subscript -> ())))']
+        )
+    
+    @skipIf(sys.version_info < (3, 6), 'Python 3.6 syntax')
+    def test_annotation_unbound(self):
+        code = '''
+from typing import Type
+class System:
+    def Thing():...
+    @property
+    def Attribute(self) -> Type[Thing]:...
+'''     
+        try:
+            self.checkChains(
+                code, []
+            )
+        except RuntimeError as e:
+            assert "unbound identifier 'Thing'" in str(e)
+        else:
+            # TODO: no it should not.
+            raise AssertionError("Should raise unbound identifier 'Thing' error")
 
+    def test_pep0563_annotations(self):
+
+        # code taken from https://peps.python.org/pep-0563/
+        # pep says: "
+        # Annotations can only use names present in the module scope 
+        # as postponed evaluation using local names is not reliable 
+        # (with the sole exception of class-level names resolved by typing.get_type_hints())."
+        # implenentation of get_type_hints says: 
+        # "For classes, the search order is globals first then locals."
+        # Later ...     "
+        #               # This is surprising, but required.  Before Python 3.10,
+                        # get_type_hints only evaluated the globalns of
+                        # a class.  To maintain backwards compatibility, we reverse
+                        # the globalns and localns order so that eval() looks into
+                        # *base_globals* first rather than *base_locals*.
+                        # This only affects ForwardRefs. "
+        # 
+        # https://github.com/python/cpython/blob/7d1d66341838d7d1963c9ee7ffca2950d3a751fd/Lib/typing.py#L2274
+
+        code = '''
+# beniget can probably understand this code without the future import
+# from __future__ import annotations
+class C:
+    field = 'c_field'
+    def method(self) -> C.field:  # this is OK
+        ...
+
+    def method(self) -> field:  # this is OK, but if field is defined atfer,
+                                # it blows-up the current implementatiom.
+        ...
+
+    def method(self) -> C.D:  # this is OK
+        ...
+
+    def method(self) -> D:  # this is OK
+        ...
+
+    class D:
+        field2 = 'd_field'
+        def method(self) -> C.D.field2:  # this is OK
+            ...
+
+        def method(self) -> D.field2:  # this FAILS, class D is local to C
+            ...                        # and is therefore only available
+                                       # as C.D. This was already true
+                                       # before the PEP. 
+                                       # We check first the globals, then the locals
+                                       # of the class D, and 'D' is not defined in either
+                                       # of those, it defined in the locals of class C.
+
+        def method(self) -> field2:  # this is OK, but we are curerntly unable
+                                     # revolse this kind of references.
+            ...
+
+        def method(self) -> field:  # this FAILS, field is local to C and
+                                    # is therefore not visible to D unless
+                                    # accessed as C.field. This was already
+                                    # true before the PEP.
+            ...
+''' 
+
+        with captured_output() as (out, err):
+            node, c = self.checkChains(
+                code, ['C -> (C -> (Attribute -> ()), '
+                    'C -> (Attribute -> ()), '
+                    'C -> (Attribute -> (Attribute -> ())))'], 
+                
+                strict=False
+            )
+        produced_messages = out.getvalue().strip().split("\n")
+
+        # we get warnings, the first two are normal, but the last should resolve.
+        expected_warnings = [
+            "W: unbound identifier 'field'",
+            "W: unbound identifier 'D'",
+            "W: unbound identifier 'field2'",
+        ]
+
+        assert len(produced_messages) == len(expected_warnings), len(produced_messages)
+        assert all(any(w in pw for pw in produced_messages) for w in expected_warnings)
+
+        # locals of C
+        self.assertEqual(c.dump_chains(node.body[0]), [
+            'field -> (field -> ())', 
+            'method -> ()', 
+            'method -> ()', 
+            'method -> ()', 
+            'method -> ()', 
+            'D -> (D -> (Attribute -> ()))'])
+        
+        # locals of D
+        self.assertEqual(c.dump_chains(node.body[0].body[-1]), [
+            'field2 -> ()', 
+            'method -> ()', 
+            'method -> ()', 
+            'method -> ()', 
+            'method -> ()'])
+
+    def test_pep563_self_referential_annotation(self):
+        code = '''
+class B:
+    A: A # this should point to the top-level class
+class A:
+    A: 'str'
+'''
+        self.checkChains(
+                code, 
+                ['B -> ()', 'A -> ()'], # wrong
+                strict=False
+            )
+
+        code = '''
+class A:
+    A: 'str'
+class B:
+    A: A # this should point to the top-level class
+'''
+        self.checkChains(
+                code, 
+                ['A -> (A -> ())', 'B -> ()'], 
+                strict=False
+            )
 
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
