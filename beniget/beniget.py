@@ -296,9 +296,9 @@ class DefUseChains(ast.NodeVisitor):
                     self.ambiguous_annotation(name, node)
                 return definitions
             except LookupError:
-                #TODO: the annotation might also come from a wildcard import.
-                self.unbound_identifier(name, node)
-                return []
+                # fallback to regular behaviour on module scope
+                # names from builtins or wildcard imports
+                pass
 
         stars = []
         for d in reversed(self._definitions):
@@ -1054,7 +1054,7 @@ def _lookup_annotation(name, heads, locals_map):
         heads.pop()
     if heads[-1] is heads[0]:
         # avoiding an extra useless lookup when we're 
-        # dealing with global namespace names
+        # dealing only with global namespace names
         return _lookup(name, [heads[0]], locals_map)
     else:
         return _lookup(name, [heads[-1], heads[0]], locals_map)
