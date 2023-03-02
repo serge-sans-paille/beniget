@@ -229,6 +229,15 @@ class DefUseChains(ast.NodeVisitor):
         self._breaks = []
         self._continues = []
 
+        # stack of list of annotations (annotation, heads, callback). 
+        # the annotation are resolved when the whole
+        # module has been processed. whether PEP 563 or PEP 649 get accepted as the default,
+        # all annotation are to be resolved lazily.
+        self._defered_annotations = [] #type:list[list[tuple[ast.expr, list[ast.AST], Optional[Callable[[Def],...]]]]]
+        
+        # annotation context
+        self.annotation = False
+
         # dead code levels
         self.deadcode = 0
 
@@ -248,7 +257,7 @@ class DefUseChains(ast.NodeVisitor):
             chains.append(str(d))
         return chains
 
-    def unbound_identifier(self, name, node):
+    def _warn(self, msg, node):
         if hasattr(node, "lineno"):
             filename = "{}:".format(
                 "<unknown>" if self.filename is None else self.filename
@@ -258,8 +267,17 @@ class DefUseChains(ast.NodeVisitor):
                                             node.col_offset)
         else:
             location = ""
-        print("W: unbound identifier '{}'{}".format(name, location))
+        print("{}{}".format(msg, location))
 
+    def unbound_identifier(self, name, node):
+        msg = "W: unbound identifier '{}'".format(name)
+        self._warn(msg, node)
+    
+    def ambiguous_annotation(self, name, node):
+        msg = "W: ambiguous annotation identifier '{}'".format(name)
+        self._warn(msg, node)
+
+    # TODO: this function is unused, consider removing it?
     def lookup_identifier(self, name):
         for d in reversed(self._definitions):
             if name in d:
@@ -268,13 +286,28 @@ class DefUseChains(ast.NodeVisitor):
 
     def defs(self, node):
         name = node.id
+
+        if self.annotation:
+            # resolving an annotation is a bit different
+            # form other names.
+            try:
+                definitions = _lookup_annotation(name, self._currenthead, self.locals)
+                if len(definitions) > 1:
+                    self.ambiguous_annotation(name, node)
+                return definitions
+            except LookupError:
+                #TODO: the annotation might also come from a wildcard import.
+                self.unbound_identifier(name, node)
+                return []
+
         stars = []
         for d in reversed(self._definitions):
             if name in d:
                 return d[name] if not stars else stars + list(d[name])
             if "*" in d:
                 stars.extend(d["*"])
-
+        
+        # this should be only applicable for loops
         d = self.chains.setdefault(node, Def(node))
 
         if self._undefs:
@@ -342,6 +375,7 @@ class DefUseChains(ast.NodeVisitor):
                 {k: ordered_set((v,)) for k, v in self._builtins.items()}
             )
 
+            self._defered_annotations.append([])
             self._defered.append([])
             self.process_body(node.body)
 
@@ -364,6 +398,19 @@ class DefUseChains(ast.NodeVisitor):
                 self._definitions = defs
             self._defered.pop()
 
+            # handle annotations
+            for annnode, heads, cb in self._defered_annotations[-1]:
+                visitor = getattr(self,
+                                  "visit_{}".format(type(annnode).__name__))
+                currenthead, self._currenthead = self._currenthead, heads
+                self.annotation = True
+                d = visitor(annnode)
+                self.annotation = False
+                if cb: 
+                    cb(d)
+                self._currenthead = currenthead
+            self._defered_annotations.pop()
+
             # various sanity checks
             if __debug__:
                 overloaded_builtins = set()
@@ -381,6 +428,7 @@ class DefUseChains(ast.NodeVisitor):
 
         assert not self._definitions
         assert not self._defered
+        assert not self._defered_annotations
 
     def set_definition(self, name, dnode_or_dnodes):
         if self.deadcode:
@@ -419,13 +467,25 @@ class DefUseChains(ast.NodeVisitor):
             definitions = list(self._definitions)
             if isinstance(self._currenthead[-1], ast.ClassDef):
                 definitions.pop()
+            # the body of the funcion will be processed later
             self._defered[-1].append((node, definitions))
-        elif step is DefinitionStep:
-            # function is not considered as defined when evaluating returns
+
+            # annotation are to be resolved later as well
+            # function is not considered as defined when 
+            # evaluating returns and annotations
+            currentheads = list(self._currenthead)
             if node.returns:
-                self.visit(node.returns)
+                self._defered_annotations[-1].append(
+                    (node.returns, currentheads, None))
+            for arg in _iter_arguments(node):
+                if arg.annotation:
+                    self._defered_annotations[-1].append(
+                        (arg.annotation, currentheads, None))
+
+        elif step is DefinitionStep:
             with self.DefinitionContext(node):
-                self.visit(node.args)
+                for arg in _iter_arguments(node):
+                    self.visit(arg)
                 self.process_body(node.body)
         else:
             raise NotImplementedError()
@@ -474,11 +534,13 @@ class DefUseChains(ast.NodeVisitor):
     def visit_AnnAssign(self, node):
         if node.value:
             dvalue = self.visit(node.value)
-        dannotation = self.visit(node.annotation)
         dtarget = self.visit(node.target)
-        dtarget.add_user(dannotation)
         if node.value:
             dvalue.add_user(dtarget)
+
+        self._defered_annotations[-1].append(
+            (node.annotation, list(self._currenthead), 
+             lambda d:dtarget.add_user(d)))
 
     def visit_AugAssign(self, node):
         dvalue = self.visit(node.value)
@@ -872,10 +934,7 @@ class DefUseChains(ast.NodeVisitor):
                 self.set_definition(node.id, dnode)
                 if dnode not in self.locals[self._currenthead[-1]]:
                     self.locals[self._currenthead[-1]].append(dnode)
-
-            if node.annotation is not None:
-                self.visit(node.annotation)
-
+        
         elif isinstance(node.ctx, (ast.Load, ast.Del)):
             node_in_chains = node in self.chains
             if node_in_chains:
@@ -971,6 +1030,55 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(node.optional_vars)
         return dnode
 
+def _iter_child_nodes_in_fields(node, fields):
+    """
+    Like ast.iter_child_nodes() but ignore fields
+    that are not part of the provided list.
+    """
+    for fieldname, value in ast.iter_fields(node):
+        if fieldname in fields:
+            yield value
+
+def _iter_arguments(node):
+    """
+    Yields all arguments of the given function.
+    """
+    for args in _iter_child_nodes_in_fields(node.args, ('args', 'kwonlyargs', 'posonlyargs')):
+        yield from args
+    yield from filter(None, _iter_child_nodes_in_fields(node.args, ('vararg', 'kwarg')))
+
+def _lookup_annotation(name, heads, locals_map):
+    # we go the pyright way, that is to start looking at module scope first, 
+    # then we try the local class scope.
+    while not isinstance(heads[-1], (ast.ClassDef, ast.Module)):
+        heads.pop()
+    if heads[-1] is heads[0]:
+        # avoiding an extra useless lookup when we're 
+        # dealing with global namespace names
+        return _lookup(name, [heads[0]], locals_map)
+    else:
+        return _lookup(name, [heads[-1], heads[0]], locals_map)
+
+def _lookup(name, heads, locals_map):
+    # more of less modeling what's described here.
+    # https://github.com/gvanrossum/gvanrossum.github.io/blob/main/formal/scopesblog.md
+
+    context = heads[-1]
+    defs = []
+    for loc in reversed(locals_map[context]):
+        # start by the last added Defs
+        # could use the flag Def.reaches to filter.
+        if loc.name() == name:
+            defs += [loc]
+    if defs:
+        return defs
+    elif len(heads)==1:
+        raise LookupError("'{}' is unbound".format(name))
+    heads.pop()
+    # just in case
+    while not isinstance(heads[-1], (ast.ClassDef, ast.Module)):
+        heads.pop()
+    return _lookup(name, heads, locals_map)
 
 class UseDefChains(object):
     """

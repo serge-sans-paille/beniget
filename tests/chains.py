@@ -26,12 +26,8 @@ def captured_output():
 class TestDefUseChains(TestCase):
     def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
-                raise RuntimeError(
-                    "W: unbound identifier '{}' at {}:{}".format(
-                        name, node.lineno, node.col_offset
-                    )
-                )
+            def _warn(self, msg, node):
+                raise RuntimeError(msg)
 
         node = ast.parse(code)
         if strict:
@@ -424,7 +420,7 @@ if (a := a + a):
         code = '''
 from typing import Type
 class System:
-    def Thing():...
+    Thing = bytes
     @property
     def Attribute(self) -> Type[Attribute, Thing]:...
     
@@ -444,19 +440,20 @@ class Thing:
         code = '''
 from typing import Type
 class System:
-    def Thing():...
+    Thing = bytes
     @property
     def Attribute(self) -> Type[Thing]:...
 '''     
-        try:
-            self.checkChains(
-                code, []
-            )
-        except RuntimeError as e:
-            assert "unbound identifier 'Thing'" in str(e)
-        else:
-            # TODO: no it should not.
-            raise AssertionError("Should raise unbound identifier 'Thing' error")
+        
+        mod, chains = self.checkChains(
+            code, ['Type -> (Type -> (Subscript -> ()))', 'System -> ()']
+        )
+        # locals of System
+        self.assertEqual(chains.dump_chains(mod.body[-1]), [
+            'Thing -> (Thing -> (Subscript -> ()))', 
+            'Attribute -> ()'
+        ])
+        
 
     def test_pep0563_annotations(self):
 
@@ -479,24 +476,26 @@ class System:
 
         code = '''
 # beniget can probably understand this code without the future import
-# from __future__ import annotations
+from __future__ import annotations
+from typing import TypeAlias, Mapping, Dict, Type
 class C:
-    field = 'c_field'
+    
     def method(self) -> C.field:  # this is OK
         ...
 
-    def method(self) -> field:  # this is OK, but if field is defined atfer,
-                                # it blows-up the current implementatiom.
+    def method(self) -> field:  # this is OK
         ...
 
     def method(self) -> C.D:  # this is OK
         ...
 
-    def method(self) -> D:  # this is OK
+    def method(self, x:field) -> D:  # this is OK
         ...
 
+    field:TypeAlias = 'Mapping'
+
     class D:
-        field2 = 'd_field'
+        field2:TypeAlias = 'Dict'
         def method(self) -> C.D.field2:  # this is OK
             ...
 
@@ -508,23 +507,32 @@ class C:
                                        # of the class D, and 'D' is not defined in either
                                        # of those, it defined in the locals of class C.
 
-        def method(self) -> field2:  # this is OK, but we are curerntly unable
-                                     # revolse this kind of references.
+        def method(self, x:field2) -> field2:  # this is OK
             ...
 
-        def method(self) -> field:  # this FAILS, field is local to C and
+        def method(self, x) -> field:  # this FAILS, field is local to C and
                                     # is therefore not visible to D unless
                                     # accessed as C.field. This was already
                                     # true before the PEP.
             ...
+
+        def Thing(self, y:Type[Thing]) -> Thing: # this is OK, and it links to the top level Thing.
+            ...
+
+Thing:TypeAlias = 'Mapping'
 ''' 
 
         with captured_output() as (out, err):
             node, c = self.checkChains(
-                code, ['C -> (C -> (Attribute -> ()), '
-                    'C -> (Attribute -> ()), '
-                    'C -> (Attribute -> (Attribute -> ())))'], 
-                
+                code, 
+                    ['annotations -> ()',
+                    'TypeAlias -> (TypeAlias -> (), TypeAlias -> (), TypeAlias -> ())',
+                    'Mapping -> ()',
+                    'Dict -> ()',
+                    'Type -> (Type -> (Subscript -> ()))',
+                    'C -> (C -> (Attribute -> ()), C -> (Attribute -> ()), C -> (Attribute -> '
+                    '(Attribute -> ())))',
+                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()), TypeAlias -> ())'], 
                 strict=False
             )
         produced_messages = out.getvalue().strip().split("\n")
@@ -533,28 +541,28 @@ class C:
         expected_warnings = [
             "W: unbound identifier 'field'",
             "W: unbound identifier 'D'",
-            "W: unbound identifier 'field2'",
         ]
 
         assert len(produced_messages) == len(expected_warnings), len(produced_messages)
         assert all(any(w in pw for pw in produced_messages) for w in expected_warnings)
 
         # locals of C
-        self.assertEqual(c.dump_chains(node.body[0]), [
-            'field -> (field -> ())', 
-            'method -> ()', 
-            'method -> ()', 
-            'method -> ()', 
-            'method -> ()', 
-            'D -> (D -> (Attribute -> ()))'])
+        self.assertEqual(c.dump_chains(node.body[-2]), 
+                         ['method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'field -> (field -> (), field -> (), TypeAlias -> ())',
+                            'D -> (D -> ())'])
         
         # locals of D
-        self.assertEqual(c.dump_chains(node.body[0].body[-1]), [
-            'field2 -> ()', 
-            'method -> ()', 
-            'method -> ()', 
-            'method -> ()', 
-            'method -> ()'])
+        self.assertEqual(c.dump_chains(node.body[-2].body[-1]), 
+                         ['field2 -> (TypeAlias -> (), field2 -> (), field2 -> ())',
+                            'method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'Thing -> ()'])
 
     def test_pep563_self_referential_annotation(self):
         code = '''
@@ -565,7 +573,8 @@ class A:
 '''
         self.checkChains(
                 code, 
-                ['B -> ()', 'A -> ()'], # wrong
+                ['B -> ()', 
+                 'A -> (A -> ())'], # good
                 strict=False
             )
 
@@ -577,9 +586,22 @@ class B:
 '''
         self.checkChains(
                 code, 
-                ['A -> (A -> ())', 'B -> ()'], 
+                ['A -> (A -> ())', 
+                 'B -> ()'], 
                 strict=False
             )
+    
+    def test_wilcard_import_annotation(self):
+        code = '''
+from typing import *
+primes: List[int] # should resolve to the star
+        '''
+
+        code = '''
+from typing import *
+primes: List[int] # should not resolve to the star
+List = list
+        '''
 
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
