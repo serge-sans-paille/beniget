@@ -168,6 +168,30 @@ Builtins["__file__"] = __file__
 
 DeclarationStep, DefinitionStep = object(), object()
 
+class _StopTraversal(Exception):
+        ...
+
+class CollectFutureImports(ast.NodeVisitor):
+    # future imports must be the first thing in the module
+    # as soon as we're visiting something that is not 
+    # a future import, we can stop the visit.
+    def __init__(self):
+        self.FutureImports = set() #type:set[str]
+    
+    def visit_Module(self, node):
+        for child in node.body:
+            try:
+                self.visit(child)
+            except _StopTraversal:
+                break
+    
+    def visit_ImportFrom(self, node):
+        if node.level or node.module != '__future__':
+            raise _StopTraversal()
+        self.FutureImports.update((al.name for al in node.names))
+    
+    def generic_visit(self, node):
+        raise _StopTraversal()
 
 class CollectGlobals(ast.NodeVisitor):
     def __init__(self):
@@ -196,6 +220,8 @@ class DefUseChains(ast.NodeVisitor):
     >>> alias_def = duc.chains[module.body[0].names[0]]
     >>> print(alias_def)
     c -> (c -> (Call -> ()))
+
+    One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
     """
 
     def __init__(self, filename=None):
@@ -229,17 +255,19 @@ class DefUseChains(ast.NodeVisitor):
         self._breaks = []
         self._continues = []
 
-        # stack of list of annotations (annotation, heads, callback). 
-        # the annotation are resolved when the whole
-        # module has been processed. whether PEP 563 or PEP 649 get accepted as the default,
-        # all annotation are to be resolved lazily.
-        self._defered_annotations = [] #type:list[list[tuple[ast.expr, list[ast.AST], Optional[Callable[[Def],...]]]]]
-        
-        # annotation context
-        self.annotation = False
+        # stack of list of annotations (annotation, heads, callback), 
+        # only used in the case of from __future__ import annotations feature.
+        # the annotations are analyzed when the whole module has been processed,
+        # it should be compable with both PEP 563 and PEP 649.
+        self._defered_annotations = [] #type:list[list[tuple[ast.expr, list[ast.AST], Optional[Callable[[Def],None]]]]]
+        self._analysing_defered_annotations = False
 
         # dead code levels
         self.deadcode = 0
+
+        # attributes set in visit_Module
+        self.module = None
+        self.future_annotations = False
 
     # helpers
 
@@ -287,7 +315,7 @@ class DefUseChains(ast.NodeVisitor):
     def defs(self, node):
         name = node.id
 
-        if self.annotation:
+        if self._analysing_defered_annotations:
             # resolving an annotation is a bit different
             # form other names.
             try:
@@ -297,7 +325,7 @@ class DefUseChains(ast.NodeVisitor):
                 return definitions
             except LookupError:
                 # fallback to regular behaviour on module scope
-                # names from builtins or wildcard imports
+                # to support names from builtins or wildcard imports.
                 pass
 
         stars = []
@@ -369,6 +397,13 @@ class DefUseChains(ast.NodeVisitor):
     # stmt
     def visit_Module(self, node):
         self.module = node
+        
+        # determine whether the PEP563 is enabled
+        cf = CollectFutureImports()
+        cf.visit(node)
+        # allow manual enabling of DefUseChains.future_annotations
+        self.future_annotations |= 'annotations' in cf.FutureImports
+        
         with self.DefinitionContext(node):
 
             self._definitions[-1].update(
@@ -398,14 +433,14 @@ class DefUseChains(ast.NodeVisitor):
                 self._definitions = defs
             self._defered.pop()
 
-            # handle annotations
+            # handle defered annotations as in from __future__ import annotations
             for annnode, heads, cb in self._defered_annotations[-1]:
                 visitor = getattr(self,
                                   "visit_{}".format(type(annnode).__name__))
                 currenthead, self._currenthead = self._currenthead, heads
-                self.annotation = True
+                self._analysing_defered_annotations = True
                 d = visitor(annnode)
-                self.annotation = False
+                self._analysing_defered_annotations = False
                 if cb: 
                     cb(d)
                 self._currenthead = currenthead
@@ -470,22 +505,31 @@ class DefUseChains(ast.NodeVisitor):
             # the body of the funcion will be processed later
             self._defered[-1].append((node, definitions))
 
-            # annotation are to be resolved later as well
-            # function is not considered as defined when 
-            # evaluating returns and annotations
-            currentheads = list(self._currenthead)
-            if node.returns:
-                self._defered_annotations[-1].append(
-                    (node.returns, currentheads, None))
-            for arg in _iter_arguments(node):
-                if arg.annotation:
+            if self.future_annotations:
+                # annotation are to be resolved later as well
+                # function is not considered as defined when 
+                # evaluating returns and annotations
+                currentheads = list(self._currenthead)
+                if node.returns:
                     self._defered_annotations[-1].append(
-                        (arg.annotation, currentheads, None))
+                        (node.returns, currentheads, None))
+                for arg in _iter_arguments(node):
+                    if arg.annotation:
+                        self._defered_annotations[-1].append(
+                            (arg.annotation, currentheads, None))
 
         elif step is DefinitionStep:
+            if not self.future_annotations:
+                # function is not considered as defined when evaluating returns
+                if node.returns:
+                    self.visit(node.returns)
             with self.DefinitionContext(node):
-                for arg in _iter_arguments(node):
-                    self.visit(arg)
+                # TODO: we might not need to do a distinction here
+                if self.future_annotations:
+                    for arg in _iter_arguments(node):
+                        self.visit(arg)
+                else:
+                    self.visit(node.args)
                 self.process_body(node.body)
         else:
             raise NotImplementedError()
@@ -534,13 +578,18 @@ class DefUseChains(ast.NodeVisitor):
     def visit_AnnAssign(self, node):
         if node.value:
             dvalue = self.visit(node.value)
+        if not self.future_annotations:
+            dannotation = self.visit(node.annotation)
         dtarget = self.visit(node.target)
+        if not self.future_annotations:
+            dtarget.add_user(dannotation)
         if node.value:
             dvalue.add_user(dtarget)
 
-        self._defered_annotations[-1].append(
-            (node.annotation, list(self._currenthead), 
-             lambda d:dtarget.add_user(d)))
+        if self.future_annotations:
+            self._defered_annotations[-1].append(
+                (node.annotation, list(self._currenthead), 
+                lambda d:dtarget.add_user(d)))
 
     def visit_AugAssign(self, node):
         dvalue = self.visit(node.value)
@@ -934,7 +983,12 @@ class DefUseChains(ast.NodeVisitor):
                 self.set_definition(node.id, dnode)
                 if dnode not in self.locals[self._currenthead[-1]]:
                     self.locals[self._currenthead[-1]].append(dnode)
-        
+            
+            if not self.future_annotations:
+                # Name.annotation is a special case because of gast
+                if node.annotation is not None:
+                    self.visit(node.annotation)
+
         elif isinstance(node.ctx, (ast.Load, ast.Del)):
             node_in_chains = node in self.chains
             if node_in_chains:
