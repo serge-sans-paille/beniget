@@ -1099,8 +1099,9 @@ def _iter_arguments(node):
     Yields all arguments of the given function.
     """
     for args in _iter_child_nodes_in_fields(node.args, ('args', 'kwonlyargs', 'posonlyargs')):
-        yield from args
-    yield from filter(None, _iter_child_nodes_in_fields(node.args, ('vararg', 'kwarg')))
+        for a in args: yield a
+    for a in filter(None, _iter_child_nodes_in_fields(node.args, ('vararg', 'kwarg'))):
+        yield a
 
 def _lookup_annotation(name, heads, locals_map):
     scopes = _get_lookup_scopes(heads)
