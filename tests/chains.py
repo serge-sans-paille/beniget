@@ -416,7 +416,7 @@ if (a := a + a):
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
     
-    @skipIf(sys.version_info < (3, 6), 'Python 3.6 syntax')
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_use_upper_scope_variables(self):
         code = '''
 from typing import Type
@@ -436,7 +436,7 @@ class Thing:
                     'Thing -> (Thing -> (Tuple -> (Subscript -> ())))']
         )
     
-    @skipIf(sys.version_info < (3, 6), 'Python 3.6 syntax')
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound(self):
         code = '''
 from __future__ import annotations
@@ -457,7 +457,7 @@ class System:
             'Attribute -> ()'
         ])
         
-
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_pep0563_annotations(self):
 
         # code taken from https://peps.python.org/pep-0563/
@@ -552,6 +552,7 @@ Thing:TypeAlias = 'Mapping'
                             'method -> ()',
                             'Thing -> ()'])
 
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_pep563_self_referential_annotation(self):
         code = '''
 from __future__ import annotations
@@ -583,6 +584,7 @@ class B:
                 strict=False
             )
     
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_wilcard_import_annotation(self):
         code = '''
 from typing import *
@@ -601,6 +603,7 @@ primes: List[int] # should resolve to the star
                 strict=False
             )
     
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_wilcard_import_annotation_and_global_scope(self):
     
         code = '''
@@ -619,6 +622,7 @@ List = list
                 strict=False
             )
     
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_in_functions_locals(self):
         
         code = '''
@@ -655,6 +659,7 @@ X = generate()
                          ['A -> ()', 
                           'C -> (C -> ())'])
 
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_in_inner_functions_locals(self):
 
         code = '''
@@ -711,6 +716,7 @@ fn = outer()
         mod, outter, middle, inner, cls = ast.Module(), ast.FunctionDef(), ast.FunctionDef(), ast.FunctionDef(), ast.ClassDef()
         assert _get_lookup_scopes((mod, outter, middle, inner, cls)) == [mod, outter, middle, inner, cls]
 
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_inner_inner_fn(self):
         code = '''
 def outer():
@@ -735,7 +741,8 @@ def outer():
         self.assertEqual(chains.dump_chains(mod.body[1]), 
                          ['middle -> ()',
                           'mytype -> (mytype -> ())'])
-        
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_very_nested(self):
         
         # this code does not produce any pyright warnings
