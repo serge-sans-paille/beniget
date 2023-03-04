@@ -711,9 +711,6 @@ fn = outer()
             mod, outter, middle, inner, cls = ast.Module(), ast.FunctionDef(), ast.FunctionDef(), ast.FunctionDef(), ast.ClassDef()
             assert _get_lookup_scopes((mod, outter, middle, inner, cls)) == [mod, outter, middle, inner, cls]
 
-        # If we do that and do not include the __future__ import
-        # then there are some unbound identfier warnings.
-        # TODO: there is a bug here:
     def test_annotation_inner_inner_fn(self):
         code = '''
 def outer():
