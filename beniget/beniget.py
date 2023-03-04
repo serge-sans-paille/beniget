@@ -169,7 +169,7 @@ Builtins["__file__"] = __file__
 DeclarationStep, DefinitionStep = object(), object()
 
 class _StopTraversal(Exception):
-        ...
+    ...
 
 class CollectFutureImports(ast.NodeVisitor):
     # future imports must be the first thing in the module
