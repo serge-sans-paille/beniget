@@ -27,6 +27,7 @@ class TestDefUseChains(TestCase):
     def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
             def _warn(self, msg, node):
+                super()._warn(msg, node)
                 raise RuntimeError(msg)
 
         node = ast.parse(code)
@@ -438,6 +439,7 @@ class Thing:
     @skipIf(sys.version_info < (3, 6), 'Python 3.6 syntax')
     def test_annotation_unbound(self):
         code = '''
+from __future__ import annotations
 from typing import Type
 class System:
     Thing = bytes
@@ -446,7 +448,8 @@ class System:
 '''     
         
         mod, chains = self.checkChains(
-            code, ['Type -> (Type -> (Subscript -> ()))', 'System -> ()']
+            code, ['annotations -> ()',
+            'Type -> (Type -> (Subscript -> ()))', 'System -> ()']
         )
         # locals of System
         self.assertEqual(chains.dump_chains(mod.body[-1]), [
@@ -458,21 +461,6 @@ class System:
     def test_pep0563_annotations(self):
 
         # code taken from https://peps.python.org/pep-0563/
-        # pep says: "
-        # Annotations can only use names present in the module scope 
-        # as postponed evaluation using local names is not reliable 
-        # (with the sole exception of class-level names resolved by typing.get_type_hints())."
-        # implenentation of get_type_hints says: 
-        # "For classes, the search order is globals first then locals."
-        # Later ...     "
-        #               # This is surprising, but required.  Before Python 3.10,
-                        # get_type_hints only evaluated the globalns of
-                        # a class.  To maintain backwards compatibility, we reverse
-                        # the globalns and localns order so that eval() looks into
-                        # *base_globals* first rather than *base_locals*.
-                        # This only affects ForwardRefs. "
-        # 
-        # https://github.com/python/cpython/blob/7d1d66341838d7d1963c9ee7ffca2950d3a751fd/Lib/typing.py#L2274
 
         code = '''
 # beniget can probably understand this code without the future import
@@ -566,6 +554,7 @@ Thing:TypeAlias = 'Mapping'
 
     def test_pep563_self_referential_annotation(self):
         code = '''
+from __future__ import annotations
 class B:
     A: A # this should point to the top-level class
 class A:
@@ -573,12 +562,14 @@ class A:
 '''
         self.checkChains(
                 code, 
-                ['B -> ()', 
+                ['annotations -> ()',
+                 'B -> ()', 
                  'A -> (A -> ())'], # good
                 strict=False
             )
 
         code = '''
+from __future__ import annotations
 class A:
     A: 'str'
 class B:
@@ -586,7 +577,8 @@ class B:
 '''
         self.checkChains(
                 code, 
-                ['A -> (A -> ())', 
+                ['annotations -> ()',
+                 'A -> (A -> ())', 
                  'B -> ()'], 
                 strict=False
             )
@@ -597,12 +589,207 @@ from typing import *
 primes: List[int] # should resolve to the star
         '''
 
+        self.checkChains(
+                code, 
+                ['* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                strict=False
+            )
+        # same with 'from __future__ import annotations'
+        self.checkChains(
+                'from __future__ import annotations\n' + code, 
+                ['annotations -> ()', '* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                strict=False
+            )
+    
+    def test_wilcard_import_annotation_and_global_scope(self):
+    
         code = '''
+from __future__ import annotations
 from typing import *
-primes: List[int] # should not resolve to the star
+primes: List[int] # should not resolve to both
 List = list
+    '''
+
+        self.checkChains(
+                code, 
+                ['annotations -> ()',
+                '* -> ()',
+                'primes -> (Subscript -> ())',
+                'List -> (List -> (Subscript -> ()))'],
+                strict=False
+            )
+    
+    def test_annotation_in_functions_locals(self):
+        
+        code = '''
+class A:... # this one for pep 563 style
+def generate():
+    class A(int):... # this one for runtime style
+    class C:
+        field: A = 1
+        def method(self, arg: A) -> None: ...
+    return C
+X = generate()
         '''
 
+        # runtime style
+        mod, chains = self.checkChains(
+                code, 
+                ['A -> ()', 
+                 'generate -> (generate -> (Call -> ()))', 
+                 'X -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['A -> (A -> (), A -> ())', 
+                          'C -> (C -> ())'])
+
+        # pep 563 style
+        mod, chains = self.checkChains(
+                'from __future__ import annotations\n' + code, 
+                ['annotations -> ()', 
+                 'A -> (A -> (), A -> ())',
+                 'generate -> (generate -> (Call -> ()))', 
+                 'X -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[2]), 
+                         ['A -> ()', 
+                          'C -> (C -> ())'])
+
+    def test_annotation_in_inner_functions_locals(self):
+
+        code = '''
+mytype = mytype2 = object
+def outer():
+    def middle():
+        def inner(a:mytype, b:mytype2): pass
+        class mytype(str):
+            ...
+        return inner
+    class mytype2(int):
+        ...
+    return middle()
+fn = outer()
+        '''
+
+        mod, chains = self.checkChains(
+                code, 
+                ['mytype -> ()', 
+                 'mytype2 -> ()', 
+                 'outer -> (outer -> (Call -> ()))', 
+                 'fn -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['middle -> (middle -> (Call -> ()))', 
+                          'mytype2 -> (mytype2 -> ())'])
+        self.assertEqual(chains.dump_chains(mod.body[1].body[0]), 
+                         ['inner -> (inner -> ())', 
+                          'mytype -> (mytype -> ())'])
+
+        # in this case, the behaviour changes radically with pep 563
+
+        mod, chains = self.checkChains(
+                'from __future__ import annotations\n' + code, 
+                ['annotations -> ()', 
+                 'mytype -> (mytype -> ())', 
+                 'mytype2 -> (mytype2 -> ())', 
+                 'outer -> (outer -> (Call -> ()))', 
+                 'fn -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[2]), 
+                         ['middle -> (middle -> (Call -> ()))', 
+                          'mytype2 -> ()'])
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+                         ['inner -> (inner -> ())', 
+                          'mytype -> ()'])
+
+        # but if we remove 'mytype = mytype2 = object' and 
+        # keep the __future__ import then all anotations refers 
+        # to the inner classes. 
+
+
+        # If we do that and do not include the __future__ import
+        # then there are some unbound identfier warnings.
+        # TODO: there is a bug here:
+#     def test_annotation_inner_inner_fn(self):
+#         code = '''
+# from __future__ import annotations
+# def outer():
+#     def middle():
+#         def inner(a:mytype): 
+#             ...
+#     class mytype(str):...
+# '''
+#         mod, chains = self.checkChains(
+#                 code, 
+#                 ['annotations -> ()',
+#                 'outer -> ()',],
+#                 strict=False
+#             )
+#         self.assertEqual(chains.dump_chains(mod.body[1]), 
+#                          ['middle -> ()',
+#                           'mytype -> ()'])
+        
+    def test_annotation_very_nested(self):
+        
+        # this code does not produce any pyright warnings
+        code = '''
+from __future__ import annotations
+
+# when the following line is defined, 
+# all annotations references points to it.
+# when it's not defined, all anotation points
+# to the inner classes. 
+# in both cases pyright doesn't report any errors.
+mytype = mytype2 = object
+
+def outer():
+    def middle():
+        def inner(a:mytype, b:mytype2): 
+            return getattr(a, 'count')(b)
+        class mytype(str):
+            class substr(int):
+                ...
+            def count(self, sep:substr) -> mytype:
+                def c(x:mytype, y:mytype2) -> mytype:
+                    return mytype('{},{}'.format(x,y))
+                return c(self, mytype2(sep))
+        return inner(mytype(), mytype2())
+    class mytype2(int):
+        ...
+    return middle()
+fn = outer()
+        '''
+
+        mod, chains = self.checkChains(
+                code, 
+                ['annotations -> ()',
+                'mytype -> (mytype -> (), mytype -> (), mytype -> (), mytype -> ())',
+                'mytype2 -> (mytype2 -> (), mytype2 -> ())',
+                'outer -> (outer -> (Call -> ()))',
+                'fn -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[2]), 
+                         ['middle -> (middle -> (Call -> ()))',
+                          'mytype2 -> (mytype2 -> (Call -> (Call -> ())), '
+                          'mytype2 -> (Call -> (Call -> ())))'])
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+                         ['inner -> (inner -> (Call -> ()))',
+                          'mytype -> (mytype -> (Call -> (Call -> ())), mytype -> (Call -> ()))'])
+
+        # mod, chains = self.checkChains(
+        #         code.replace('mytype = mytype2 = object', 'pass'), 
+        #         ['annotations -> ()',
+        #         'outer -> (outer -> (Call -> ()))',
+        #         'fn -> ()'],
+        #     )
+        # self.assertEqual(chains.dump_chains(mod.body[2]), 
+        #                  ['middle -> (middle -> (Call -> ()))',
+        #                   'mytype2 -> (mytype2 -> (Call -> (Call -> ())), '
+        #                   'mytype2 -> (Call -> (Call -> ())))'])
+        # self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+        #                  ['inner -> (inner -> (Call -> ()))',
+        #                   'mytype -> (mytype -> (Call -> (Call -> ())), mytype -> (Call -> ()))'])
+        
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         class StrictDefUseChains(beniget.DefUseChains):

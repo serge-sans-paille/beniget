@@ -327,6 +327,7 @@ class DefUseChains(ast.NodeVisitor):
             except LookupError:
                 # fallback to regular behaviour on module scope
                 # to support names from builtins or wildcard imports.
+                # self._warn('DEBUG: annotation not resolved: {}'.format(Def(node).name()), node)
                 pass
 
         stars = []
@@ -1101,13 +1102,13 @@ def _iter_arguments(node):
     yield from filter(None, _iter_child_nodes_in_fields(node.args, ('vararg', 'kwarg')))
 
 def _lookup_annotation(name, heads, locals_map):
-    # we go the pyright way, that is to start looking at module scope first, 
-    # then we try the theoretical runtime scopes
     scopes = _get_lookup_scopes(heads)
 
     if len(scopes)>1:
+        # start by looking at module scope first, 
+        # then try the theoretical runtime scopes.
         # putting the global scope last in the list so annotation are
-        # resolve using he global namespace first.
+        # resolve using he global namespace first. this is the pyright way.
         scopes.append(scopes.pop(0))
     
     return _lookup(name, scopes, locals_map)
@@ -1122,11 +1123,11 @@ _CLOSED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef,
 
 def _get_lookup_scopes(heads):
     # heads[-1] is the direct enclosing scope and heads[0] is the module.
-    # returns a list based on the element of heads, but with
-    # the ignorable scopes removed. ignorable in the sens that the lookup
+    # returns a list based on the elements of heads, but with
+    # the ignorable scopes removed. Ignorable in the sens that the lookup
     # will never happend in this scope for the given context.
     
-    heads = list(heads) # avoid modifying the list
+    heads = list(heads) # avoid modifying the list (important)
     
     # this scope is the only one that can be a class
     direct_scope = heads.pop(-1)
@@ -1155,7 +1156,8 @@ def _lookup(name, scopes, locals_map):
     # given these four variables
     # - ancestors: Ancestors, after visit
     # - def_use: DefUseChains, after visit
-    # - context: ast.AST, the ast context we're resolvong the name in
+    # - context: ast.AST, the ast expression context we're resolving the name in,
+    #            if you only got a scope, then it's the parent_scope variable.
     # - name: str, the name we're trying to resolve
     # >>> parent_scope = ancestors.parentInstance(context, 
     # ... (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef, ast.Module, 
@@ -1169,7 +1171,7 @@ def _lookup(name, scopes, locals_map):
         # start by the last added Defs
         # could use the flag Def.reaches to filter.
         if loc.name() == name:
-            defs += [loc]
+            defs.append(loc)
     if defs:
         return defs
     elif len(scopes)==0:
