@@ -705,29 +705,39 @@ fn = outer()
         # but if we remove 'mytype = mytype2 = object' and 
         # keep the __future__ import then all anotations refers 
         # to the inner classes. 
-
+    
+        def test_lookup_scopes(self):
+            from beniget.beniget import _get_lookup_scopes
+            mod, outter, middle, inner, cls = ast.Module(), ast.FunctionDef(), ast.FunctionDef(), ast.FunctionDef(), ast.ClassDef()
+            assert _get_lookup_scopes((mod, outter, middle, inner, cls)) == [mod, outter, middle, inner, cls]
 
         # If we do that and do not include the __future__ import
         # then there are some unbound identfier warnings.
         # TODO: there is a bug here:
-#     def test_annotation_inner_inner_fn(self):
-#         code = '''
-# from __future__ import annotations
-# def outer():
-#     def middle():
-#         def inner(a:mytype): 
-#             ...
-#     class mytype(str):...
-# '''
-#         mod, chains = self.checkChains(
-#                 code, 
-#                 ['annotations -> ()',
-#                 'outer -> ()',],
-#                 strict=False
-#             )
-#         self.assertEqual(chains.dump_chains(mod.body[1]), 
-#                          ['middle -> ()',
-#                           'mytype -> ()'])
+    def test_annotation_inner_inner_fn(self):
+        code = '''
+def outer():
+    def middle():
+        def inner(a:mytype): 
+            ...
+    class mytype(str):...
+'''
+        mod, chains = self.checkChains(
+                code, 
+                ['outer -> ()',],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[0]), 
+                         ['middle -> ()',
+                          'mytype -> (mytype -> ())'])
+
+        mod, chains = self.checkChains(
+            'from __future__ import annotations\n' + code,
+             ['annotations -> ()',
+              'outer -> ()',],
+        )
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['middle -> ()',
+                          'mytype -> (mytype -> ())'])
         
     def test_annotation_very_nested(self):
         
