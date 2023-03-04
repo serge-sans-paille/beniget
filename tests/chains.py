@@ -706,10 +706,10 @@ fn = outer()
         # keep the __future__ import then all anotations refers 
         # to the inner classes. 
     
-        def test_lookup_scopes(self):
-            from beniget.beniget import _get_lookup_scopes
-            mod, outter, middle, inner, cls = ast.Module(), ast.FunctionDef(), ast.FunctionDef(), ast.FunctionDef(), ast.ClassDef()
-            assert _get_lookup_scopes((mod, outter, middle, inner, cls)) == [mod, outter, middle, inner, cls]
+    def test_lookup_scopes(self):
+        from beniget.beniget import _get_lookup_scopes
+        mod, outter, middle, inner, cls = ast.Module(), ast.FunctionDef(), ast.FunctionDef(), ast.FunctionDef(), ast.ClassDef()
+        assert _get_lookup_scopes((mod, outter, middle, inner, cls)) == [mod, outter, middle, inner, cls]
 
     def test_annotation_inner_inner_fn(self):
         code = '''
