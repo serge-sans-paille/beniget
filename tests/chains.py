@@ -713,8 +713,23 @@ fn = outer()
     
     def test_lookup_scopes(self):
         from beniget.beniget import _get_lookup_scopes
-        mod, outter, middle, inner, cls = ast.Module(), ast.FunctionDef(), ast.FunctionDef(), ast.FunctionDef(), ast.ClassDef()
-        assert _get_lookup_scopes((mod, outter, middle, inner, cls)) == [mod, outter, middle, inner, cls]
+        mod, fn, cls, lambd, gen, comp = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp()
+        assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
+        assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
+        assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
+        assert _get_lookup_scopes((mod, cls, fn, cls, fn)) == [mod, fn, fn]
+        assert _get_lookup_scopes((mod, cls, fn, lambd, gen)) == [mod, fn, lambd, gen]
+        assert _get_lookup_scopes((mod, fn, comp)) == [mod, fn, comp]
+        assert _get_lookup_scopes((mod, fn)) == [mod, fn]
+        assert _get_lookup_scopes((mod, cls)) == [mod, cls]
+        assert _get_lookup_scopes((mod,)) == [mod]
+
+        try:
+            _get_lookup_scopes(())
+        except IndexError:
+            pass
+        else:
+            raise AssertionError('should have raised')
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_inner_inner_fn(self):
