@@ -249,7 +249,8 @@ class DefUseChains(ast.NodeVisitor):
         # be defined in another path of the control flow (esp. in loop)
         self._undefs = []
 
-        # stack of current node holding definitions: class, module, function...
+        # stack of current node holding definitions: 
+        # class, module, function, generator expression, comprehension...
         self._currenthead = []
 
         self._breaks = []
@@ -259,7 +260,7 @@ class DefUseChains(ast.NodeVisitor):
         # only used in the case of from __future__ import annotations feature.
         # the annotations are analyzed when the whole module has been processed,
         # it should be compable with both PEP 563 and PEP 649.
-        self._defered_annotations = [] #type:list[list[tuple[ast.expr, list[ast.AST], Optional[Callable[[Def],None]]]]]
+        self._defered_annotations = [] #type:list[list[tuple[ast.expr, tuple[ast.AST], Optional[Callable[[Def],None]]]]]
         self._analysing_defered_annotations = False
 
         # dead code levels
@@ -502,13 +503,11 @@ class DefUseChains(ast.NodeVisitor):
             definitions = list(self._definitions)
             if isinstance(self._currenthead[-1], ast.ClassDef):
                 definitions.pop()
-            # the body of the funcion will be processed later
+            # the body of the funcion will be analyzed later
             self._defered[-1].append((node, definitions))
 
             if self.future_annotations:
-                # annotation are to be resolved later as well
-                # function is not considered as defined when 
-                # evaluating returns and annotations
+                # annotations are to be analyzed later as well
                 currentheads = list(self._currenthead)
                 if node.returns:
                     self._defered_annotations[-1].append(
@@ -1103,21 +1102,68 @@ def _iter_arguments(node):
 
 def _lookup_annotation(name, heads, locals_map):
     # we go the pyright way, that is to start looking at module scope first, 
-    # then we try the local class scope.
-    while not isinstance(heads[-1], (ast.ClassDef, ast.Module)):
-        heads.pop()
-    if heads[-1] is heads[0]:
-        # avoiding an extra useless lookup when we're 
-        # dealing only with global namespace names
-        return _lookup(name, [heads[0]], locals_map)
-    else:
-        return _lookup(name, [heads[-1], heads[0]], locals_map)
+    # then we try the theoretical runtime scopes
+    scopes = _get_lookup_scopes(heads)
 
-def _lookup(name, heads, locals_map):
-    # more of less modeling what's described here.
-    # https://github.com/gvanrossum/gvanrossum.github.io/blob/main/formal/scopesblog.md
+    if len(scopes)>1:
+        # putting the global scope last in the list so annotation are
+        # resolve using he global namespace first.
+        scopes.append(scopes.pop(0))
+    
+    return _lookup(name, scopes, locals_map)
 
-    context = heads[-1]
+# more of less modeling what's described here.
+# https://github.com/gvanrossum/gvanrossum.github.io/blob/main/formal/scopesblog.md
+
+_CLOSED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, 
+                  ast.Lambda, ast.DictComp, ast.ListComp, 
+                  ast.SetComp, ast.GeneratorExp)
+# open scopes are ast.ClassDef and ast.Module.
+
+def _get_lookup_scopes(heads):
+    # heads[-1] is the direct enclosing scope and heads[0] is the module.
+    # returns a list based on the element of heads, but with
+    # the ignorable scopes removed. ignorable in the sens that the lookup
+    # will never happend in this scope for the given context.
+    
+    heads = list(heads) # avoid modifying the list
+    
+    # this scope is the only one that can be a class
+    direct_scope = heads.pop(-1)
+    try:
+        global_scope = heads.pop(0)
+    except IndexError:
+        # we got only a global scope
+        return [direct_scope]
+    other_scopes = [s for s in heads if isinstance(s, _CLOSED_SCOPES)]
+    return [global_scope] + other_scopes + [direct_scope]
+    
+
+def _lookup(name, scopes, locals_map):
+    # best-effort lazy lookup
+    # current pitfall of this function includes: 
+    # - builtin names
+    # - wildcard imported names 
+    # - nonlocal and global keywords, which are simply ignored
+    # all of the above are handled in DefUseChains.
+    
+    # this function is currently only used to resolve annotations
+    # in the context of from __future__ import annotations, it's not suitable
+    # to serve as a general purpose compiler like lookup feature.
+
+    # nonetheless, this function could be used by client code like this:
+    # given these four variables
+    # - ancestors: Ancestors, after visit
+    # - def_use: DefUseChains, after visit
+    # - context: ast.AST, the ast context we're resolvong the name in
+    # - name: str, the name we're trying to resolve
+    # >>> parent_scope = ancestors.parentInstance(context, 
+    # ... (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef, ast.Module, 
+    # ...  ast.Lambda, ast.DictComp, ast.ListComp, ast.SetComp, ast.GeneratorExp))
+    # >>> scopes = _filter_lookup_scopes(ancestors.parents(parent_scope) + [parent_scope])
+    # >>> name_defs = _lookup(name, scopes, def_use.locals)
+
+    context = scopes.pop()
     defs = []
     for loc in reversed(locals_map[context]):
         # start by the last added Defs
@@ -1126,13 +1172,9 @@ def _lookup(name, heads, locals_map):
             defs += [loc]
     if defs:
         return defs
-    elif len(heads)==1:
+    elif len(scopes)==0:
         raise LookupError("'{}' is unbound".format(name))
-    heads.pop()
-    # just in case
-    while not isinstance(heads[-1], (ast.ClassDef, ast.Module)):
-        heads.pop()
-    return _lookup(name, heads, locals_map)
+    return _lookup(name, scopes, locals_map)
 
 class UseDefChains(object):
     """
