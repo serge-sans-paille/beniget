@@ -327,7 +327,6 @@ class DefUseChains(ast.NodeVisitor):
             except LookupError:
                 # fallback to regular behaviour on module scope
                 # to support names from builtins or wildcard imports.
-                # self._warn('DEBUG: annotation not resolved: {}'.format(Def(node).name()), node)
                 pass
 
         stars = []
@@ -427,11 +426,13 @@ class DefUseChains(ast.NodeVisitor):
                         self.locals[node].append(dnode)
 
             # handle function bodies
-            for fnode, ctx in self._defered[-1]:
+            for fnode, ctx, heads in self._defered[-1]:
                 visitor = getattr(self,
                                   "visit_{}".format(type(fnode).__name__))
                 defs, self._definitions = self._definitions, ctx
+                currenthead, self._currenthead = self._currenthead, heads
                 visitor(fnode, step=DefinitionStep)
+                self._currenthead = currenthead
                 self._definitions = defs
             self._defered.pop()
 
@@ -505,7 +506,7 @@ class DefUseChains(ast.NodeVisitor):
             if isinstance(self._currenthead[-1], ast.ClassDef):
                 definitions.pop()
             # the body of the funcion will be analyzed later
-            self._defered[-1].append((node, definitions))
+            self._defered[-1].append((node, definitions, list(self._currenthead)))
 
             if self.future_annotations:
                 # annotations are to be analyzed later as well
@@ -850,7 +851,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Lambda(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
-            self._defered[-1].append((node, list(self._definitions)))
+            self._defered[-1].append((node, list(self._definitions), list(self._currenthead)))
             return dnode
         elif step is DefinitionStep:
             dnode = self.chains[node]
