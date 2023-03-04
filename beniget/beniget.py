@@ -2,7 +2,7 @@ from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
 import sys
 
-if sys.version_info >= (3,6)
+if sys.version_info >= (3,6):
     from typing import TYPE_CHECKING
 else:
     TYPE_CHECKING = False
