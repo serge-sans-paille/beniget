@@ -2,7 +2,10 @@ from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
 import sys
 
-from typing import TYPE_CHECKING
+if sys.version_info >= (3,6)
+    from typing import TYPE_CHECKING
+else:
+    TYPE_CHECKING = False
 
 import gast as ast #type:ignore[import]
 
