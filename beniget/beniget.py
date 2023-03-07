@@ -538,12 +538,7 @@ class DefUseChains(ast.NodeVisitor):
                 if node.returns:
                     self.visit(node.returns)
             with self.DefinitionContext(node):
-                # TODO: we might not need to do a distinction here
-                if self.future_annotations:
-                    for arg in _iter_arguments(node):
-                        self.visit(arg)
-                else:
-                    self.visit(node.args)
+                self.visit(node.args)
                 self.process_body(node.body)
         else:
             raise NotImplementedError()
