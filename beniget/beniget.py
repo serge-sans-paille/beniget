@@ -309,12 +309,7 @@ class DefUseChains(ast.NodeVisitor):
     def unbound_identifier(self, name, node):
         msg = "W: unbound identifier '{}'".format(name)
         self._warn(msg, node)
-    
-    def ambiguous_annotation(self, name, node):
-        msg = "W: ambiguous annotation identifier '{}'".format(name)
-        self._warn(msg, node)
 
-    # TODO: this function is unused, consider removing it?
     def lookup_identifier(self, name):
         for d in reversed(self._definitions):
             if name in d:
@@ -326,10 +321,7 @@ class DefUseChains(ast.NodeVisitor):
         # resolving an annotation is a bit different
         # form other names.
         try:
-            definitions = _lookup_annotation(name, self._currenthead, self.locals)
-            if len(definitions) > 1:
-                self.ambiguous_annotation(name, node)
-            return definitions
+            return _lookup_annotation(name, self._currenthead, self.locals)
         except LookupError:
             # fallback to regular behaviour on module scope
             # to support names from builtins or wildcard imports.
@@ -417,6 +409,7 @@ class DefUseChains(ast.NodeVisitor):
             self._definitions = defs
 
     def process_annotations(self):
+        defs, self.defs = self.defs,  self.compute_annotation_defs
         for annnode, heads, cb in self._defered_annotations[-1]:
             visitor = getattr(self,
                                 "visit_{}".format(type(annnode).__name__))
@@ -424,6 +417,7 @@ class DefUseChains(ast.NodeVisitor):
             d = visitor(annnode)
             cb(d) if cb else 0
             self._currenthead = currenthead
+        self.defs = defs
 
     # stmt
     def visit_Module(self, node):
@@ -458,7 +452,6 @@ class DefUseChains(ast.NodeVisitor):
             self._defered.pop()
 
             # handle defered annotations as in from __future__ import annotations
-            self.defs = self.compute_annotation_defs
             self.process_annotations()
             self._defered_annotations.pop()
 
