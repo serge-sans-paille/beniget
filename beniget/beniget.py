@@ -414,8 +414,7 @@ class DefUseChains(ast.NodeVisitor):
             visitor = getattr(self,
                                 "visit_{}".format(type(annnode).__name__))
             currenthead, self._currenthead = self._currenthead, heads
-            d = visitor(annnode)
-            cb(d) if cb else 0
+            cb(visitor(annnode)) if cb else visitor(annnode)
             self._currenthead = currenthead
         self.defs = defs
 
