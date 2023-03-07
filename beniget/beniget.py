@@ -422,7 +422,7 @@ class DefUseChains(ast.NodeVisitor):
                                 "visit_{}".format(type(annnode).__name__))
             currenthead, self._currenthead = self._currenthead, heads
             d = visitor(annnode)
-            cb(d) if cb else ...
+            cb(d) if cb else 0
             self._currenthead = currenthead
 
     # stmt
