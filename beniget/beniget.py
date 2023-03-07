@@ -168,10 +168,19 @@ Builtins["__file__"] = __file__
 
 DeclarationStep, DefinitionStep = object(), object()
 
+def collect_future_imports(node):
+    """
+    Returns a set of future imports names for the given ast module.
+    """
+    assert isinstance(node, ast.Module)
+    cf = _CollectFutureImports()
+    cf.visit(node)
+    return cf.FutureImports
+
 class _StopTraversal(Exception):
     pass
 
-class CollectFutureImports(ast.NodeVisitor):
+class _CollectFutureImports(ast.NodeVisitor):
     # future imports must be the first thing in the module
     # as soon as we're visiting something that is not 
     # a future import, we can stop the visit.
@@ -261,7 +270,6 @@ class DefUseChains(ast.NodeVisitor):
         # the annotations are analyzed when the whole module has been processed,
         # it should be compable with both PEP 563 and PEP 649.
         self._defered_annotations = [] #type:list[list[tuple[ast.expr, tuple[ast.AST], Optional[Callable[[Def],None]]]]]
-        self._analysing_defered_annotations = False
 
         # dead code levels
         self.deadcode = 0
@@ -312,22 +320,23 @@ class DefUseChains(ast.NodeVisitor):
             if name in d:
                 return d[name]
         return []
-
-    def defs(self, node):
+    
+    def compute_annotation_defs(self, node):
         name = node.id
+        # resolving an annotation is a bit different
+        # form other names.
+        try:
+            definitions = _lookup_annotation(name, self._currenthead, self.locals)
+            if len(definitions) > 1:
+                self.ambiguous_annotation(name, node)
+            return definitions
+        except LookupError:
+            # fallback to regular behaviour on module scope
+            # to support names from builtins or wildcard imports.
+            return self.compute_defs(node)
 
-        if self._analysing_defered_annotations:
-            # resolving an annotation is a bit different
-            # form other names.
-            try:
-                definitions = _lookup_annotation(name, self._currenthead, self.locals)
-                if len(definitions) > 1:
-                    self.ambiguous_annotation(name, node)
-                return definitions
-            except LookupError:
-                # fallback to regular behaviour on module scope
-                # to support names from builtins or wildcard imports.
-                pass
+    def compute_defs(self, node):
+        name = node.id
 
         stars = []
         for d in reversed(self._definitions):
@@ -348,6 +357,8 @@ class DefUseChains(ast.NodeVisitor):
             if not self._undefs:
                 self.unbound_identifier(name, node)
             return [d]
+
+    defs = compute_defs
 
     def process_body(self, stmts):
         deadcode = False
@@ -394,16 +405,33 @@ class DefUseChains(ast.NodeVisitor):
             self._promoted_locals.pop()
             self._definitions.pop()
             self._currenthead.pop()
+    
+    def process_functions(self):
+        for fnode, ctx, heads in self._defered[-1]:
+            visitor = getattr(self,
+                                "visit_{}".format(type(fnode).__name__))
+            defs, self._definitions = self._definitions, ctx
+            currenthead, self._currenthead = self._currenthead, heads
+            visitor(fnode, step=DefinitionStep)
+            self._currenthead = currenthead
+            self._definitions = defs
+
+    def process_annotations(self):
+        for annnode, heads, cb in self._defered_annotations[-1]:
+            visitor = getattr(self,
+                                "visit_{}".format(type(annnode).__name__))
+            currenthead, self._currenthead = self._currenthead, heads
+            d = visitor(annnode)
+            cb(d) if cb else ...
+            self._currenthead = currenthead
 
     # stmt
     def visit_Module(self, node):
         self.module = node
-        
+        futures = collect_future_imports(node)
         # determine whether the PEP563 is enabled
-        cf = CollectFutureImports()
-        cf.visit(node)
         # allow manual enabling of DefUseChains.future_annotations
-        self.future_annotations |= 'annotations' in cf.FutureImports
+        self.future_annotations |= 'annotations' in futures
         
         with self.DefinitionContext(node):
 
@@ -426,27 +454,12 @@ class DefUseChains(ast.NodeVisitor):
                         self.locals[node].append(dnode)
 
             # handle function bodies
-            for fnode, ctx, heads in self._defered[-1]:
-                visitor = getattr(self,
-                                  "visit_{}".format(type(fnode).__name__))
-                defs, self._definitions = self._definitions, ctx
-                currenthead, self._currenthead = self._currenthead, heads
-                visitor(fnode, step=DefinitionStep)
-                self._currenthead = currenthead
-                self._definitions = defs
+            self.process_functions()
             self._defered.pop()
 
             # handle defered annotations as in from __future__ import annotations
-            for annnode, heads, cb in self._defered_annotations[-1]:
-                visitor = getattr(self,
-                                  "visit_{}".format(type(annnode).__name__))
-                currenthead, self._currenthead = self._currenthead, heads
-                self._analysing_defered_annotations = True
-                d = visitor(annnode)
-                self._analysing_defered_annotations = False
-                if cb: 
-                    cb(d)
-                self._currenthead = currenthead
+            self.defs = self.compute_annotation_defs
+            self.process_annotations()
             self._defered_annotations.pop()
 
             # various sanity checks
