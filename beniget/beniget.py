@@ -169,13 +169,42 @@ Builtins["__file__"] = __file__
 DeclarationStep, DefinitionStep = object(), object()
 
 
-class CollectGlobals(ast.NodeVisitor):
+class CollectLocals(ast.NodeVisitor):
     def __init__(self):
-        self.Globals = defaultdict(list)
+        self.Locals = set()
+        self.NonLocals = set()
 
-    def visit_Global(self, node):
-        for name in node.names:
-            self.Globals[name].append((node, name))
+    def visit_FunctionDef(self, node):
+        self.Locals.add(node.name)
+        # no recursion
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    visit_ClassDef = visit_FunctionDef
+
+    def visit_Nonlocal(self, node):
+        self.NonLocals.update(name for name in node.names)
+
+    visit_Global = visit_Nonlocal
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Store) and node.id not in self.NonLocals:
+            self.Locals.add(node.id)
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            base = alias.name.split(".", 1)[0]
+            self.Locals.add(alias.asname or base)
+
+    def visit_ImportFrom(self, node):
+        for alias in node.names:
+            self.Locals.add(alias.asname or alias.name)
+
+
+def collect_locals(node):
+    visitor = CollectLocals()
+    visitor.generic_visit(node)
+    return visitor.Locals
 
 
 class DefUseChains(ast.NodeVisitor):
@@ -204,6 +233,7 @@ class DefUseChains(ast.NodeVisitor):
         """
         self.chains = {}
         self.locals = defaultdict(list)
+
         self.filename = filename
 
         # deep copy of builtins, to remain reentrant
@@ -217,7 +247,10 @@ class DefUseChains(ast.NodeVisitor):
         self._definitions = []
 
         # stack of variable defined with the global keywords
-        self._promoted_locals = []
+        self._globals = []
+
+        # stack of local identifiers, used to detect 'read before assign'
+        self._precomputed_locals = []
 
         # stack of variable that were undefined when we met them, but that may
         # be defined in another path of the control flow (esp. in loop)
@@ -248,17 +281,24 @@ class DefUseChains(ast.NodeVisitor):
             chains.append(str(d))
         return chains
 
-    def unbound_identifier(self, name, node):
+    def location(self, node):
         if hasattr(node, "lineno"):
             filename = "{}:".format(
                 "<unknown>" if self.filename is None else self.filename
             )
-            location = " at {}{}:{}".format(filename,
+            return " at {}{}:{}".format(filename,
                                             node.lineno,
                                             node.col_offset)
         else:
-            location = ""
+            return ""
+
+    def unbound_identifier(self, name, node):
+        location = self.location(node)
         print("W: unbound identifier '{}'{}".format(name, location))
+
+    def maybe_unbound_identifier(self, name, node):
+        location = self.location(node)
+        print("W: identifier '{}' may be unbound at runtime{}".format(name, location))
 
     def lookup_identifier(self, name):
         for d in reversed(self._definitions):
@@ -269,7 +309,13 @@ class DefUseChains(ast.NodeVisitor):
     def defs(self, node):
         name = node.id
         stars = []
-        for d in reversed(self._definitions):
+
+        if any(name in _globals for _globals in self._globals):
+            looked_up_definitions = self._definitions[0:1]
+        else:
+            looked_up_definitions = reversed(self._definitions)
+
+        for d in looked_up_definitions:
             if name in d:
                 return d[name] if not stars else stars + list(d[name])
             if "*" in d:
@@ -315,9 +361,11 @@ class DefUseChains(ast.NodeVisitor):
     def DefinitionContext(self, node):
         self._currenthead.append(node)
         self._definitions.append(defaultdict(ordered_set))
-        self._promoted_locals.append(set())
+        self._globals.append(set())
+        self._precomputed_locals.append(collect_locals(node))
         yield
-        self._promoted_locals.pop()
+        self._precomputed_locals.pop()
+        self._globals.pop()
         self._definitions.pop()
         self._currenthead.pop()
 
@@ -326,10 +374,10 @@ class DefUseChains(ast.NodeVisitor):
         if sys.version_info.major >= 3:
             self._currenthead.append(node)
             self._definitions.append(defaultdict(ordered_set))
-            self._promoted_locals.append(set())
+            self._globals.append(set())
         yield
         if sys.version_info.major >= 3:
-            self._promoted_locals.pop()
+            self._globals.pop()
             self._definitions.pop()
             self._currenthead.pop()
 
@@ -344,16 +392,6 @@ class DefUseChains(ast.NodeVisitor):
 
             self._defered.append([])
             self.process_body(node.body)
-
-            # handle `global' keyword specifically
-            cg = CollectGlobals()
-            cg.visit(node)
-            for nodes in cg.Globals.values():
-                for n, name in nodes:
-                    if name not in self._definitions[-1]:
-                        dnode = Def((n, name))
-                        self.set_definition(name, dnode)
-                        self.locals[node].append(dnode)
 
             # handle function bodies
             for fnode, ctx in self._defered[-1]:
@@ -402,6 +440,19 @@ class DefUseChains(ast.NodeVisitor):
             return
         DefUseChains.add_to_definition(self._definitions[-1], name,
                                        dnode_or_dnodes)
+
+    def extend_global(self, name, dnode_or_dnodes):
+        if self.deadcode:
+            return
+        DefUseChains.add_to_definition(self._definitions[0], name,
+                                       dnode_or_dnodes)
+
+    def set_or_extend_global(self, name, dnode):
+        if self.deadcode:
+            return
+        if name not in self._definitions[0]:
+            self.locals[self.module].append(dnode)
+        DefUseChains.add_to_definition(self._definitions[0], name, dnode)
 
     def visit_FunctionDef(self, node, step=DeclarationStep):
         if step is DeclarationStep:
@@ -487,8 +538,8 @@ class DefUseChains(ast.NodeVisitor):
             dtarget = self.visit(node.target)
             dvalue.add_user(dtarget)
             node.target.ctx = ctx
-            if node.target.id in self._promoted_locals[-1]:
-                self.extend_definition(node.target.id, dtarget)
+            if any(node.target.id in _globals for _globals in self._globals):
+                self.extend_global(node.target.id, dtarget)
             else:
                 loaded_from = [d.name() for d in self.defs(node.target)]
                 self.set_definition(node.target.id, dtarget)
@@ -701,7 +752,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_Global(self, node):
         for name in node.names:
-            self._promoted_locals[-1].add(name)
+            self._globals[-1].add(name)
 
     def visit_Nonlocal(self, node):
         for name in node.names:
@@ -861,13 +912,10 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_Name(self, node):
-
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             dnode = self.chains.setdefault(node, Def(node))
-            if node.id in self._promoted_locals[-1]:
-                self.extend_definition(node.id, dnode)
-                if dnode not in self.locals[self.module]:
-                    self.locals[self.module].append(dnode)
+            if any(node.id in _globals for _globals in self._globals):
+                self.set_or_extend_global(node.id, dnode)
             else:
                 self.set_definition(node.id, dnode)
                 if dnode not in self.locals[self._currenthead[-1]]:
@@ -877,6 +925,15 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(node.annotation)
 
         elif isinstance(node.ctx, (ast.Load, ast.Del)):
+            # We hit the situation where we refer to a local variable that's not
+            # bound yet. This is a runtime error in Python, so we issue a warning.
+            # Note that because we may be in a condition, it's just a *may* and it
+            # *may* be fine to ignore this warning.
+            current_scope = self._definitions[-1]
+            current_locals = self._precomputed_locals[-1]
+            if node.id in current_locals and node.id not in current_scope:
+                self.maybe_unbound_identifier(node.id, node)
+
             node_in_chains = node in self.chains
             if node_in_chains:
                 dnode = self.chains[node]
