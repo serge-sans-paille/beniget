@@ -43,7 +43,7 @@ class TestDefUseChains(TestCase):
             try:
                 c.visit(stdnode)
             except RuntimeError as e:
-                raise RuntimeError(f'{e}:\n\n\ngast:{ast.dump(node)}\n\n\nast:{stdast.dump(stdnode)}')
+                raise RuntimeError('{}:\n\n\ngast:{}\n\n\nast:{}'.format(e, ast.dump(node), stdast.dump(stdnode)))
             self.assertEqual(c.dump_chains(stdnode), ref)
 
     def test_simple_expression(self):
@@ -484,4 +484,7 @@ class TestUseDefChains(TestCase):
 
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
-        self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
+        if sys.version_info>(2,0) and sys.version_info<(3,7):
+            self.checkChains(code, "Call <- {Num, Num, bar}, bar <- {bar}")
+        else:
+            self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
