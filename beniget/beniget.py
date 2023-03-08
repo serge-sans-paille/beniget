@@ -2,7 +2,7 @@ from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
 import sys
 
-import gast as ast
+import ast
 
 # TODO: remove me when python 2 is not supported anymore
 class _ordered_set(object):
@@ -34,6 +34,17 @@ if sys.version_info >= (3,6):
 else:
     # python < 3,6 we fall back on older version of the ordered_set
     ordered_set = _ordered_set
+
+def loose_isinstance(o, cls):
+    """
+    Like isisntance() but support string based comparaisons.
+    """
+    if isinstance(cls, (tuple, list)):
+        return any(loose_isinstance(o, c) for c in cls)
+    elif isinstance(cls, str):
+        return o.__class__.__name__ == cls
+    else:
+        return isinstance(o, cls)
 
 class Ancestors(ast.NodeVisitor):
     """
@@ -74,13 +85,13 @@ class Ancestors(ast.NodeVisitor):
 
     def parentInstance(self, node, cls):
         for n in reversed(self._parents[node]):
-            if isinstance(n, cls):
+            if loose_isinstance(n, cls):
                 return n
         raise ValueError("{} has no parent of type {}".format(node, cls))
 
     def parentFunction(self, node):
-        return self.parentInstance(node, (ast.FunctionDef,
-                                          ast.AsyncFunctionDef))
+        return self.parentInstance(node, ('FunctionDef',
+                                          'AsyncFunctionDef'))
 
     def parentStmt(self, node):
         return self.parentInstance(node, ast.stmt)
@@ -106,13 +117,14 @@ class Def(object):
         If the node associated to this Def has a name, returns this name.
         Otherwise returns its type
         """
-        if isinstance(self.node, (ast.ClassDef,
-                                  ast.FunctionDef,
-                                  ast.AsyncFunctionDef)):
+        if loose_isinstance(self.node, ('ClassDef',
+                                  'FunctionDef',
+                                  'AsyncFunctionDef',
+                                  'ExceptHandler')) and self.node.name:
             return self.node.name
-        elif isinstance(self.node, ast.Name):
+        elif loose_isinstance(self.node, 'Name'):
             return self.node.id
-        elif isinstance(self.node, ast.alias):
+        elif loose_isinstance(self.node, 'alias'):
             base = self.node.name.split(".", 1)[0]
             return self.node.asname or base
         elif isinstance(self.node, tuple):
@@ -235,7 +247,7 @@ class DefUseChains(ast.NodeVisitor):
     # helpers
 
     def dump_definitions(self, node, ignore_builtins=True):
-        if isinstance(node, ast.Module) and not ignore_builtins:
+        if loose_isinstance(node, 'Module') and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
             return sorted(d.name()
                           for d in self.locals[node] if d not in builtins)
@@ -290,7 +302,7 @@ class DefUseChains(ast.NodeVisitor):
     def process_body(self, stmts):
         deadcode = False
         for stmt in stmts:
-            if isinstance(stmt, (ast.Break, ast.Continue, ast.Raise)):
+            if loose_isinstance(stmt, ('Break', 'Continue', 'Raise')):
                 if not deadcode:
                     deadcode = True
                     self.deadcode += 1
@@ -417,7 +429,7 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(decorator)
 
             definitions = list(self._definitions)
-            if isinstance(self._currenthead[-1], ast.ClassDef):
+            if loose_isinstance(self._currenthead[-1], 'ClassDef'):
                 definitions.pop()
             self._defered[-1].append((node, definitions))
         elif step is DefinitionStep:
@@ -482,7 +494,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_AugAssign(self, node):
         dvalue = self.visit(node.value)
-        if isinstance(node.target, ast.Name):
+        if loose_isinstance(node.target, 'Name'):
             ctx, node.target.ctx = node.target.ctx, ast.Load()
             dtarget = self.visit(node.target)
             dvalue.add_user(dtarget)
@@ -654,6 +666,17 @@ class DefUseChains(ast.NodeVisitor):
                 self.extend_definition(hd, handler_def[hd])
 
         self.process_body(node.finalbody)
+    
+    def visit_ExceptHandler(self, node):
+        if isinstance(node.name, str):
+            # standard library nodes does not wrap 
+            # the exception 'as' name in Name instance.
+            dnode = self.chains.setdefault(node, Def(node))
+            self.set_definition(node.name, dnode)
+            if dnode not in self.locals[self._currenthead[-1]]:
+                self.locals[self._currenthead[-1]].append(dnode)
+        self.generic_visit(node)
+
 
     def visit_Assert(self, node):
         self.visit(node.test)
@@ -831,6 +854,8 @@ class DefUseChains(ast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         return dnode
 
+    visit_NamedConstant = visit_Num = visit_Str = visit_Bytes = visit_Ellipsis = visit_Constant
+
     def visit_FormattedValue(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.value).add_user(dnode)
@@ -862,7 +887,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_Name(self, node):
 
-        if isinstance(node.ctx, (ast.Param, ast.Store)):
+        if loose_isinstance(node.ctx, ('Param', 'Store')):
             dnode = self.chains.setdefault(node, Def(node))
             if node.id in self._promoted_locals[-1]:
                 self.extend_definition(node.id, dnode)
@@ -873,10 +898,10 @@ class DefUseChains(ast.NodeVisitor):
                 if dnode not in self.locals[self._currenthead[-1]]:
                     self.locals[self._currenthead[-1]].append(dnode)
 
-            if node.annotation is not None:
+            if hasattr(node, 'annotation') and node.annotation is not None:
                 self.visit(node.annotation)
 
-        elif isinstance(node.ctx, (ast.Load, ast.Del)):
+        elif loose_isinstance(node.ctx, ('Load', 'Del')):
             node_in_chains = node in self.chains
             if node_in_chains:
                 dnode = self.chains[node]
@@ -891,29 +916,38 @@ class DefUseChains(ast.NodeVisitor):
             raise NotImplementedError()
         return dnode
 
+    def visit_arg(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        self.set_definition(node.arg, dnode)
+        if dnode not in self.locals[self._currenthead[-1]]:
+            self.locals[self._currenthead[-1]].append(dnode)
+        if node.annotation is not None:
+            self.visit(node.annotation)
+        return dnode
+
     def visit_Destructured(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         tmp_store = ast.Store()
         for elt in node.elts:
-            if isinstance(elt, ast.Name):
+            if loose_isinstance(elt, 'Name'):
                 tmp_store, elt.ctx = elt.ctx, tmp_store
                 self.visit(elt)
                 tmp_store, elt.ctx = elt.ctx, tmp_store
-            elif isinstance(elt, ast.Subscript):
+            elif loose_isinstance(elt, 'Subscript'):
                 self.visit(elt)
-            elif isinstance(elt, (ast.List, ast.Tuple)):
+            elif loose_isinstance(elt, ('List', 'Tuple')):
                 self.visit_Destructured(elt)
         return dnode
 
     def visit_List(self, node):
-        if isinstance(node.ctx, ast.Load):
+        if loose_isinstance(node.ctx, 'Load'):
             dnode = self.chains.setdefault(node, Def(node))
             for elt in node.elts:
                 self.visit(elt).add_user(dnode)
             return dnode
         # unfortunately, destructured node are marked as Load,
         # only the parent List/Tuple is marked as Store
-        elif isinstance(node.ctx, ast.Store):
+        elif loose_isinstance(node.ctx, 'Store'):
             return self.visit_Destructured(node)
 
     visit_Tuple = visit_List
@@ -929,6 +963,16 @@ class DefUseChains(ast.NodeVisitor):
         if node.step:
             self.visit(node.step).add_user(dnode)
         return dnode
+
+    def visit_ExtSlice(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        for elt in node.dims:
+            self.visit(elt).add_user(dnode)
+        return dnode
+    
+    def visit_Index(self, node):
+        # pretend Index does not exist
+        return self.visit(node.value)
 
     # misc
 
@@ -983,7 +1027,7 @@ class UseDefChains(object):
     def __init__(self, defuses):
         self.chains = {}
         for chain in defuses.chains.values():
-            if isinstance(chain.node, ast.Name):
+            if loose_isinstance(chain.node, 'Name'):
                 self.chains.setdefault(chain.node, [])
             for use in chain.users():
                 self.chains.setdefault(use.node, []).append(chain)
@@ -1026,14 +1070,14 @@ if __name__ == "__main__":
                 if not local_def.users():
                     if local_def.name() == "_":
                         continue  # typical naming by-pass
-                    if isinstance(local_def.node, skipped_types):
+                    if loose_isinstance(local_def.node, skipped_types):
                         continue
 
                     location = local_def.node
                     while not hasattr(location, "lineno"):
                         location = self.ancestors.parent(location)
 
-                    if isinstance(location, ast.ImportFrom):
+                    if loose_isinstance(location, 'ImportFrom'):
                         if location.module == "__future__":
                             continue
 
@@ -1051,8 +1095,8 @@ if __name__ == "__main__":
             if self.filename.endswith("__init__.py"):
                 return
             self.check_unused(
-                node, skipped_types=(ast.FunctionDef, ast.AsyncFunctionDef,
-                                     ast.ClassDef, ast.Name)
+                node, skipped_types=('FunctionDef', 'AsyncFunctionDef',
+                                     'ClassDef', 'Name')
             )
 
         def visit_FunctionDef(self, node):

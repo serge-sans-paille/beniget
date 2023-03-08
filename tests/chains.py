@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
 import gast as ast
+import ast as stdast
 import beniget
 import io
 import sys
@@ -34,6 +35,16 @@ class TestDefUseChains(TestCase):
         c = StrictDefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
+
+        # same with standard ast library
+        if sys.version_info >= (3,6):
+            stdnode = stdast.parse(code)
+            c = StrictDefUseChains()
+            try:
+                c.visit(stdnode)
+            except RuntimeError as e:
+                raise RuntimeError(f'{e}:\n\n\ngast:{ast.dump(node)}\n\n\nast:{stdast.dump(stdnode)}') from e
+            self.assertEqual(c.dump_chains(stdnode), ref)
 
     def test_simple_expression(self):
         code = "a = 1; a + 2"
@@ -412,6 +423,34 @@ if (a := a + a):
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
 
+    def test_expressions_compat_stdlib_constants(self):
+        code = '''
+b'123' + 123 - 'string'
+'''
+        self.checkChains(code, [])
+
+    def test_expressions_compat_stdlib_with(self):
+        code = '''
+with open('/folder/file', 'rb') as f:
+    print(f.read())
+'''
+        self.checkChains(code, ['f -> (f -> (Attribute -> (Call -> (Call -> ()))))'])
+
+    def test_expressions_compat_stdlib_slices(self):
+        code = '''
+l = []
+l[1:2, 3]
+'''
+        self.checkChains(code, ['l -> (l -> (Subscript -> ()))'])
+
+    def test_expressions_compat_stdlib_index(self):
+        code = '''
+l = []
+l[3.14]
+'''
+        self.checkChains(code, ['l -> (l -> (Subscript -> ()))'])
+    
+
 
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
@@ -429,6 +468,15 @@ class TestUseDefChains(TestCase):
         cc = beniget.UseDefChains(c)
 
         self.assertEqual(str(cc), ref)
+
+        if sys.version_info >= (3,6):
+
+            node = stdast.parse(code)
+            c = StrictDefUseChains()
+            c.visit(node)
+            cc = beniget.UseDefChains(c)
+
+            self.assertEqual(str(cc), ref)
 
     def test_simple_expression(self):
         code = "a = 1; a"
