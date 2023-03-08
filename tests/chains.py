@@ -354,21 +354,48 @@ while done:
         code = "type_ = int\ndef foo(bar: type_): pass"
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
 
-    def check_unbound_identifier_message(self, code, expected_messages, filename=None):
+    def check_message(self, code, expected_messages, filename=None):
         node = ast.parse(code)
         c = beniget.DefUseChains(filename)
         with captured_output() as (out, err):
             c.visit(node)
-        produced_messages = out.getvalue().strip().split("\n")
 
-        self.assertEqual(len(expected_messages), len(produced_messages))
+        if not out.getvalue():
+            produced_messages = []
+        else:
+            produced_messages = out.getvalue().strip().split("\n")
+
+        self.assertEqual(len(expected_messages), len(produced_messages),
+                         produced_messages)
         for expected, produced in zip(expected_messages, produced_messages):
-            self.assertIn(expected, produced, "actual message contains expected message")
+            self.assertIn(expected, produced,
+                          "actual message does not contains expected message")
 
     def test_unbound_identifier_message_format(self):
         code = "foo(1)\nbar(2)"
-        self.check_unbound_identifier_message(code, ["<unknown>:1", "<unknown>:2"])
-        self.check_unbound_identifier_message(code, ["foo.py:1", "foo.py:2"], filename="foo.py")
+        self.check_message(code, ["<unknown>:1", "<unknown>:2"])
+        self.check_message(code, ["foo.py:1", "foo.py:2"], filename="foo.py")
+
+    def test_maybe_unbound_identifier_message_format(self):
+        code = "x = 1\ndef foo(): y = x; x = 2"
+        self.check_message(code,
+                           ["'x' may be unbound at runtime at <unknown>:2"])
+
+    def test_unbound_local_identifier_in_func(self):
+        code = "def A():\n x = 1\n class B: x = x"
+        self.check_message(code,
+                           ["'x' may be unbound at runtime at <unknown>:3"])
+
+    if sys.version_info.major >= 3:
+
+        def test_unbound_local_identifier_nonlocal(self):
+            code = "def A():\n x = 1\n class B: nonlocal x; x = x"
+            self.check_message(code, [])
+
+    def test_unbound_local_identifier_in_augassign(self):
+        code = "def A():\n x = 1\n class B: x += 1"
+        self.check_message(code,
+                           ["'x' may be unbound at runtime at <unknown>:3"])
 
     def test_star_import_with_conditional_redef(self):
         code = '''

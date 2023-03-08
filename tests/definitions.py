@@ -158,14 +158,15 @@ class TestGlobals(TestCase):
 
     def testGlobalThroughKeyword(self):
         code = "def foo(): global x"
+        # a global keyword does not actually create a global
+        self.checkGlobals(code, ["foo"])
+
+    def testGlobalThroughKeywordAndAssign(self):
+        code = "def foo(): global x; x = 1"
         self.checkGlobals(code, ["foo", "x"])
 
-    def testGlobalThroughKeywords(self):
-        code = "def foo(): global x, y"
-        self.checkGlobals(code, ["foo", "x", "y"])
-
     def testGlobalThroughMultipleKeyword(self):
-        code = "def foo(): global x\ndef bar(): global x"
+        code = "def foo(): global x\ndef bar(): global x; x = 1"
         self.checkGlobals(code, ["bar", "foo", "x"])
 
     def testGlobalBeforeKeyword(self):
@@ -174,7 +175,7 @@ class TestGlobals(TestCase):
 
     def testGlobalsBeforeKeyword(self):
         code = "x = 1\ndef foo(): global x, y"
-        self.checkGlobals(code, ["foo", "x", "y"])
+        self.checkGlobals(code, ["foo", "x"])
 
     if sys.version_info.major >= 3:
 
@@ -184,7 +185,11 @@ class TestGlobals(TestCase):
 
         def testGlobalsAfterKeyword(self):
             code = "def foo(): global x, y\ny : 1"
-            self.checkGlobals(code, ["foo", "x", "y"])
+            self.checkGlobals(code, ["foo", "y"])
+
+    def testGlobalKeyworaInClassd(self):
+        code = "class F: global x; x = 1"
+        self.checkGlobals(code, ["F", "x"])
 
     def testGlobalImport(self):
         code = "import foo"
@@ -352,7 +357,7 @@ class TestLocals(TestCase):
             )
             self.checkLocals(code, ["a", "bar"])
 
-    def test_LocalGlobal(self):
+    def test_LocalMadeGlobal(self):
         code = "def foo(): global a; a = 1"
         self.checkLocals(code, [])
 
