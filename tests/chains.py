@@ -432,9 +432,9 @@ b'123' + 123 - 'string'
     def test_expressions_compat_stdlib_with(self):
         code = '''
 with open('/folder/file', 'rb') as f:
-    print(f.read())
+    f.read()
 '''
-        self.checkChains(code, ['f -> (f -> (Attribute -> (Call -> (Call -> ()))))'])
+        self.checkChains(code, ['f -> (f -> (Attribute -> (Call -> ())))'])
 
     def test_expressions_compat_stdlib_slices(self):
         code = '''
@@ -475,8 +475,14 @@ class TestUseDefChains(TestCase):
             c = StrictDefUseChains()
             c.visit(node)
             cc = beniget.UseDefChains(c)
+            actual = str(cc)
 
-            self.assertEqual(str(cc), ref)
+            # work arround little change from python 3.6
+            if sys.version_info.minor == 6:
+                # 3.6
+                actual =actual.replace('Num', 'Constant')
+
+            self.assertEqual(actual, ref)
 
     def test_simple_expression(self):
         code = "a = 1; a"
@@ -484,7 +490,4 @@ class TestUseDefChains(TestCase):
 
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
-        if sys.version_info>(2,0) and sys.version_info<(3,7):
-            self.checkChains(code, "Call <- {Num, Num, bar}, bar <- {bar}")
-        else:
-            self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
+        self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
