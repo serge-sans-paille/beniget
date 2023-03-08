@@ -43,7 +43,7 @@ class TestDefUseChains(TestCase):
             try:
                 c.visit(stdnode)
             except RuntimeError as e:
-                raise RuntimeError(f'{e}:\n\n\ngast:{ast.dump(node)}\n\n\nast:{stdast.dump(stdnode)}') from e
+                raise RuntimeError(f'{e}:\n\n\ngast:{ast.dump(node)}\n\n\nast:{stdast.dump(stdnode)}')
             self.assertEqual(c.dump_chains(stdnode), ref)
 
     def test_simple_expression(self):
