@@ -997,7 +997,7 @@ class DefUseChains(ast.NodeVisitor):
         for arg in node.args:
             self.visit(arg)
 
-        for arg in node.posonlyargs:
+        for arg in getattr(node, 'posonlyargs', ()):
             self.visit(arg)
 
         if node.vararg:
