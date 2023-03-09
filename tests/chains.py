@@ -358,24 +358,6 @@ while done:
         code = "type_ = int\ndef foo(bar: type_): pass"
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
     
-    @skipIf(True, "Skipped until the following issues is fixed https://github.com/serge-sans-paille/beniget/issues/44")
-    def test_class_scope(self):
-        code = '''
-def outer():
-    x = 1
-    def middle():
-        x = 1
-        class mytype(str):
-            x = x+1 # <- this triggers NameError: name 'x' is not defined
-    return middle
-outer()()
-        '''
-        with captured_output() as (out, err):
-
-            mod, chains = self.checkChains(
-                    code, 
-                    ['outer -> (outer -> (Call -> (Call -> ())))'], 
-                )
 
     def check_unbound_identifier_message(self, code, expected_messages, filename=None):
         node = ast.parse(code)
@@ -775,32 +757,6 @@ def outer():
                          ['middle -> ()',
                           'mytype -> (mytype -> ())'])
     
-    @skipIf(True, "Skipped until the following issues is fixed https://github.com/serge-sans-paille/beniget/issues/44")
-    def test_annotation_nested_alt(self):
-
-        code = '''
-def outer():
-    def middle():
-        class mytype(str):
-            def count(self, x:mytype) -> mytype: # this should triggers unbound idenfier
-                def c(x:mytype) -> mytype: # this one shouldtn't
-                    ...
-        '''
-        with captured_output() as (out, err):
-
-            mod, chains = self.checkChains(
-                    code, 
-                    ['outer -> ()',], 
-                    strict=False,
-                )
-        
-        produced_messages = out.getvalue().strip().split("\n")
-        expected_warnings = [
-            "W: unbound identifier 'mytype'",
-        ]
-
-        assert len(produced_messages) == len(expected_warnings), produced_messages
-        assert all(any(w in pw for pw in produced_messages) for w in expected_warnings), produced_messages
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_very_nested(self):
