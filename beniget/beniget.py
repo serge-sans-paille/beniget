@@ -268,8 +268,8 @@ class DefUseChains(ast.NodeVisitor):
         # stack of list of annotations (annotation, heads, callback), 
         # only used in the case of from __future__ import annotations feature.
         # the annotations are analyzed when the whole module has been processed,
-        # it should be compable with both PEP 563 and PEP 649.
-        self._defered_annotations = [] #type:list[list[tuple[ast.expr, tuple[ast.AST], Optional[Callable[[Def],None]]]]]
+        # it should be compatible with PEP 563, and minor changes are required to support PEP 649.
+        self._defered_annotations = []
 
         # dead code levels
         self.deadcode = 0
@@ -336,8 +336,6 @@ class DefUseChains(ast.NodeVisitor):
                 return d[name] if not stars else stars + list(d[name])
             if "*" in d:
                 stars.extend(d["*"])
-        
-        # this should be only applicable for loops
         d = self.chains.setdefault(node, Def(node))
 
         if self._undefs:
