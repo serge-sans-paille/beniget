@@ -535,7 +535,7 @@ class S:
                          ['f -> ()'])
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
-def test_annotation_use_upper_scope_variables(self):
+    def test_annotation_use_upper_scope_variables(self):
         code = '''
 from typing import Union
 class Attr:
