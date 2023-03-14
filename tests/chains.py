@@ -521,16 +521,16 @@ from typing import Type
 class System:
     Thing = bytes
     @property
-    def Attribute(self) -> Type[Attribute, Thing]:...
+    def Attr(self) -> Type[Attr, Thing]:...
     
-class Attribute:
+class Attr:
     ...
 class Thing:
     ...'''
         self.checkChains(
             code, ['Type -> (Type -> (Subscript -> ()))',
                     'System -> ()',
-                    'Attribute -> (Attribute -> (Tuple -> (Subscript -> ())))',
+                    'Attr -> (Attr -> (Tuple -> (Subscript -> ())))',
                     'Thing -> (Thing -> (Tuple -> (Subscript -> ())))']
         )
     
@@ -785,7 +785,7 @@ fn = outer()
                           'mytype2 -> (mytype2 -> ())'])
         self.assertEqual(chains.dump_chains(mod.body[1].body[0]), 
                          ['inner -> (inner -> ())', 
-                          'mytype -> (mytype -> ())'])
+                          'mytype -> ()']) # annotation is unbound, so not linked here (and a warning is emitted)
 
         # in this case, the behaviour changes radically with pep 563
 
