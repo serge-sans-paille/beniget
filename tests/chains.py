@@ -407,7 +407,6 @@ def middle():
     def test_class_annotation(self):
         code = "type_ = int\ndef foo(bar: type_): pass"
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
-    
 
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
@@ -517,12 +516,23 @@ if (a := a + a):
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound(self):
         code = '''
-def f(x:f) -> f:
+def f(x:f) -> f: # 'f' annotations are unbound
     ...'''
         self.checkChains(
             code, ['f -> ()'], strict=False
         )
-
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_method_annotation_unbound(self):
+        code = '''
+class S:
+    def f(self, x:f) -> f:... # 'f' annotations are unbound
+'''
+        mod, chains = self.checkChains(
+            code, ['S -> ()'], strict=False
+        )
+        self.assertEqual(chains.dump_chains(mod.body[0]), 
+                         ['f -> ()'])
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_use_upper_scope_variables(self):
