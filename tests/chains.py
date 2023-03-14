@@ -349,6 +349,56 @@ while done:
         self.checkChains(code, ["decorator -> (decorator -> (C -> ()))", "C -> ()"])
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_def_used_in_self_default(self):
+        code = "def foo(x:foo): return foo"
+        self.checkChains(code, ["foo -> (foo -> ())"])
+
+    def test_unbound_class_variable(self):
+        code = '''
+def middle():
+    x = 1
+    class mytype(str):
+        x = x+1 # <- this triggers NameError: name 'x' is not defined
+    return x
+        '''
+        c = beniget.DefUseChains()
+        node = ast.parse(code)
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node.body[0]), ['x -> (x -> ())', 'mytype -> ()'])
+    
+    def test_unbound_class_variable2(self):
+        code = '''class A:\n  a = 10\n  def f(self):\n    return a # a is not defined'''
+        c = beniget.DefUseChains()
+        node = ast.parse(code)
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
+
+    def test_unbound_class_variable3(self):
+        code = '''class A:\n  a = 10\n  class I:\n    b = a + 1 # a is not defined'''
+        c = beniget.DefUseChains()
+        node = ast.parse(code)
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'I -> ()'])
+    
+    def test_unbound_class_variable4(self):
+        code = '''class A:\n  a = 10\n  f = lambda: a # a is not defined'''
+        c = beniget.DefUseChains()
+        node = ast.parse(code)
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
+
+    def test_unbound_class_variable5(self):
+        code = '''class A:\n  a = 10\n  b = [a for _ in range(10)]  # a is not defined'''
+        c = beniget.DefUseChains()
+        node = ast.parse(code)
+        c.visit(node)
+        if sys.version_info.major >= 3:
+            self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'b -> ()'])
+        else:
+            self.assertEqual(c.dump_chains(node.body[0]),
+                             ['a -> (a -> (ListComp -> ()))', '_ -> ()', 'b -> ()'])
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_functiondef_returns(self):
         code = "x = 1\ndef foo() -> x: pass"
         self.checkChains(code, ['x -> (x -> ())', 'foo -> ()'])
@@ -359,21 +409,68 @@ while done:
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
     
 
-    def check_unbound_identifier_message(self, code, expected_messages, filename=None):
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_inner_class(self):
+
+        code = '''
+def outer():
+    def middle():
+        class mytype(str):
+            def count(self) -> mytype: # this should trigger unbound identifier
+                def c(x) -> mytype(): # this one shouldn't
+                    ...
+        '''
+        c = beniget.DefUseChains()
+        node = ast.parse(code)
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node.body[0].body[0]), ['mytype -> (mytype -> (Call -> ()))'])
+
+    def check_message(self, code, expected_messages, filename=None):
         node = ast.parse(code)
         c = beniget.DefUseChains(filename)
         with captured_output() as (out, err):
             c.visit(node)
-        produced_messages = out.getvalue().strip().split("\n")
 
-        self.assertEqual(len(expected_messages), len(produced_messages))
+        if not out.getvalue():
+            produced_messages = []
+        else:
+            produced_messages = out.getvalue().strip().split("\n")
+
+        self.assertEqual(len(expected_messages), len(produced_messages),
+                         produced_messages)
         for expected, produced in zip(expected_messages, produced_messages):
-            self.assertIn(expected, produced, "actual message contains expected message")
+            self.assertIn(expected, produced,
+                          "actual message does not contains expected message")
 
     def test_unbound_identifier_message_format(self):
         code = "foo(1)\nbar(2)"
-        self.check_unbound_identifier_message(code, ["<unknown>:1", "<unknown>:2"])
-        self.check_unbound_identifier_message(code, ["foo.py:1", "foo.py:2"], filename="foo.py")
+        self.check_message(code, ["<unknown>:1", "<unknown>:2"])
+        self.check_message(code, ["foo.py:1", "foo.py:2"], filename="foo.py")
+
+    def test_unbound_class_variable_reference_message_format(self):
+        code = "class A:\n a = 10\n def f(self): return a # a is undef"
+        self.check_message(code, ["unbound identifier 'a' at <unknown>:3"])
+
+    def test_maybe_unbound_identifier_message_format(self):
+        code = "x = 1\ndef foo(): y = x; x = 2"
+        self.check_message(code,
+                           ["'x' may be unbound at runtime at <unknown>:2"])
+
+    def test_unbound_local_identifier_in_func(self):
+        code = "def A():\n x = 1\n class B: x = x"
+        self.check_message(code,
+                           ["'x' may be unbound at runtime at <unknown>:3"])
+
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
+    def test_unbound_local_identifier_nonlocal(self):
+        code = "def A():\n x = 1\n class B: nonlocal x; x = x"
+        self.check_message(code, [])
+
+    def test_unbound_local_identifier_in_augassign(self):
+        code = "def A():\n x = 1\n class B: x += 1"
+        self.check_message(code,
+                           ["'x' may be unbound at runtime at <unknown>:3"])
 
     def test_star_import_with_conditional_redef(self):
         code = '''
