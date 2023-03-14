@@ -514,6 +514,16 @@ if (a := a + a):
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
     
+     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_unbound(self):
+        code = '''
+def f(x:f) -> f:
+    ...'''
+        self.checkChains(
+            code, ['f -> ()'], strict=False
+        )
+
+
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_use_upper_scope_variables(self):
         code = '''
@@ -535,7 +545,7 @@ class Thing:
         )
     
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
-    def test_annotation_unbound(self):
+    def test_future_annotation_class_var(self):
         code = '''
 from __future__ import annotations
 from typing import Type
