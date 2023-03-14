@@ -503,14 +503,14 @@ class DefUseChains(ast.NodeVisitor):
                 visitor(fnode, step=DefinitionStep)
 
     def process_annotations(self):
-        defs, self.defs = self.defs,  self.compute_annotation_defs
+        compute_defs, self.defs = self.defs,  self.compute_annotation_defs
         for annnode, heads, cb in self._defered_annotations[-1]:
             visitor = getattr(self,
                                 "visit_{}".format(type(annnode).__name__))
-            currenthead, self._currenthead = self._currenthead, heads
+            currenthead, self._scopes = self._scopes, heads
             cb(visitor(annnode)) if cb else visitor(annnode)
-            self._currenthead = currenthead
-        self.defs = defs
+            self._scopes = currenthead
+        self.defs = compute_defs
 
 
     # stmt
@@ -624,14 +624,14 @@ class DefUseChains(ast.NodeVisitor):
             
             else:
                 # annotations are to be analyzed later as well
-                currentheads = list(self._currenthead)
+                currentscopes = list(self._scopes)
                 if node.returns:
                     self._defered_annotations[-1].append(
-                        (node.returns, currentheads, None))
+                        (node.returns, currentscopes, None))
                 for arg in _iter_arguments(node):
                     if arg.annotation:
                         self._defered_annotations[-1].append(
-                            (arg.annotation, currentheads, None))
+                            (arg.annotation, currentscopes, None))
 
             for kw_default in filter(None, node.args.kw_defaults):
                 self.visit(kw_default).add_user(dnode)
@@ -723,7 +723,7 @@ class DefUseChains(ast.NodeVisitor):
 
         if self.future_annotations:
             self._defered_annotations[-1].append(
-                (node.annotation, list(self._currenthead), 
+                (node.annotation, list(self._scopes), 
                 lambda d:dtarget.add_user(d)))
 
     def visit_AugAssign(self, node):
