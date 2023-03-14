@@ -357,12 +357,6 @@ class DefUseChains(ast.NodeVisitor):
         location = self.location(node)
         print("W: identifier '{}' may be unbound at runtime{}".format(name, location))
 
-    def lookup_identifier(self, name):
-        for d in reversed(self._definitions):
-            if name in d:
-                return d[name]
-        return []
-    
     def compute_annotation_defs(self, node):
         name = node.id
         # resolving an annotation is a bit different
@@ -380,7 +374,6 @@ class DefUseChains(ast.NodeVisitor):
         the list of def linked to that use.
         '''
         name = node.id
-
         stars = []
 
         # If the `global` keyword has been used, honor it
@@ -413,6 +406,7 @@ class DefUseChains(ast.NodeVisitor):
                 return d[name] if not stars else stars + list(d[name])
             if "*" in d:
                 stars.extend(d["*"])
+
         d = self.chains.setdefault(node, Def(node))
 
         if self._undefs:
