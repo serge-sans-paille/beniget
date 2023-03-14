@@ -514,7 +514,7 @@ if (a := a + a):
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
     
-     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound(self):
         code = '''
 def f(x:f) -> f:
