@@ -535,9 +535,9 @@ class S:
                          ['f -> ()'])
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
-    def test_annotation_use_upper_scope_variables(self):
+def test_annotation_use_upper_scope_variables(self):
         code = '''
-from typing import Type
+from typing import Union
 class Attr:
     ...
 class Thing:
@@ -545,10 +545,10 @@ class Thing:
 class System:
     Thing = bytes
     @property
-    def Attr(self) -> Type[Attr, Thing]:...
+    def Attr(self) -> Union[Attr, Thing]:...
 '''
         self.checkChains(
-            code, ['Type -> (Type -> (Subscript -> ()))',
+            code, ['Union -> (Union -> (Subscript -> ()))',
                     'System -> ()',
                     'Attr -> (Attr -> (Tuple -> (Subscript -> ())))',
                     # Attr is not linked at all because of the maybe unbound identifier warning
