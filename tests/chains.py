@@ -447,6 +447,10 @@ def outer():
         code = "class A:\n a = 10\n def f(self): return a # a is undef"
         self.check_message(code, ["unbound identifier 'a' at <unknown>:3"])
 
+    def test_no_unbound_local_identifier_in_comp(self):
+        code = "a = []; b = [1 for i in a]"
+        self.check_message(code, [])
+
     def test_maybe_unbound_identifier_message_format(self):
         code = "x = 1\ndef foo(): y = x; x = 2"
         self.check_message(code,
