@@ -153,13 +153,10 @@ class Def(object):
             )
 
 
-Builtins = {}
-
 if sys.version_info.major == 2:
     BuiltinsSrc = __builtins__
 else:
     import builtins
-
     BuiltinsSrc = builtins.__dict__
 
 Builtins = {k: v for k, v in BuiltinsSrc.items()}
@@ -191,7 +188,7 @@ class CollectLocals(ast.NodeVisitor):
         if isinstance(node.ctx, ast.Store) and node.id not in self.NonLocals:
             self.Locals.add(node.id)
 
-    def skip(self, node):
+    def skip(self, _):
         pass
 
     if sys.version_info.major >= 3:
@@ -564,7 +561,7 @@ class DefUseChains(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def visit_ClassDef(self, node, step=DeclarationStep):
+    def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.locals[self._scopes[-1]].append(dnode)
 
