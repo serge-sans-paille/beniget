@@ -388,28 +388,23 @@ class DefUseChains(ast.NodeVisitor):
     @contextmanager
     def ScopeContext(self, node):
         self._scopes.append(node)
-        self._definitions.append(defaultdict(ordered_set))
         self._scope_depths.append(-1)
+        self._definitions.append(defaultdict(ordered_set))
         self._globals.append(set())
         self._precomputed_locals.append(collect_locals(node))
         yield
         self._precomputed_locals.pop()
         self._globals.pop()
-        self._scope_depths.pop()
         self._definitions.pop()
+        self._scope_depths.pop()
         self._scopes.pop()
 
-    @contextmanager
-    def CompScopeContext(self, node):
-        if sys.version_info.major >= 3:
-            self._scopes.append(node)
-            self._definitions.append(defaultdict(ordered_set))
-            self._globals.append(set())
-        yield
-        if sys.version_info.major >= 3:
-            self._globals.pop()
-            self._definitions.pop()
-            self._scopes.pop()
+    if sys.version_info.major >= 3:
+        CompScopeContext = ScopeContext
+    else:
+        @contextmanager
+        def CompScopeContext(self, node):
+            yield
 
     @contextmanager
     def DefinitionContext(self, definitions):
