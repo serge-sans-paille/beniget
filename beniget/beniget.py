@@ -167,12 +167,14 @@ DeclarationStep, DefinitionStep = object(), object()
 
 
 class CollectLocals(ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, in_class):
+        self.in_class = in_class
         self.Locals = set()
         self.NonLocals = set()
 
     def visit_FunctionDef(self, node):
-        self.Locals.add(node.name)
+        if not self.in_class:
+            self.Locals.add(node.name)
         # no recursion
 
     visit_AsyncFunctionDef = visit_FunctionDef
@@ -205,12 +207,6 @@ class CollectLocals(ast.NodeVisitor):
     def visit_ImportFrom(self, node):
         for alias in node.names:
             self.Locals.add(alias.asname or alias.name)
-
-
-def collect_locals(node):
-    visitor = CollectLocals()
-    visitor.generic_visit(node)
-    return visitor.Locals
 
 
 class DefUseChains(ast.NodeVisitor):
@@ -385,13 +381,30 @@ class DefUseChains(ast.NodeVisitor):
                         self.unbound_identifier(undef_name, undef.node)
         self._undefs.pop()
 
+
+    def collect_locals(self, node):
+        for scope in reversed(self._scopes):
+            if isinstance(scope, ast.ClassDef):
+                in_class = True
+                break
+            elif isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                in_class = False
+                break
+        else:
+            in_class = False
+
+        visitor = CollectLocals(in_class)
+        visitor.generic_visit(node)
+        return visitor.Locals
+
+
     @contextmanager
     def ScopeContext(self, node):
         self._scopes.append(node)
         self._scope_depths.append(-1)
         self._definitions.append(defaultdict(ordered_set))
         self._globals.append(set())
-        self._precomputed_locals.append(collect_locals(node))
+        self._precomputed_locals.append(self.collect_locals(node))
         yield
         self._precomputed_locals.pop()
         self._globals.pop()
