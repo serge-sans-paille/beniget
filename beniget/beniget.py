@@ -610,16 +610,8 @@ class DefUseChains(ast.NodeVisitor):
             self.locals[self._scopes[-1]].append(dnode)
             
             if not self.future_annotations:
-                for arg in node.args.args:
+                for arg in _iter_arguments(node.args):
                     self.visit_annotation(arg)
-                for arg in node.args.posonlyargs:
-                    self.visit_annotation(arg)
-                if node.args.vararg:
-                    self.visit_annotation(node.args.vararg)
-                for arg in node.args.kwonlyargs:
-                    self.visit_annotation(arg)
-                if node.args.kwarg:
-                    self.visit_annotation(node.args.kwarg)
             
             else:
                 # annotations are to be analyzed later as well
@@ -627,7 +619,7 @@ class DefUseChains(ast.NodeVisitor):
                 if node.returns:
                     self._defered_annotations[-1].append(
                         (node.returns, currentscopes, None))
-                for arg in _iter_arguments(node):
+                for arg in _iter_arguments(node.args):
                     if arg.annotation:
                         self._defered_annotations[-1].append(
                             (arg.annotation, currentscopes, None))
@@ -651,16 +643,8 @@ class DefUseChains(ast.NodeVisitor):
             
         elif step is DefinitionStep:
             with self.ScopeContext(node):
-                for arg in node.args.args:
+                for arg in _iter_arguments(node.args):
                     self.visit_skip_annotation(arg)
-                for arg in node.args.posonlyargs:
-                    self.visit_skip_annotation(arg)
-                if node.args.vararg:
-                    self.visit_skip_annotation(node.args.vararg)
-                for arg in node.args.kwonlyargs:
-                    self.visit_skip_annotation(arg)
-                if node.args.kwarg:
-                    self.visit_skip_annotation(node.args.kwarg)
                 self.process_body(node.body)
         else:
             raise NotImplementedError()
@@ -1199,20 +1183,9 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_arguments(self, node):
-        for arg in node.args:
+        for arg in _iter_arguments(node):
             self.visit(arg)
-
-        for arg in node.posonlyargs:
-            self.visit(arg)
-
-        if node.vararg:
-            self.visit(node.vararg)
-
-        for arg in node.kwonlyargs:
-            self.visit(arg)
-        if node.kwarg:
-            self.visit(node.kwarg)
-
+            
     def visit_withitem(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.context_expr).add_user(dnode)
@@ -1220,23 +1193,20 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(node.optional_vars)
         return dnode
 
-def _iter_child_nodes_in_fields(node, fields):
+def _iter_arguments(args):
     """
-    Like ast.iter_child_nodes() but ignore fields
-    that are not part of the provided list.
+    Yields all arguments of the given ast.arguments instance.
     """
-    for fieldname, value in ast.iter_fields(node):
-        if fieldname in fields:
-            yield value
-
-def _iter_arguments(node):
-    """
-    Yields all arguments of the given function.
-    """
-    for args in _iter_child_nodes_in_fields(node.args, ('args', 'kwonlyargs', 'posonlyargs')):
-        for a in args: yield a
-    for a in filter(None, _iter_child_nodes_in_fields(node.args, ('vararg', 'kwarg'))):
-        yield a
+    for arg in args.args:
+        yield arg
+    for arg in args.posonlyargs:
+        yield arg
+    if args.vararg:
+        yield args.vararg
+    for arg in args.kwonlyargs:
+        yield arg
+    if args.kwarg:
+        yield args.kwarg
 
 def _lookup_annotation(name, heads, locals_map):
     scopes = _get_lookup_scopes(heads)
