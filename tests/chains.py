@@ -26,9 +26,12 @@ def captured_output():
 class TestDefUseChains(TestCase):
     def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
-            def _warn(self, msg, node):
-                super()._warn(msg, node)
-                raise RuntimeError(msg)
+            def unbound_identifier(self, name, node):
+                raise RuntimeError(
+                    "W: unbound identifier '{}' at {}:{}".format(
+                        name, node.lineno, node.col_offset
+                    )
+                )
 
         node = ast.parse(code)
         if strict:
