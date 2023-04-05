@@ -365,7 +365,7 @@ def middle():
         node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['x -> (x -> ())', 'mytype -> ()'])
-    
+
     def test_unbound_class_variable2(self):
         code = '''class A:\n  a = 10\n  def f(self):\n    return a # a is not defined'''
         c = beniget.DefUseChains()
@@ -379,7 +379,7 @@ def middle():
         node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'I -> ()'])
-    
+
     def test_unbound_class_variable4(self):
         code = '''class A:\n  a = 10\n  f = lambda: a # a is not defined'''
         c = beniget.DefUseChains()
@@ -464,6 +464,11 @@ def outer():
         code = "def A():\n x = 1\n class B: x = x"
         self.check_message(code,
                            ["'x' may be unbound at runtime at <unknown>:3"])
+
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
+    def test_unbound_local_identifier_in_method(self):
+        code = "class A:pass\nclass B:\n def A(self) -> A:pass"
+        self.check_message(code, [])
 
     @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_unbound_local_identifier_nonlocal(self):
