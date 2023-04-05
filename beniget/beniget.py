@@ -153,13 +153,10 @@ class Def(object):
             )
 
 
-Builtins = {}
-
 if sys.version_info.major == 2:
     BuiltinsSrc = __builtins__
 else:
     import builtins
-
     BuiltinsSrc = builtins.__dict__
 
 Builtins = {k: v for k, v in BuiltinsSrc.items()}
@@ -224,7 +221,7 @@ class CollectLocals(ast.NodeVisitor):
         if isinstance(node.ctx, ast.Store) and node.id not in self.NonLocals:
             self.Locals.add(node.id)
 
-    def skip(self, node):
+    def skip(self, _):
         pass
 
     if sys.version_info.major >= 3:
@@ -448,28 +445,23 @@ class DefUseChains(ast.NodeVisitor):
     @contextmanager
     def ScopeContext(self, node):
         self._scopes.append(node)
-        self._definitions.append(defaultdict(ordered_set))
         self._scope_depths.append(-1)
+        self._definitions.append(defaultdict(ordered_set))
         self._globals.append(set())
         self._precomputed_locals.append(collect_locals(node))
         yield
         self._precomputed_locals.pop()
         self._globals.pop()
-        self._scope_depths.pop()
         self._definitions.pop()
+        self._scope_depths.pop()
         self._scopes.pop()
 
-    @contextmanager
-    def CompScopeContext(self, node):
-        if sys.version_info.major >= 3:
-            self._scopes.append(node)
-            self._definitions.append(defaultdict(ordered_set))
-            self._globals.append(set())
-        yield
-        if sys.version_info.major >= 3:
-            self._globals.pop()
-            self._definitions.pop()
-            self._scopes.pop()
+    if sys.version_info.major >= 3:
+        CompScopeContext = ScopeContext
+    else:
+        @contextmanager
+        def CompScopeContext(self, node):
+            yield
 
     @contextmanager
     def DefinitionContext(self, definitions):
@@ -662,7 +654,7 @@ class DefUseChains(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def visit_ClassDef(self, node, step=DeclarationStep):
+    def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.locals[self._scopes[-1]].append(dnode)
 
