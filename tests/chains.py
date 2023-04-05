@@ -558,12 +558,9 @@ class System:
 '''
         self.checkChains(
             code, ['Union -> (Union -> (Subscript -> ()))',
-                    'System -> ()',
                     'Attr -> (Attr -> (Tuple -> (Subscript -> ())))',
-                    # Attr is not linked at all because of the maybe unbound identifier warning
-                    # that is raised because the annotation has the same name as the method.
-                    # but it doesn't understand that the name is defined in the upper scope.
-                    'Thing -> ()']
+                    'Thing -> ()',
+                    'System -> ()',]
         )
     
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
