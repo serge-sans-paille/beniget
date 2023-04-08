@@ -301,12 +301,21 @@ class DefUseChains(ast.NodeVisitor):
         location = self.location(node)
         print("W: unbound identifier '{}'{}".format(name, location))
 
-    def maybe_unbound_identifier(self, name, node):
-        location = self.location(node)
-        print("W: identifier '{}' may be unbound at runtime{}".format(name, location))
+    def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
+        # We hit the situation where we refer to a local variable that's not
+        # bound yet. This is a runtime error in Python, so we issue a warning.
+        if name not in precomputed_locals:
+            return
 
+        if isinstance(scope, ast.ClassDef):
+            return (not any((name in defs or '*' in defs)
+                            for defs in local_defs)
+                    and not any((name in global_def or '*' in global_def)
+                                for global_def in self._definitions[0:-self._scope_depths[0]]))
+        else:
+            return not any((name in defs or '*' in defs) for defs in local_defs)
 
-    def defs(self, node):
+    def defs(self, node, quiet=False):
         '''
         Performs an actual lookup of node's id in current context, returning
         the list of def linked to that use.
@@ -316,7 +325,7 @@ class DefUseChains(ast.NodeVisitor):
 
         # If the `global` keyword has been used, honor it
         if any(name in _globals for _globals in self._globals):
-            looked_up_definitions = self._definitions[0:1]
+            looked_up_definitions = self._definitions[0:-self._scope_depths[0]]
         else:
             # List of definitions to check. This includes all non-class
             # definitions *and* the last definition. Class definitions are not
@@ -325,25 +334,34 @@ class DefUseChains(ast.NodeVisitor):
 
             scopes_iter = iter(reversed(self._scopes))
             depths_iter = iter(reversed(self._scope_depths))
+            precomputed_locals_iter = iter(reversed(self._precomputed_locals))
 
             # Keep the last scope because we could be in class scope, in which
             # case we don't need fully qualified access.
             lvl = depth = next(depths_iter)
-            looked_up_definitions.extend(reversed(self._definitions[depth:]))
-            _ = next(scopes_iter)
+            precomputed_locals = next(precomputed_locals_iter)
+            base_scope = next(scopes_iter)
+            defs = self._definitions[depth:]
+            if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
+                looked_up_definitions.extend(reversed(defs))
 
-            # Iterate over scopes, filtering out class scopes.
-            for scope, depth in zip(scopes_iter, depths_iter):
-                if not isinstance(scope, ast.ClassDef):
-                    looked_up_definitions.extend(
-                            reversed(self._definitions[lvl + depth: lvl]))
-                lvl += depth
+                # Iterate over scopes, filtering out class scopes.
+                for scope, depth, precomputed_locals in zip(scopes_iter,
+                                                            depths_iter,
+                                                            precomputed_locals_iter):
+                    if not isinstance(scope, ast.ClassDef):
+                        defs = self._definitions[lvl + depth: lvl]
+                        if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
+                            looked_up_definitions.clear()
+                            break
+                        looked_up_definitions.extend(reversed(defs))
+                    lvl += depth
 
-        for d in looked_up_definitions:
-            if name in d:
-                return d[name] if not stars else stars + list(d[name])
-            if "*" in d:
-                stars.extend(d["*"])
+        for defs in looked_up_definitions:
+            if name in defs:
+                return defs[name] if not stars else stars + list(defs[name])
+            if "*" in defs:
+                stars.extend(defs["*"])
 
         d = self.chains.setdefault(node, Def(node))
 
@@ -353,7 +371,7 @@ class DefUseChains(ast.NodeVisitor):
         if stars:
             return stars + [d]
         else:
-            if not self._undefs:
+            if not self._undefs and not quiet:
                 self.unbound_identifier(name, node)
             return [d]
 
@@ -428,14 +446,16 @@ class DefUseChains(ast.NodeVisitor):
         self._definitions.pop()
 
     @contextmanager
-    def SwitchScopeContext(self, defs, scopes, scope_depths):
+    def SwitchScopeContext(self, defs, scopes, scope_depths, precomputed_locals):
         scope_depths, self._scope_depths = self._scope_depths, scope_depths
         scopes, self._scopes = self._scopes, scopes
         defs, self._definitions = self._definitions, defs
+        precomputed_locals, self._precomputed_locals = self._precomputed_locals, precomputed_locals
         yield
         self._definitions = defs
         self._scopes = scopes
         self._scope_depths = scope_depths
+        self._precomputed_locals = precomputed_locals
 
 
     # stmt
@@ -450,10 +470,11 @@ class DefUseChains(ast.NodeVisitor):
             self.process_body(node.body)
 
             # handle function bodies
-            for fnode, defs, scopes, scope_depths in self._defered:
+            for fnode, defs, scopes, scope_depths, precomputed_locals in self._defered:
                 visitor = getattr(self,
                                   "visit_{}".format(type(fnode).__name__))
-                with self.SwitchScopeContext(defs, scopes, scope_depths):
+                with self.SwitchScopeContext(defs, scopes, scope_depths,
+                                             precomputed_locals):
                     visitor(fnode, step=DefinitionStep)
 
             # various sanity checks
@@ -474,6 +495,7 @@ class DefUseChains(ast.NodeVisitor):
         assert not self._definitions
         assert not self._scopes
         assert not self._scope_depths
+        assert not self._precomputed_locals
 
     def set_definition(self, name, dnode_or_dnodes):
         if self.deadcode:
@@ -550,7 +572,8 @@ class DefUseChains(ast.NodeVisitor):
             self._defered.append((node,
                                   list(self._definitions),
                                   list(self._scopes),
-                                  list(self._scope_depths)))
+                                  list(self._scope_depths),
+                                  list(self._precomputed_locals)))
         elif step is DefinitionStep:
             with self.ScopeContext(node):
                 for arg in node.args.args:
@@ -630,7 +653,8 @@ class DefUseChains(ast.NodeVisitor):
             if any(node.target.id in _globals for _globals in self._globals):
                 self.extend_global(node.target.id, dtarget)
             else:
-                loaded_from = [d.name() for d in self.defs(node.target)]
+                loaded_from = [d.name() for d in self.defs(node.target,
+                                                           quiet=True)]
                 self.set_definition(node.target.id, dtarget)
                 # If we augassign from a value that comes from '*', let's use
                 # this node as the definition point.
@@ -1009,25 +1033,15 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(node.annotation)
 
         elif isinstance(node.ctx, (ast.Load, ast.Del)):
-            # We hit the situation where we refer to a local variable that's not
-            # bound yet. This is a runtime error in Python, so we issue a warning.
-            # Note that because we may be in a condition, it's just a *may* and it
-            # *may* be fine to ignore this warning.
-            current_locals = self._precomputed_locals[-1]
-            if node.id in current_locals and not self.is_in_current_scope(node.id):
-                self.maybe_unbound_identifier(node.id, node)
-                dnode = Def(node)
-                self.chains[node] = dnode
+            node_in_chains = node in self.chains
+            if node_in_chains:
+                dnode = self.chains[node]
             else:
-                node_in_chains = node in self.chains
-                if node_in_chains:
-                    dnode = self.chains[node]
-                else:
-                    dnode = Def(node)
-                for d in self.defs(node):
-                    d.add_user(dnode)
-                if not node_in_chains:
-                    self.chains[node] = dnode
+                dnode = Def(node)
+            for d in self.defs(node):
+                d.add_user(dnode)
+            if not node_in_chains:
+                self.chains[node] = dnode
             # currently ignore the effect of a del
         else:
             raise NotImplementedError()
