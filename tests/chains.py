@@ -888,13 +888,23 @@ def outer():
 fn = outer()
         '''
 
-        mod, chains = self.checkChains(
-                code, 
+        mod = ast.parse(code)
+        chains = beniget.DefUseChains('test')
+        with captured_output() as (out, err):
+            chains.visit(mod)
+        
+        produced_messages = out.getvalue().strip().split("\n")
+
+        self.assertEqual(produced_messages, ["W: unbound identifier 'mytype' at test:5:20"])
+
+        self.assertEqual(
+                chains.dump_chains(mod), 
                 ['mytype -> ()', 
                  'mytype2 -> ()', 
                  'outer -> (outer -> (Call -> ()))', 
                  'fn -> ()'],
             )
+        
         self.assertEqual(chains.dump_chains(mod.body[1]), 
                          ['middle -> (middle -> (Call -> ()))', 
                           'mytype2 -> (mytype2 -> ())'])
