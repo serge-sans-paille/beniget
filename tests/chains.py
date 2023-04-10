@@ -101,6 +101,12 @@ class TestDefUseChains(TestCase):
         code = "a = 1; a += 2; a"
         self.checkChains(code, ['a -> (a -> (a -> ()))'])
 
+    def test_read_global_from_branch(self):
+        code = "if 1: a = 1\ndef foo():\n def bar(): global a; return a"
+        self.checkChains(code, ['a -> (a -> ())',
+                                'foo -> ()'])
+
+
     def test_expanded_augassign(self):
         code = "a = 1; a = a + 2"
         self.checkChains(code, ["a -> (a -> (BinOp -> ()))", "a -> ()"])
@@ -351,10 +357,17 @@ while done:
         code = "from some import decorator\n@decorator\nclass C:pass"
         self.checkChains(code, ["decorator -> (decorator -> (C -> ()))", "C -> ()"])
 
+    def test_class_base(self):
+        code = "class A:...\nclass B(A):..."
+        self.checkChains(code, ["A -> (A -> (B -> ()))", "B -> ()"])
+
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_def_used_in_self_default(self):
         code = "def foo(x:foo): return foo"
-        self.checkChains(code, ["foo -> (foo -> ())"])
+        c = beniget.DefUseChains()
+        node = ast.parse(code)
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node), ["foo -> (foo -> ())"])
 
     def test_unbound_class_variable(self):
         code = '''
@@ -407,7 +420,7 @@ def middle():
         self.checkChains(code, ['x -> (x -> ())', 'foo -> ()'])
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
-    def test_class_annotation(self):
+    def test_arg_annotation(self):
         code = "type_ = int\ndef foo(bar: type_): pass"
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
 
@@ -461,12 +474,12 @@ def outer():
     def test_maybe_unbound_identifier_message_format(self):
         code = "x = 1\ndef foo(): y = x; x = 2"
         self.check_message(code,
-                           ["'x' may be unbound at runtime at <unknown>:2"])
+                           ["unbound identifier 'x' at <unknown>:2"])
 
     def test_unbound_local_identifier_in_func(self):
         code = "def A():\n x = 1\n class B: x = x"
         self.check_message(code,
-                           ["'x' may be unbound at runtime at <unknown>:3"])
+                           ["unbound identifier 'x' at <unknown>:3"])
 
     @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_unbound_local_identifier_in_method(self):
@@ -478,10 +491,80 @@ def outer():
         code = "def A():\n x = 1\n class B: nonlocal x; x = x"
         self.check_message(code, [])
 
+
+    def test_assign_uses_class_level_name(self):
+        code = '''
+visit_Name = object
+class Visitor:
+    def visit_Name(self, node):...
+    visit_Attribute = visit_Name
+'''
+        node = ast.parse(code)
+        c = beniget.DefUseChains()
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node), ['visit_Name -> ()',
+                                               'Visitor -> ()'])
+        self.assertEqual(c.dump_chains(node.body[-1]),
+                         ['visit_Name -> (visit_Name -> ())',
+                          'visit_Attribute -> ()'])
+
+
+    def test_base_class_uses_class_level_same_name(self):
+            code = '''
+class Attr(object):...
+class Visitor:
+    class Attr(Attr):...
+    '''
+            node = ast.parse(code)
+            c = beniget.DefUseChains()
+            c.visit(node)
+            self.assertEqual(c.dump_chains(node),
+                             ['Attr -> (Attr -> (Attr -> ()))',
+                              'Visitor -> ()'])
+            self.assertEqual(c.dump_chains(node.body[-1]), ['Attr -> ()'])
+
+
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
+    def test_annotation_uses_class_level_name(self):
+        code = '''
+Thing = object
+def f():...
+class Visitor:
+    Thing = bytes
+    def f(): return f()
+    def visit_Name(self, node:Thing, fn:f):...
+'''
+        node = ast.parse(code)
+        c = beniget.DefUseChains()
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node),
+                         ['Thing -> ()',
+                          'f -> (f -> (Call -> ()))',
+                          'Visitor -> ()'])
+        self.assertEqual(c.dump_chains(node.body[-1]),
+                         ['Thing -> (Thing -> ())',
+                          'f -> (f -> ())',
+                          'visit_Name -> ()'])
+
+    def test_assign_uses_class_level_same_name(self):
+        code = '''
+def visit_Attribute(self, node):...
+class Visitor:
+    visit_Attribute = visit_Attribute
+'''
+        node = ast.parse(code)
+        c = beniget.DefUseChains()
+        c.visit(node)
+        self.assertEqual(c.dump_chains(node),
+            ['visit_Attribute -> (visit_Attribute -> ())',
+             'Visitor -> ()'])
+        self.assertEqual(c.dump_chains(node.body[-1]),
+                         ['visit_Attribute -> ()'])
+
     def test_unbound_local_identifier_in_augassign(self):
         code = "def A():\n x = 1\n class B: x += 1"
         self.check_message(code,
-                           ["'x' may be unbound at runtime at <unknown>:3"])
+                           ["unbound identifier 'x' at <unknown>:3"])
 
     def test_star_import_with_conditional_redef(self):
         code = '''
