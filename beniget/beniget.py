@@ -486,7 +486,7 @@ class DefUseChains(ast.NodeVisitor):
         self._scope_depths.append(-1)
         self._definitions.append(defaultdict(ordered_set))
         self._globals.append(set())
-        self._precomputed_locals.append(self.collect_locals(node))
+        self._precomputed_locals.append(collect_locals(node))
         yield
         self._precomputed_locals.pop()
         self._globals.pop()
