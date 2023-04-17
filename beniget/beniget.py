@@ -200,8 +200,7 @@ class _CollectFutureImports(ast.NodeVisitor):
         raise _StopTraversal()
 
 class CollectLocals(ast.NodeVisitor):
-    def __init__(self, in_class):
-        self.in_class = in_class
+    def __init__(self):
         self.Locals = set()
         self.NonLocals = set()
 
