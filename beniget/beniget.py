@@ -206,9 +206,8 @@ class CollectLocals(ast.NodeVisitor):
         self.NonLocals = set()
 
     def visit_FunctionDef(self, node):
-        if not self.in_class:
-            self.Locals.add(node.name)
         # no recursion
+        self.Locals.add(node.name)
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -240,6 +239,16 @@ class CollectLocals(ast.NodeVisitor):
     def visit_ImportFrom(self, node):
         for alias in node.names:
             self.Locals.add(alias.asname or alias.name)
+
+def collect_locals(node):
+    '''
+    Compute the set of identifiers local to a given node.
+
+    This is meant to emulate a call to locals()
+    '''
+    visitor = CollectLocals()
+    visitor.generic_visit(node)
+    return visitor.Locals
 
 
 class DefUseChains(ast.NodeVisitor):
@@ -308,15 +317,16 @@ class DefUseChains(ast.NodeVisitor):
         # it should be compatible with PEP 563, and minor changes are required to support PEP 649.
         self._defered_annotations = []
 
-        # dead code levels
-        self.deadcode = 0
+        # dead code levels, it's non null for code that cannot be executed
+        self._deadcode = 0
 
         # attributes set in visit_Module
         self.module = None
         self.future_annotations = False
 
-    # helpers
-
+    #
+    ## helpers
+    #
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, ast.Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
@@ -347,20 +357,34 @@ class DefUseChains(ast.NodeVisitor):
         print("W: unbound identifier '{}'{}".format(name, location))
 
     def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
-        # We hit the situation where we refer to a local variable that's not
-        # bound yet. This is a runtime error in Python, so we issue a warning.
+        # We may hit the situation where we refer to a local variable which is
+        # not bound yet. This is a runtime error in Python, so we try to detec
+        # it statically.
+
+        # not a local variable => fine
         if name not in precomputed_locals:
             return
 
-        if isinstance(scope, ast.ClassDef):
-            return (not any((name in defs or '*' in defs)
-                            for defs in local_defs)
-                    and not any((name in global_def or '*' in global_def)
-                                for global_def in self._definitions[0:-self._scope_depths[0]]))
-        else:
-            return not any((name in defs or '*' in defs) for defs in local_defs)
+        # It's meant to be a local, but can we resolve it by a local lookup?
+        islocal = any((name in defs or '*' in defs) for defs in local_defs)
 
-    def compute_annotation_defs(self, node):
+        # At class scope, it's ok to refer to a global even if we also have a
+        # local definition for that variable. Stated other wise
+        #
+        # >>> a = 1
+        # >>> def foo(): a = a
+        # >>> foo() # fails, a is a local referenced before being assigned
+        # >>> class bar: a = a
+        # >>> bar() # ok, and `bar.a is a`
+        if isinstance(scope, ast.ClassDef):
+            top_level_definitions = self._definitions[0:-self._scope_depths[0]]
+            isglobal = any((name in top_lvl_def or '*' in top_lvl_def)
+                           for top_lvl_def in top_level_definitions)
+            return not islocal and not isglobal
+        else:
+            return not islocal
+
+    def compute_annotation_defs(self, node, quiet=False):
         name = node.id
         # resolving an annotation is a bit different
         # form other names.
@@ -369,7 +393,7 @@ class DefUseChains(ast.NodeVisitor):
         except LookupError:
             # fallback to regular behaviour on module scope
             # to support names from builtins or wildcard imports.
-            return self.compute_defs(node)
+            return self.compute_defs(node, quiet=quiet)
 
     def compute_defs(self, node, quiet=False):
         '''
@@ -439,10 +463,10 @@ class DefUseChains(ast.NodeVisitor):
             if isinstance(stmt, (ast.Break, ast.Continue, ast.Raise)):
                 if not deadcode:
                     deadcode = True
-                    self.deadcode += 1
+                    self._deadcode += 1
             self.visit(stmt)
         if deadcode:
-            self.deadcode -= 1
+            self._deadcode -= 1
 
     def process_undefs(self):
         for undef_name, _undefs in self._undefs[-1].items():
@@ -456,23 +480,6 @@ class DefUseChains(ast.NodeVisitor):
                     if not stars:
                         self.unbound_identifier(undef_name, undef.node)
         self._undefs.pop()
-
-
-    def collect_locals(self, node):
-        for scope in reversed(self._scopes):
-            if isinstance(scope, ast.ClassDef):
-                in_class = True
-                break
-            elif isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                in_class = False
-                break
-        else:
-            in_class = False
-
-        visitor = CollectLocals(in_class)
-        visitor.generic_visit(node)
-        return visitor.Locals
-
 
     @contextmanager
     def ScopeContext(self, node):
@@ -581,7 +588,7 @@ class DefUseChains(ast.NodeVisitor):
         assert not self._precomputed_locals
 
     def set_definition(self, name, dnode_or_dnodes):
-        if self.deadcode:
+        if self._deadcode:
             return
         if isinstance(dnode_or_dnodes, Def):
             self._definitions[-1][name] = ordered_set((dnode_or_dnodes,))
@@ -596,19 +603,19 @@ class DefUseChains(ast.NodeVisitor):
             definition[name].update(dnode_or_dnodes)
 
     def extend_definition(self, name, dnode_or_dnodes):
-        if self.deadcode:
+        if self._deadcode:
             return
         DefUseChains.add_to_definition(self._definitions[-1], name,
                                        dnode_or_dnodes)
 
     def extend_global(self, name, dnode_or_dnodes):
-        if self.deadcode:
+        if self._deadcode:
             return
         DefUseChains.add_to_definition(self._definitions[0], name,
                                        dnode_or_dnodes)
 
     def set_or_extend_global(self, name, dnode):
-        if self.deadcode:
+        if self._deadcode:
             return
         if name not in self._definitions[0]:
             self.locals[self.module].append(dnode)

@@ -358,7 +358,7 @@ while done:
         self.checkChains(code, ["decorator -> (decorator -> (C -> ()))", "C -> ()"])
 
     def test_class_base(self):
-        code = "class A:...\nclass B(A):..."
+        code = "class A:pass\nclass B(A):pass"
         self.checkChains(code, ["A -> (A -> (B -> ()))", "B -> ()"])
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
@@ -496,7 +496,7 @@ def outer():
         code = '''
 visit_Name = object
 class Visitor:
-    def visit_Name(self, node):...
+    def visit_Name(self, node):pass
     visit_Attribute = visit_Name
 '''
         node = ast.parse(code)
@@ -511,9 +511,9 @@ class Visitor:
 
     def test_base_class_uses_class_level_same_name(self):
             code = '''
-class Attr(object):...
+class Attr(object):pass
 class Visitor:
-    class Attr(Attr):...
+    class Attr(Attr):pass
     '''
             node = ast.parse(code)
             c = beniget.DefUseChains()
@@ -548,7 +548,7 @@ class Visitor:
 
     def test_assign_uses_class_level_same_name(self):
         code = '''
-def visit_Attribute(self, node):...
+def visit_Attribute(self, node):pass
 class Visitor:
     visit_Attribute = visit_Attribute
 '''
