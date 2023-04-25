@@ -532,7 +532,7 @@ class DefUseChains(ast.NodeVisitor):
         self._scope_depths = scope_depths
         self._precomputed_locals = precomputed_locals
     
-    def process_functions(self):
+    def process_functions_bodies(self):
         for fnode, defs, scopes, scope_depths, precomputed_locals in self._defered:
             visitor = getattr(self,
                               "visit_{}".format(type(fnode).__name__))
@@ -570,7 +570,7 @@ class DefUseChains(ast.NodeVisitor):
             self.process_body(node.body)
 
             # handle function bodies
-            self.process_functions()
+            self.process_functions_bodies()
 
             # handle defered annotations as in from __future__ import annotations
             self.process_annotations()
