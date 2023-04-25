@@ -767,6 +767,9 @@ Thing:TypeAlias = 'Mapping'
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_pep563_self_referential_annotation(self):
         code = '''
+"""
+module docstring
+"""
 from __future__ import annotations
 class B:
     A: A # this should point to the top-level class

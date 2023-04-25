@@ -178,9 +178,13 @@ class _StopTraversal(Exception):
     pass
 
 class _CollectFutureImports(ast.NodeVisitor):
-    # future imports must be the first thing in the module
-    # as soon as we're visiting something that is not 
-    # a future import, we can stop the visit.
+    # A future statement must appear near the top of the module. 
+    # The only lines that can appear before a future statement are:
+    # - the module docstring (if any),
+    # - comments,
+    # - blank lines, and
+    # - other future statements.
+    # as soon as we're visiting something else, we can stop the visit.
     def __init__(self):
         self.FutureImports = set() #type:set[str]
     
@@ -196,6 +200,13 @@ class _CollectFutureImports(ast.NodeVisitor):
             raise _StopTraversal()
         self.FutureImports.update((al.name for al in node.names))
     
+    def visit_Expr(self, node: ast.Expr):
+        self.visit(node.value)
+
+    def visit_Constant(self, node: ast.Constant):
+        if not isinstance(node.value, str):
+            raise _StopTraversal()
+
     def generic_visit(self, node):
         raise _StopTraversal()
 
