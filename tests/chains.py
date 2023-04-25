@@ -1051,6 +1051,25 @@ fn = outer()
                                      'mytype -> (), '
                                      'mytype -> (), '
                                      'mytype -> ())'])
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_pep563_type_alias_override_class(self):
+        code = '''
+from __future__ import annotations
+class B:
+    A: A # this should point to the top-level alias
+class A:
+    A: A # this should point to the top-level alias
+A = bytes
+'''
+        self.checkChains(
+                code, 
+                ['annotations -> ()',
+                 'B -> ()', 
+                 'A -> (A -> (), A -> ())', # bad, can be fixed by using https://github.com/serge-sans-paille/beniget/pull/38
+                 'A -> (A -> (), A -> ())'], # good
+                strict=False
+            )
         
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
