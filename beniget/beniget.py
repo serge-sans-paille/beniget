@@ -4,8 +4,8 @@ import sys
 
 import gast as ast
 
-
-class ordered_set(object):
+# TODO: remove me when python 2 is not supported anymore
+class _ordered_set(object):
     def __init__(self, elements=None):
         self.values = OrderedDict.fromkeys(elements or [])
 
@@ -29,6 +29,11 @@ class ordered_set(object):
     def __len__(self):
         return len(self.values)
 
+if sys.version_info >= (3,6):
+    from .ordered_set import ordered_set
+else:
+    # python < 3,6 we fall back on older version of the ordered_set
+    ordered_set = _ordered_set
 
 class Ancestors(ast.NodeVisitor):
     """
@@ -155,13 +160,10 @@ class Def(object):
             )
 
 
-Builtins = {}
-
 if sys.version_info.major == 2:
     BuiltinsSrc = __builtins__
 else:
     import builtins
-
     BuiltinsSrc = builtins.__dict__
 
 Builtins = {k: v for k, v in BuiltinsSrc.items()}
@@ -171,13 +173,55 @@ Builtins["__file__"] = __file__
 DeclarationStep, DefinitionStep = object(), object()
 
 
-class CollectGlobals(ast.NodeVisitor):
+class CollectLocals(ast.NodeVisitor):
     def __init__(self):
-        self.Globals = defaultdict(list)
+        self.Locals = set()
+        self.NonLocals = set()
 
-    def visit_Global(self, node):
-        for name in node.names:
-            self.Globals[name].append((node, name))
+    def visit_FunctionDef(self, node):
+        self.Locals.add(node.name)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    visit_ClassDef = visit_FunctionDef
+
+    def visit_Nonlocal(self, node):
+        self.NonLocals.update(name for name in node.names)
+
+    visit_Global = visit_Nonlocal
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Store) and node.id not in self.NonLocals:
+            self.Locals.add(node.id)
+
+    def skip(self, _):
+        pass
+
+    if sys.version_info.major >= 3:
+        visit_SetComp = visit_DictComp = visit_ListComp = skip
+        visit_GeneratorExp = skip
+
+    visit_Lambda = skip
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            base = alias.name.split(".", 1)[0]
+            self.Locals.add(alias.asname or base)
+
+    def visit_ImportFrom(self, node):
+        for alias in node.names:
+            self.Locals.add(alias.asname or alias.name)
+
+
+def collect_locals(node):
+    '''
+    Compute the set of identifiers local to a given node.
+
+    This is meant to emulate a call to locals()
+    '''
+    visitor = CollectLocals()
+    visitor.generic_visit(node)
+    return visitor.Locals
 
 
 class DefUseChains(ast.NodeVisitor):
@@ -206,36 +250,45 @@ class DefUseChains(ast.NodeVisitor):
         """
         self.chains = {}
         self.locals = defaultdict(list)
+
         self.filename = filename
 
         # deep copy of builtins, to remain reentrant
         self._builtins = {k: Def(v) for k, v in Builtins.items()}
 
         # function body are not executed when the function definition is met
-        # this holds a stack of the functions met during body processing
+        # this holds a list of the functions met during body processing
         self._defered = []
 
         # stack of mapping between an id and Names
         self._definitions = []
 
+        # stack of scope depth
+        self._scope_depths = []
+
         # stack of variable defined with the global keywords
-        self._promoted_locals = []
+        self._globals = []
+
+        # stack of local identifiers, used to detect 'read before assign'
+        self._precomputed_locals = []
 
         # stack of variable that were undefined when we met them, but that may
         # be defined in another path of the control flow (esp. in loop)
         self._undefs = []
 
-        # stack of current node holding definitions: class, module, function...
-        self._currenthead = []
+        # stack of nodes starting a scope: class, module, function...
+        self._scopes = []
 
         self._breaks = []
         self._continues = []
 
-        # dead code levels
-        self.deadcode = 0
-
-    # helpers
-
+        # dead code levels, it's non null for code that cannot be executed
+        self._deadcode = 0
+    
+    #
+    ## helpers
+    #
+    
     def dump_locals(self, node):
         # type: (ast.AST) -> List[str]
         """
@@ -277,32 +330,96 @@ class DefUseChains(ast.NodeVisitor):
             chains.append(str(d))
         return chains
 
-    def unbound_identifier(self, name, node):
+    def location(self, node):
         if hasattr(node, "lineno"):
             filename = "{}:".format(
                 "<unknown>" if self.filename is None else self.filename
             )
-            location = " at {}{}:{}".format(filename,
+            return " at {}{}:{}".format(filename,
                                             node.lineno,
                                             node.col_offset)
         else:
-            location = ""
+            return ""
+
+    def unbound_identifier(self, name, node):
+        location = self.location(node)
         print("W: unbound identifier '{}'{}".format(name, location))
 
-    def lookup_identifier(self, name):
-        for d in reversed(self._definitions):
-            if name in d:
-                return d[name]
-        return []
+    def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
+        # We may hit the situation where we refer to a local variable which is
+        # not bound yet. This is a runtime error in Python, so we try to detec
+        # it statically.
 
-    def defs(self, node):
+        # not a local variable => fine
+        if name not in precomputed_locals:
+            return
+
+        # It's meant to be a local, but can we resolve it by a local lookup?
+        islocal = any((name in defs or '*' in defs) for defs in local_defs)
+
+        # At class scope, it's ok to refer to a global even if we also have a
+        # local definition for that variable. Stated other wise
+        #
+        # >>> a = 1
+        # >>> def foo(): a = a
+        # >>> foo() # fails, a is a local referenced before being assigned
+        # >>> class bar: a = a
+        # >>> bar() # ok, and `bar.a is a`
+        if isinstance(scope, ast.ClassDef):
+            top_level_definitions = self._definitions[0:-self._scope_depths[0]]
+            isglobal = any((name in top_lvl_def or '*' in top_lvl_def)
+                           for top_lvl_def in top_level_definitions)
+            return not islocal and not isglobal
+        else:
+            return not islocal
+
+    def defs(self, node, quiet=False):
+        '''
+        Performs an actual lookup of node's id in current context, returning
+        the list of def linked to that use.
+        '''
         name = node.id
         stars = []
-        for d in reversed(self._definitions):
-            if name in d:
-                return d[name] if not stars else stars + list(d[name])
-            if "*" in d:
-                stars.extend(d["*"])
+
+        # If the `global` keyword has been used, honor it
+        if any(name in _globals for _globals in self._globals):
+            looked_up_definitions = self._definitions[0:-self._scope_depths[0]]
+        else:
+            # List of definitions to check. This includes all non-class
+            # definitions *and* the last definition. Class definitions are not
+            # included because they require fully qualified access.
+            looked_up_definitions = []
+
+            scopes_iter = iter(reversed(self._scopes))
+            depths_iter = iter(reversed(self._scope_depths))
+            precomputed_locals_iter = iter(reversed(self._precomputed_locals))
+
+            # Keep the last scope because we could be in class scope, in which
+            # case we don't need fully qualified access.
+            lvl = depth = next(depths_iter)
+            precomputed_locals = next(precomputed_locals_iter)
+            base_scope = next(scopes_iter)
+            defs = self._definitions[depth:]
+            if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
+                looked_up_definitions.extend(reversed(defs))
+
+                # Iterate over scopes, filtering out class scopes.
+                for scope, depth, precomputed_locals in zip(scopes_iter,
+                                                            depths_iter,
+                                                            precomputed_locals_iter):
+                    if not isinstance(scope, ast.ClassDef):
+                        defs = self._definitions[lvl + depth: lvl]
+                        if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
+                            looked_up_definitions.clear()
+                            break
+                        looked_up_definitions.extend(reversed(defs))
+                    lvl += depth
+
+        for defs in looked_up_definitions:
+            if name in defs:
+                return defs[name] if not stars else stars + list(defs[name])
+            if "*" in defs:
+                stars.extend(defs["*"])
 
         d = self.chains.setdefault(node, Def(node))
 
@@ -312,7 +429,7 @@ class DefUseChains(ast.NodeVisitor):
         if stars:
             return stars + [d]
         else:
-            if not self._undefs:
+            if not self._undefs and not quiet:
                 self.unbound_identifier(name, node)
             return [d]
 
@@ -322,10 +439,10 @@ class DefUseChains(ast.NodeVisitor):
             if isinstance(stmt, (ast.Break, ast.Continue, ast.Raise)):
                 if not deadcode:
                     deadcode = True
-                    self.deadcode += 1
+                    self._deadcode += 1
             self.visit(stmt)
         if deadcode:
-            self.deadcode -= 1
+            self._deadcode -= 1
 
     def process_undefs(self):
         for undef_name, _undefs in self._undefs[-1].items():
@@ -340,63 +457,74 @@ class DefUseChains(ast.NodeVisitor):
                         self.unbound_identifier(undef_name, undef.node)
         self._undefs.pop()
 
-    @contextmanager
-    def DefinitionContext(self, node):
-        self._currenthead.append(node)
-        self._definitions.append(defaultdict(ordered_set))
-        self._promoted_locals.append(set())
-        yield
-        self._promoted_locals.pop()
-        current_defs = self._definitions.pop()
-        self._currenthead.pop()
 
+    @contextmanager
+    def ScopeContext(self, node):
+        self._scopes.append(node)
+        self._scope_depths.append(-1)
+        self._definitions.append(defaultdict(ordered_set))
+        self._globals.append(set())
+        self._precomputed_locals.append(collect_locals(node))
+        
+        yield
+        
+        self._precomputed_locals.pop()
+        self._globals.pop()
+        current_defs = self._definitions.pop()
+        self._scope_depths.pop()
+        self._scopes.pop()
+        
         # set the reaches flag to False on killed Defs
         for local in self.locals[node]:
             if local not in current_defs[local.name()]:
                 local.reaches = False
 
+    if sys.version_info.major >= 3:
+        CompScopeContext = ScopeContext
+    else:
+        @contextmanager
+        def CompScopeContext(self, node):
+            yield
+
     @contextmanager
-    def CompDefinitionContext(self, node):
-        if sys.version_info.major >= 3:
-            self._currenthead.append(node)
-            self._definitions.append(defaultdict(ordered_set))
-            self._promoted_locals.append(set())
+    def DefinitionContext(self, definitions):
+        self._definitions.append(definitions)
+        self._scope_depths[-1] -= 1
+        yield self._definitions[-1]
+        self._scope_depths[-1] += 1
+        self._definitions.pop()
+
+    @contextmanager
+    def SwitchScopeContext(self, defs, scopes, scope_depths, precomputed_locals):
+        scope_depths, self._scope_depths = self._scope_depths, scope_depths
+        scopes, self._scopes = self._scopes, scopes
+        defs, self._definitions = self._definitions, defs
+        precomputed_locals, self._precomputed_locals = self._precomputed_locals, precomputed_locals
         yield
-        if sys.version_info.major >= 3:
-            self._promoted_locals.pop()
-            self._definitions.pop()
-            self._currenthead.pop()
+        self._definitions = defs
+        self._scopes = scopes
+        self._scope_depths = scope_depths
+        self._precomputed_locals = precomputed_locals
+
 
     # stmt
     def visit_Module(self, node):
         self.module = node
-        with self.DefinitionContext(node):
+        with self.ScopeContext(node):
 
             self._definitions[-1].update(
                 {k: ordered_set((v,)) for k, v in self._builtins.items()}
             )
 
-            self._defered.append([])
             self.process_body(node.body)
 
-            # handle `global' keyword specifically
-            cg = CollectGlobals()
-            cg.visit(node)
-            for nodes in cg.Globals.values():
-                for n, name in nodes:
-                    if name not in self._definitions[-1]:
-                        dnode = Def((n, name))
-                        self.set_definition(name, dnode)
-                        self.locals[node].append(dnode)
-
             # handle function bodies
-            for fnode, ctx in self._defered[-1]:
+            for fnode, defs, scopes, scope_depths, precomputed_locals in self._defered:
                 visitor = getattr(self,
                                   "visit_{}".format(type(fnode).__name__))
-                defs, self._definitions = self._definitions, ctx
-                visitor(fnode, step=DefinitionStep)
-                self._definitions = defs
-            self._defered.pop()
+                with self.SwitchScopeContext(defs, scopes, scope_depths,
+                                             precomputed_locals):
+                    visitor(fnode, step=DefinitionStep)
 
             # various sanity checks
             if __debug__:
@@ -414,10 +542,12 @@ class DefUseChains(ast.NodeVisitor):
                 assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns
 
         assert not self._definitions
-        assert not self._defered
+        assert not self._scopes
+        assert not self._scope_depths
+        assert not self._precomputed_locals
 
     def set_definition(self, name, dnode_or_dnodes):
-        if self.deadcode:
+        if self._deadcode:
             return
         if isinstance(dnode_or_dnodes, Def):
             self._definitions[-1][name] = ordered_set((dnode_or_dnodes,))
@@ -432,16 +562,49 @@ class DefUseChains(ast.NodeVisitor):
             definition[name].update(dnode_or_dnodes)
 
     def extend_definition(self, name, dnode_or_dnodes):
-        if self.deadcode:
+        if self._deadcode:
             return
         DefUseChains.add_to_definition(self._definitions[-1], name,
                                        dnode_or_dnodes)
 
+    def extend_global(self, name, dnode_or_dnodes):
+        if self._deadcode:
+            return
+        DefUseChains.add_to_definition(self._definitions[0], name,
+                                       dnode_or_dnodes)
+
+    def set_or_extend_global(self, name, dnode):
+        if self._deadcode:
+            return
+        if name not in self._definitions[0]:
+            self.locals[self.module].append(dnode)
+        DefUseChains.add_to_definition(self._definitions[0], name, dnode)
+
+    def visit_annotation(self, node):
+        annotation = getattr(node, 'annotation', None)
+        if annotation:
+            self.visit(annotation)
+
+    def visit_skip_annotation(self, node):
+        if isinstance(node, ast.Name):
+            self.visit_Name(node, skip_annotation=True)
+        else:
+            self.visit(node)
+
     def visit_FunctionDef(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
-            self.set_definition(node.name, dnode)
-            self.locals[self._currenthead[-1]].append(dnode)
+            self.locals[self._scopes[-1]].append(dnode)
+            for arg in node.args.args:
+                self.visit_annotation(arg)
+            for arg in node.args.posonlyargs:
+                self.visit_annotation(arg)
+            if node.args.vararg:
+                self.visit_annotation(node.args.vararg)
+            for arg in node.args.kwonlyargs:
+                self.visit_annotation(arg)
+            if node.args.kwarg:
+                self.visit_annotation(node.args.kwarg)
 
             for kw_default in filter(None, node.args.kw_defaults):
                 self.visit(kw_default).add_user(dnode)
@@ -450,16 +613,28 @@ class DefUseChains(ast.NodeVisitor):
             for decorator in node.decorator_list:
                 self.visit(decorator)
 
-            definitions = list(self._definitions)
-            if isinstance(self._currenthead[-1], ast.ClassDef):
-                definitions.pop()
-            self._defered[-1].append((node, definitions))
-        elif step is DefinitionStep:
-            # function is not considered as defined when evaluating returns
             if node.returns:
                 self.visit(node.returns)
-            with self.DefinitionContext(node):
-                self.visit(node.args)
+
+            self.set_definition(node.name, dnode)
+
+            self._defered.append((node,
+                                  list(self._definitions),
+                                  list(self._scopes),
+                                  list(self._scope_depths),
+                                  list(self._precomputed_locals)))
+        elif step is DefinitionStep:
+            with self.ScopeContext(node):
+                for arg in node.args.args:
+                    self.visit_skip_annotation(arg)
+                for arg in node.args.posonlyargs:
+                    self.visit_skip_annotation(arg)
+                if node.args.vararg:
+                    self.visit_skip_annotation(node.args.vararg)
+                for arg in node.args.kwonlyargs:
+                    self.visit_skip_annotation(arg)
+                if node.args.kwarg:
+                    self.visit_skip_annotation(node.args.kwarg)
                 self.process_body(node.body)
         else:
             raise NotImplementedError()
@@ -468,8 +643,8 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
-        self.locals[self._currenthead[-1]].append(dnode)
-        self.set_definition(node.name, dnode)
+        self.locals[self._scopes[-1]].append(dnode)
+
         for base in node.bases:
             self.visit(base).add_user(dnode)
         for keyword in node.keywords:
@@ -477,9 +652,12 @@ class DefUseChains(ast.NodeVisitor):
         for decorator in node.decorator_list:
             self.visit(decorator).add_user(dnode)
 
-        with self.DefinitionContext(node):
+        with self.ScopeContext(node):
             self.set_definition("__class__", Def("__class__"))
             self.process_body(node.body)
+
+        self.set_definition(node.name, dnode)
+
 
     def visit_Return(self, node):
         if node.value:
@@ -521,15 +699,16 @@ class DefUseChains(ast.NodeVisitor):
             dtarget = self.visit(node.target)
             dvalue.add_user(dtarget)
             node.target.ctx = ctx
-            if node.target.id in self._promoted_locals[-1]:
-                self.extend_definition(node.target.id, dtarget)
+            if any(node.target.id in _globals for _globals in self._globals):
+                self.extend_global(node.target.id, dtarget)
             else:
-                loaded_from = [d.name() for d in self.defs(node.target)]
+                loaded_from = [d.name() for d in self.defs(node.target,
+                                                           quiet=True)]
                 self.set_definition(node.target.id, dtarget)
                 # If we augassign from a value that comes from '*', let's use
                 # this node as the definition point.
                 if '*' in loaded_from:
-                    self.locals[self._currenthead[-1]].append(dtarget)
+                    self.locals[self._scopes[-1]].append(dtarget)
         else:
             self.visit(node.target).add_user(dvalue)
 
@@ -546,29 +725,27 @@ class DefUseChains(ast.NodeVisitor):
         self._continues.append(defaultdict(ordered_set))
 
         self._undefs.append(defaultdict(list))
-        self._definitions.append(self._definitions[-1].copy())
-        self.visit(node.target)
-        self.process_body(node.body)
-        self.process_undefs()
+        with self.DefinitionContext(self._definitions[-1].copy()) as body_defs:
+            self.visit(node.target)
+            self.process_body(node.body)
+            self.process_undefs()
 
-        continue_defs = self._continues.pop()
-        for d, u in continue_defs.items():
-            self.extend_definition(d, u)
-        self._continues.append(defaultdict(ordered_set))
+            continue_defs = self._continues.pop()
+            for d, u in continue_defs.items():
+                self.extend_definition(d, u)
+            self._continues.append(defaultdict(ordered_set))
 
-        # extra round to ``emulate'' looping
-        self.visit(node.target)
-        self.process_body(node.body)
+            # extra round to ``emulate'' looping
+            self.visit(node.target)
+            self.process_body(node.body)
 
-        # process else clause in case of late break
-        self._definitions.append(defaultdict(ordered_set))
-        self.process_body(node.orelse)
-        orelse_defs = self._definitions.pop()
+            # process else clause in case of late break
+            with self.DefinitionContext(defaultdict(ordered_set)) as orelse_defs:
+                self.process_body(node.orelse)
 
-        break_defs = self._breaks.pop()
-        continue_defs = self._continues.pop()
+            break_defs = self._breaks.pop()
+            continue_defs = self._continues.pop()
 
-        body_defs = self._definitions.pop()
 
         for d, u in orelse_defs.items():
             self.extend_definition(d, u)
@@ -586,39 +763,35 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_While(self, node):
 
-        self._definitions.append(self._definitions[-1].copy())
-        self._undefs.append(defaultdict(list))
-        self._breaks.append(defaultdict(ordered_set))
-        self._continues.append(defaultdict(ordered_set))
+        with self.DefinitionContext(self._definitions[-1].copy()):
+            self._undefs.append(defaultdict(list))
+            self._breaks.append(defaultdict(ordered_set))
+            self._continues.append(defaultdict(ordered_set))
 
-        self.process_body(node.orelse)
+            self.process_body(node.orelse)
 
-        self._definitions.pop()
+        with self.DefinitionContext(self._definitions[-1].copy()) as body_defs:
 
-        self._definitions.append(self._definitions[-1].copy())
+            self.visit(node.test)
+            self.process_body(node.body)
 
-        self.visit(node.test)
-        self.process_body(node.body)
+            self.process_undefs()
 
-        self.process_undefs()
+            continue_defs = self._continues.pop()
+            for d, u in continue_defs.items():
+                self.extend_definition(d, u)
+            self._continues.append(defaultdict(ordered_set))
 
-        continue_defs = self._continues.pop()
-        for d, u in continue_defs.items():
-            self.extend_definition(d, u)
-        self._continues.append(defaultdict(ordered_set))
+            # extra round to simulate loop
+            self.visit(node.test)
+            self.process_body(node.body)
 
-        # extra round to simulate loop
-        self.visit(node.test)
-        self.process_body(node.body)
+            # the false branch of the eval
+            self.visit(node.test)
 
-        # the false branch of the eval
-        self.visit(node.test)
+            with self.DefinitionContext(self._definitions[-1].copy()) as orelse_defs:
+                self.process_body(node.orelse)
 
-        self._definitions.append(self._definitions[-1].copy())
-        self.process_body(node.orelse)
-
-        orelse_defs = self._definitions.pop()
-        body_defs = self._definitions.pop()
         break_defs = self._breaks.pop()
         continue_defs = self._continues.pop()
 
@@ -638,13 +811,12 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.test)
 
         # putting a copy of current level to handle nested conditions
-        self._definitions.append(self._definitions[-1].copy())
-        self.process_body(node.body)
-        body_defs = self._definitions.pop()
+        with self.DefinitionContext(self._definitions[-1].copy()) as body_defs:
+            self.process_body(node.body)
 
-        self._definitions.append(self._definitions[-1].copy())
-        self.process_body(node.orelse)
-        orelse_defs = self._definitions.pop()
+        with self.DefinitionContext(self._definitions[-1].copy()) as orelse_defs:
+            self.process_body(node.orelse)
+
         for d in body_defs:
             if d in orelse_defs:
                 self.set_definition(d, body_defs[d] + orelse_defs[d])
@@ -671,19 +843,18 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(node.cause)
 
     def visit_Try(self, node):
-        self._definitions.append(self._definitions[-1].copy())
-        self.process_body(node.body)
-        self.process_body(node.orelse)
-        failsafe_defs = self._definitions.pop()
+        with self.DefinitionContext(self._definitions[-1].copy()) as failsafe_defs:
+            self.process_body(node.body)
+            self.process_body(node.orelse)
 
         # handle the fact that definitions may have fail
         for d in failsafe_defs:
             self.extend_definition(d, failsafe_defs[d])
 
         for excepthandler in node.handlers:
-            self._definitions.append(defaultdict(ordered_set))
-            self.visit(excepthandler)
-            handler_def = self._definitions.pop()
+            with self.DefinitionContext(defaultdict(ordered_set)) as handler_def:
+                self.visit(excepthandler)
+
             for hd in handler_def:
                 self.extend_definition(hd, handler_def[hd])
 
@@ -699,13 +870,13 @@ class DefUseChains(ast.NodeVisitor):
             dalias = self.chains.setdefault(alias, Def(alias))
             base = alias.name.split(".", 1)[0]
             self.set_definition(alias.asname or base, dalias)
-            self.locals[self._currenthead[-1]].append(dalias)
+            self.locals[self._scopes[-1]].append(dalias)
 
     def visit_ImportFrom(self, node):
         for alias in node.names:
             dalias = self.chains.setdefault(alias, Def(alias))
             self.set_definition(alias.asname or alias.name, dalias)
-            self.locals[self._currenthead[-1]].append(dalias)
+            self.locals[self._scopes[-1]].append(dalias)
 
     def visit_Exec(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -735,7 +906,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_Global(self, node):
         for name in node.names:
-            self._promoted_locals[-1].add(name)
+            self._globals[-1].add(name)
 
     def visit_Nonlocal(self, node):
         for name in node.names:
@@ -773,11 +944,10 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Lambda(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
-            self._defered[-1].append((node, list(self._definitions)))
             return dnode
         elif step is DefinitionStep:
             dnode = self.chains[node]
-            with self.DefinitionContext(node):
+            with self.ScopeContext(node):
                 self.visit(node.args)
                 self.visit(node.body).add_user(dnode)
             return dnode
@@ -808,7 +978,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_ListComp(self, node):
         dnode = self.chains.setdefault(node, Def(node))
 
-        with self.CompDefinitionContext(node):
+        with self.CompScopeContext(node):
             for comprehension in node.generators:
                 self.visit(comprehension).add_user(dnode)
             self.visit(node.elt).add_user(dnode)
@@ -820,7 +990,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_DictComp(self, node):
         dnode = self.chains.setdefault(node, Def(node))
 
-        with self.CompDefinitionContext(node):
+        with self.CompScopeContext(node):
             for comprehension in node.generators:
                 self.visit(comprehension).add_user(dnode)
             self.visit(node.key).add_user(dnode)
@@ -894,20 +1064,21 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.target)
         return dnode
 
-    def visit_Name(self, node):
+    def is_in_current_scope(self, name):
+        return any(name in defs
+                   for defs in self._definitions[self._scope_depths[-1]:])
 
+    def visit_Name(self, node, skip_annotation=False):
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             dnode = self.chains.setdefault(node, Def(node))
-            if node.id in self._promoted_locals[-1]:
-                self.extend_definition(node.id, dnode)
-                if dnode not in self.locals[self.module]:
-                    self.locals[self.module].append(dnode)
+            if any(node.id in _globals for _globals in self._globals):
+                self.set_or_extend_global(node.id, dnode)
             else:
                 self.set_definition(node.id, dnode)
-                if dnode not in self.locals[self._currenthead[-1]]:
-                    self.locals[self._currenthead[-1]].append(dnode)
+                if dnode not in self.locals[self._scopes[-1]]:
+                    self.locals[self._scopes[-1]].append(dnode)
 
-            if node.annotation is not None:
+            if node.annotation is not None and not skip_annotation:
                 self.visit(node.annotation)
 
         elif isinstance(node.ctx, (ast.Load, ast.Del)):
