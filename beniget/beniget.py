@@ -200,10 +200,10 @@ class _CollectFutureImports(ast.NodeVisitor):
             raise _StopTraversal()
         self.FutureImports.update((al.name for al in node.names))
     
-    def visit_Expr(self, node: ast.Expr):
+    def visit_Expr(self, node):
         self.visit(node.value)
 
-    def visit_Constant(self, node: ast.Constant):
+    def visit_Constant(self, node):
         if not isinstance(node.value, str):
             raise _StopTraversal()
 
