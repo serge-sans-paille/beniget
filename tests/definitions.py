@@ -415,8 +415,8 @@ class TestReachable(TestCase):
                 else:
                     raise AssertionError('{} not found in {}'.format(var, node))
 
-        checkDefs(c.dump_reachable(node), reachables)
-        checkDefs(c.dump_locals(node), locals)
+        checkDefs(c._dump_reachable(node), reachables)
+        checkDefs(c._dump_locals(node), locals)
     
     def test_LocalAssignRedefIfElseOverride(self):
         code = """

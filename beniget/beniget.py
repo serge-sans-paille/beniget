@@ -289,7 +289,7 @@ class DefUseChains(ast.NodeVisitor):
     ## helpers
     #
     
-    def dump_locals(self, node):
+    def _dump_locals(self, node):
         # type: (ast.AST) -> List[str]
         """
         Like `dump_definitions` but returns the result grouped by symbol name and it includes linenos.
@@ -302,10 +302,10 @@ class DefUseChains(ast.NodeVisitor):
         return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', -1)) for d in defs])) \
             for name,defs in groupped.items()]
 
-    def dump_reachable(self, node):
+    def _dump_reachable(self, node):
         # type: (ast.AST) -> List[str]
         """
-        Like `dump_locals` but only includes reachable definitions.
+        Like `_dump_locals` but only includes reachable definitions.
 
         :Returns: List of string formatted like: '{symbol name}:{def lines}'
         """
