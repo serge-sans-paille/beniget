@@ -1266,7 +1266,7 @@ def lookup_annotation_name_defs(name, heads, locals_map):
     ... # we're placing ourselves in the function scope
     >>> fn_scope = module.body[-1].body[-1]
     >>> assert isinstance(fn_scope, ast.FunctionDef)
-    >>> heads = [*ancestors.parents(fn_scope), fn_scope]
+    >>> heads = ancestors.parents(fn_scope) + [fn_scope]
     >>> print(lookup_annotation_name_defs('t', heads, duc.locals)[0])
     t -> ()
     >>> print(lookup_annotation_name_defs('c', heads, duc.locals)[0])
