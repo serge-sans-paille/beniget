@@ -1258,19 +1258,19 @@ def lookup_annotation_name_defs(name, heads, locals_map):
     This function can be used by client code like this:
 
     >>> import gast as ast
-    >>> module = ast.parse("from b import c;import typing as t\nclass C:\n def f(self):...")
+    >>> module = ast.parse("from b import c;import typing as t\nclass C:\n def f(self):self.var = c.Thing()")
     >>> duc = DefUseChains()
     >>> duc.visit(module)
     >>> ancestors = Ancestors()
     >>> ancestors.visit(module)
-    ... # we're placing ourselves in the function scope
+    ... # we're placing ourselves in the context of the instance attribute annotation
     >>> fn_scope = module.body[-1].body[-1]
     >>> assert isinstance(fn_scope, ast.FunctionDef)
     >>> heads = ancestors.parents(fn_scope) + [fn_scope]
     >>> print(lookup_annotation_name_defs('t', heads, duc.locals)[0])
     t -> ()
     >>> print(lookup_annotation_name_defs('c', heads, duc.locals)[0])
-    c -> ()
+    c -> (c -> (Attribute -> (Call -> ())))
     >>> print(lookup_annotation_name_defs('C', heads, duc.locals)[0])
     C -> ()
     """
