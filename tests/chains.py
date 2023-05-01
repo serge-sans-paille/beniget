@@ -949,12 +949,8 @@ fn = outer()
         assert _get_lookup_scopes((mod, cls)) == [mod, cls]
         assert _get_lookup_scopes((mod,)) == [mod]
 
-        try:
+        with self.assertRaises(ValueError, msg='invalid heads: must include at least one element'):
             _get_lookup_scopes(())
-        except IndexError:
-            pass
-        else:
-            raise AssertionError('should have raised')
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_inner_inner_fn(self):

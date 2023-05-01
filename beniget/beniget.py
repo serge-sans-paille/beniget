@@ -1238,23 +1238,26 @@ def _iter_arguments(args):
 
 def lookup_annotation_name_defs(name, heads, locals_map):
     r"""
-    Lookup a name, in annotation context, with the provided head nodes using the locals_map.
+    Simple identifier -> defs resolving.
+
+    Lookup a name with the provided head nodes using the locals_map.
+    Note that nonlocal and global keywords are ignored by this function. 
+    Only used to resolve annotations when PEP 563 is enabled.
 
     :param name: The identifier we're looking up.
     :param heads: List of ast scope statement that describe 
         the path to the name context. i.e ``[<Module>, <ClassDef>, <FunctionDef>]``.
-        Gathered with `Ancestors.parent`.
+        The lookup will happend in the context of the body of tail of ``heads``
+        Can be gathered with `Ancestors.parents`.
     :param locals_map: `DefUseChains.locals`.
 
-    Will raise a `LookupError` for: 
+    :raise LookupError: For
         - builtin names
         - wildcard imported names 
-    Note that nonlocal and global keywords are ignored by this function.
-    These features are handled in DefUseChains.
-    
-    The goal is to provide a simple lazy symbol-def resolving feature. 
-    It's currently only used for annotations when PEP 563 is enabled.
+        - unbound names
 
+    :raise ValueError: When the heads is empty.
+    
     This function can be used by client code like this:
 
     >>> import gast as ast
@@ -1263,7 +1266,7 @@ def lookup_annotation_name_defs(name, heads, locals_map):
     >>> duc.visit(module)
     >>> ancestors = Ancestors()
     >>> ancestors.visit(module)
-    ... # we're placing ourselves in the context of the instance attribute annotation
+    ... # we're placing ourselves in the context of the function body
     >>> fn_scope = module.body[-1].body[-1]
     >>> assert isinstance(fn_scope, ast.FunctionDef)
     >>> heads = ancestors.parents(fn_scope) + [fn_scope]
@@ -1281,12 +1284,7 @@ def lookup_annotation_name_defs(name, heads, locals_map):
         # then try the theoretical runtime scopes.
         # putting the global scope last in the list so annotation are
         # resolve using he global namespace first. this is the way pyright does.
-        scopes.append(scopes.pop(0))
-    elif scopes_len==0:
-        if len(heads)==0:
-            raise ValueError('invalid heads: must include at least one element')
-        else:
-            raise ValueError('invalid heads: must include all parents')
+        scopes.append(scopes.pop(0))        
     try:
         return _lookup(name, scopes, locals_map)
     except LookupError:
@@ -1299,7 +1297,10 @@ def _get_lookup_scopes(heads):
     # will never happend in this scope for the given context.
     
     heads = list(heads) # avoid modifying the list (important)
-    direct_scope = heads.pop(-1) # this scope is the only one that can be a class
+    try:
+        direct_scope = heads.pop(-1) # this scope is the only one that can be a class
+    except IndexError as e:
+        raise ValueError('invalid heads: must include at least one element') from e
     try:
         global_scope = heads.pop(0)
     except IndexError:
