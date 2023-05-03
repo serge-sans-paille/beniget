@@ -1299,8 +1299,8 @@ def _get_lookup_scopes(heads):
     heads = list(heads) # avoid modifying the list (important)
     try:
         direct_scope = heads.pop(-1) # this scope is the only one that can be a class
-    except IndexError as e:
-        raise ValueError('invalid heads: must include at least one element') from e
+    except IndexError:
+        raise ValueError('invalid heads: must include at least one element')
     try:
         global_scope = heads.pop(0)
     except IndexError:
