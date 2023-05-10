@@ -833,7 +833,10 @@ class DefUseChains(ast.NodeVisitor):
     def visit_ImportFrom(self, node):
         for alias in node.names:
             dalias = self.chains.setdefault(alias, Def(alias))
-            self.set_definition(alias.asname or alias.name, dalias)
+            if alias.name == '*':
+                self.extend_definition('*', dalias)
+            else:
+                self.set_definition(alias.asname or alias.name, dalias)
             self.locals[self._scopes[-1]].append(dalias)
 
     def visit_Exec(self, node):
