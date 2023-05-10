@@ -600,6 +600,18 @@ if (a := a + a):
         self.checkChains(
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
+    
+    def test_import_dotted_name_binds_first_name(self):
+        code = '''import collections.abc;collections;collections.abc'''
+        self.checkChains(
+            code, ['collections -> (collections -> (), collections -> (Attribute -> ()))']
+        )
+
+    def test_multiple_wildcards_may_bind(self):
+        code = '''from abc import *; from collections import *;name1; from mod import *;name2'''
+        self.checkChains(
+            code, ['* -> (name1 -> (), name2 -> ())','* -> (name1 -> (), name2 -> ())','* -> (name2 -> ())']
+        )
 
 
 class TestUseDefChains(TestCase):
