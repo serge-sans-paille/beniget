@@ -612,6 +612,14 @@ if (a := a + a):
         self.checkChains(
             code, ['* -> (name1 -> (), name2 -> ())','* -> (name1 -> (), name2 -> ())','* -> (name2 -> ())']
         )
+    
+    def test_wildcard_may_override(self):
+        # we could argue that the wildcard import might override name2,
+        # but we're currently ignoring these kind of scenarios.
+        code = '''name2=True;from abc import *;name2'''
+        self.checkChains(
+            code, ['name2 -> (name2 -> ())', '* -> ()']
+        )
 
 
 class TestUseDefChains(TestCase):
