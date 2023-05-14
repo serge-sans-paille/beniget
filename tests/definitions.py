@@ -399,7 +399,7 @@ def foo(a):
 
 class TestReachable(TestCase):
     
-    def checkReachable(self, code, reachables, locals):
+    def checkLiveLocals(self, code, livelocals, locals):
         node = ast.parse(dedent(code))
         c = StrictDefUseChains()
         c.visit(node)
@@ -415,7 +415,7 @@ class TestReachable(TestCase):
                 else:
                     raise AssertionError('{} not found in {}'.format(var, node))
 
-        checkDefs(c._dump_reachable(node), reachables)
+        checkDefs(c._dump_locals(node, only_live=True), livelocals)
         checkDefs(c._dump_locals(node), locals)
     
     def test_LocalAssignRedefIfElseOverride(self):
@@ -426,7 +426,7 @@ class TestReachable(TestCase):
                 x = 3
             x = 0
         """
-        self.checkReachable(code, ["x:6"], ["x:3,5,6"])
+        self.checkLiveLocals(code, ["x:6"], ["x:3,5,6"])
     
     def test_LocalAssignmentRedefInEachBranch(self):
         code = """
@@ -436,7 +436,7 @@ class TestReachable(TestCase):
         else:
             x = 1000
         """
-        self.checkReachable(code, ["x:4,6"], ["x:2,4,6"])
+        self.checkLiveLocals(code, ["x:4,6"], ["x:2,4,6"])
 
     def test_AssignmentInsideBothBranchesOfTryExcept(self):
         code = """
@@ -447,7 +447,7 @@ class TestReachable(TestCase):
             except RuntimeError:
                 x = -1
         """
-        self.checkReachable(code, ["x:5,7"], ["x:5,7"])
+        self.checkLiveLocals(code, ["x:5,7"], ["x:5,7"])
 
     def test_AssignmentOverrideFinallyBlock(self):
         code = """
@@ -460,7 +460,7 @@ class TestReachable(TestCase):
             finally:
                 x = None
         """
-        self.checkReachable(code, ["x:9"], ["x:5,7,9"])
+        self.checkLiveLocals(code, ["x:9"], ["x:5,7,9"])
     
     def test_AssignmentSimple(self):
         code = """
@@ -468,4 +468,4 @@ class TestReachable(TestCase):
             a = a + 1
             a = a + 1
             """
-        self.checkReachable(code, ["a:4"], ["a:2,3,4"])
+        self.checkLiveLocals(code, ["a:4"], ["a:2,3,4"])
