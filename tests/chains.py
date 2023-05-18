@@ -629,6 +629,29 @@ class S:
         self.assertEqual(chains.dump_chains(mod.body[0]), 
                          ['f -> ()'])
     
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_unbound_pep563(self):
+        code = '''
+from __future__ import annotations
+def f(x:f) -> f: # 'f' annotations are NOT unbound because pep563
+    ...'''
+        self.checkChains(
+            code, ['annotations -> ()', 'f -> (f -> (), f -> ())'], strict=False
+        )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_method_annotation_unbound_pep563(self):
+        code = '''
+from __future__ import annotations
+class S:
+    def f(self, x:f) -> f:... # 'f' annotations are NOT unbound because pep563
+'''
+        mod, chains = self.checkChains(
+            code, ['annotations -> ()', 'S -> ()'], strict=False
+        )
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['f -> (f -> (), f -> ())'])
+    
     def test_import_dotted_name_binds_first_name(self):
         code = '''import collections.abc;collections;collections.abc'''
         self.checkChains(
