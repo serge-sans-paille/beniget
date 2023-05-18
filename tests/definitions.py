@@ -397,7 +397,7 @@ def foo(a):
         else: b = a"""
         self.checkLocals(code, ["a", "b"])
 
-class TestReachable(TestCase):
+class TestDefIsLive(TestCase):
     
     def checkLiveLocals(self, code, livelocals, locals):
         node = ast.parse(dedent(code))
