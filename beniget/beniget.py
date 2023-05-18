@@ -525,11 +525,6 @@ class DefUseChains(ast.NodeVisitor):
         self._scope_depths.pop()
         self._scopes.pop()
 
-        # set the islive flag to False on killed Defs
-        for local in self.locals[node]:
-            if local not in current_defs[local.name()]:
-                local.islive = False
-
     if sys.version_info.major >= 3:
         CompScopeContext = ScopeContext
     else:
@@ -627,6 +622,9 @@ class DefUseChains(ast.NodeVisitor):
     def set_definition(self, name, dnode_or_dnodes):
         if self._deadcode:
             return
+        # set the islive flag to False on killed Defs
+        for d in self._definitions[-1].get(name, ()):
+            d.islive = False
         if isinstance(dnode_or_dnodes, Def):
             self._definitions[-1][name] = ordered_set((dnode_or_dnodes,))
         else:
@@ -1347,10 +1345,8 @@ def _get_lookup_scopes(heads):
 def _lookup(name, scopes, locals_map):
     context = scopes.pop()
     defs = []
-    for loc in reversed(locals_map[context]):
-        # start by the last added Defs
-        # could use the flag Def.reaches to filter.
-        if loc.name() == name:
+    for loc in locals_map.get(context, ()):
+        if loc.name() == name and loc.islive:
             defs.append(loc)
     if defs:
         return defs

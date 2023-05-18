@@ -840,11 +840,13 @@ primes: List[int] # should resolve to the star
     
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_wilcard_import_annotation_and_global_scope(self):
-    
+        # we might argue that it should resolve to both the wildcard 
+        # defined name and the type alias, but we're currently ignoring these
+        # kinf of scenarios.
         code = '''
 from __future__ import annotations
 from typing import *
-primes: List[int] # should not resolve to both
+primes: List[int]
 List = list
     '''
 
@@ -1082,7 +1084,7 @@ A = bytes
                 code, 
                 ['annotations -> ()',
                  'B -> ()', 
-                 'A -> (A -> (), A -> ())', # bad, can be fixed by using https://github.com/serge-sans-paille/beniget/pull/38
+                 'A -> ()',
                  'A -> (A -> (), A -> ())'], # good
                 strict=False
             )
