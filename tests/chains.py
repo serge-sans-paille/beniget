@@ -628,6 +628,26 @@ class S:
         )
         self.assertEqual(chains.dump_chains(mod.body[0]), 
                          ['f -> ()'])
+    
+    def test_import_dotted_name_binds_first_name(self):
+        code = '''import collections.abc;collections;collections.abc'''
+        self.checkChains(
+            code, ['collections -> (collections -> (), collections -> (Attribute -> ()))']
+        )
+
+    def test_multiple_wildcards_may_bind(self):
+        code = '''from abc import *; from collections import *;name1; from mod import *;name2'''
+        self.checkChains(
+            code, ['* -> (name1 -> (), name2 -> ())','* -> (name1 -> (), name2 -> ())','* -> (name2 -> ())']
+        )
+    
+    def test_wildcard_may_override(self):
+        # we could argue that the wildcard import might override name2,
+        # but we're currently ignoring these kind of scenarios.
+        code = '''name2=True;from abc import *;name2'''
+        self.checkChains(
+            code, ['name2 -> (name2 -> ())', '* -> ()']
+        )
 
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_use_upper_scope_variables(self):
