@@ -865,7 +865,7 @@ primes: List[int] # should resolve to the star
     def test_wilcard_import_annotation_and_global_scope(self):
         # we might argue that it should resolve to both the wildcard 
         # defined name and the type alias, but we're currently ignoring these
-        # kinf of scenarios.
+        # kind of scenarios.
         code = '''
 from __future__ import annotations
 from typing import *
