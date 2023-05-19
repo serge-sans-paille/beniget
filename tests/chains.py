@@ -636,7 +636,7 @@ from __future__ import annotations
 def f(x:f) -> f: # 'f' annotations are NOT unbound because pep563
     ...'''
         self.checkChains(
-            code, ['annotations -> ()', 'f -> (f -> (), f -> ())'], strict=False
+            code, ['annotations -> ()', 'f -> (f -> (), f -> ())']
         )
     
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
@@ -647,7 +647,7 @@ class S:
     def f(self, x:f) -> f:... # 'f' annotations are NOT unbound because pep563
 '''
         mod, chains = self.checkChains(
-            code, ['annotations -> ()', 'S -> ()'], strict=False
+            code, ['annotations -> ()', 'S -> ()']
         )
         self.assertEqual(chains.dump_chains(mod.body[1]), 
                          ['f -> (f -> (), f -> ())'])
