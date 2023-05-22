@@ -1,10 +1,13 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
+import unittest
 import gast as ast
 import beniget
 import io
 import sys
 
+# Show full diff in unittest
+unittest.util._MAX_LENGTH=2000
 
 @contextmanager
 def captured_output():
@@ -21,7 +24,7 @@ def captured_output():
 
 
 class TestDefUseChains(TestCase):
-    def checkChains(self, code, ref):
+    def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
                 raise RuntimeError(
@@ -31,9 +34,13 @@ class TestDefUseChains(TestCase):
                 )
 
         node = ast.parse(code)
-        c = StrictDefUseChains()
+        if strict:
+            c = StrictDefUseChains()
+        else:
+            c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
+        return node, c
 
     def test_simple_expression(self):
         code = "a = 1; a + 2"
@@ -601,6 +608,50 @@ if (a := a + a):
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
     
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_unbound(self):
+        code = '''
+def f(x:f) -> f: # 'f' annotations are unbound
+    ...'''
+        self.checkChains(
+            code, ['f -> ()'], strict=False
+        )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_method_annotation_unbound(self):
+        code = '''
+class S:
+    def f(self, x:f) -> f:... # 'f' annotations are unbound
+'''
+        mod, chains = self.checkChains(
+            code, ['S -> ()'], strict=False
+        )
+        self.assertEqual(chains.dump_chains(mod.body[0]), 
+                         ['f -> ()'])
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_unbound_pep563(self):
+        code = '''
+from __future__ import annotations
+def f(x:f) -> f: # 'f' annotations are NOT unbound because pep563
+    ...'''
+        self.checkChains(
+            code, ['annotations -> ()', 'f -> (f -> (), f -> ())']
+        )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_method_annotation_unbound_pep563(self):
+        code = '''
+from __future__ import annotations
+class S:
+    def f(self, x:f) -> f:... # 'f' annotations are NOT unbound because pep563
+'''
+        mod, chains = self.checkChains(
+            code, ['annotations -> ()', 'S -> ()']
+        )
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['f -> (f -> (), f -> ())'])
+    
     def test_import_dotted_name_binds_first_name(self):
         code = '''import collections.abc;collections;collections.abc'''
         self.checkChains(
@@ -621,7 +672,446 @@ if (a := a + a):
             code, ['name2 -> (name2 -> ())', '* -> ()']
         )
 
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_use_upper_scope_variables(self):
+        code = '''
+from typing import Union
+class Attr:
+    ...
+class Thing:
+    ...
+class System:
+    Thing = bytes
+    @property
+    def Attr(self) -> Union[Attr, Thing]:...
+'''
+        self.checkChains(
+            code, ['Union -> (Union -> (Subscript -> ()))',
+                    'Attr -> (Attr -> (Tuple -> (Subscript -> ())))',
+                    'Thing -> ()',
+                    'System -> ()',]
+        )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_future_annotation_class_var(self):
+        code = '''
+from __future__ import annotations
+from typing import Type
+class System:
+    Thing = bytes
+    @property
+    def Attribute(self) -> Type[Thing]:...
+'''     
+        
+        mod, chains = self.checkChains(
+            code, ['annotations -> ()',
+            'Type -> (Type -> (Subscript -> ()))', 'System -> ()']
+        )
+        # locals of System
+        self.assertEqual(chains.dump_chains(mod.body[-1]), [
+            'Thing -> (Thing -> (Subscript -> ()))', 
+            'Attribute -> ()'
+        ])
+        
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_pep0563_annotations(self):
 
+        # code taken from https://peps.python.org/pep-0563/
+
+        code = '''
+# beniget can probably understand this code without the future import
+from __future__ import annotations
+from typing import TypeAlias, Mapping, Dict, Type
+class C:
+    
+    def method(self) -> C.field:  # this is OK
+        ...
+
+    def method(self) -> field:  # this is OK
+        ...
+
+    def method(self) -> C.D:  # this is OK
+        ...
+
+    def method(self, x:field) -> D:  # this is OK
+        ...
+
+    field:TypeAlias = 'Mapping'
+
+    class D:
+        field2:TypeAlias = 'Dict'
+        def method(self) -> C.D.field2:  # this is OK
+            ...
+
+        def method(self) -> D.field2:  # this FAILS, class D is local to C
+            ...                        # and is therefore only available
+                                       # as C.D. This was already true
+                                       # before the PEP. 
+                                       # We check first the globals, then the locals
+                                       # of the class D, and 'D' is not defined in either
+                                       # of those, it defined in the locals of class C.
+
+        def method(self, x:field2) -> field2:  # this is OK
+            ...
+
+        def method(self, x) -> field:  # this FAILS, field is local to C and
+                                    # is therefore not visible to D unless
+                                    # accessed as C.field. This was already
+                                    # true before the PEP.
+            ...
+
+        def Thing(self, y:Type[Thing]) -> Thing: # this is OK, and it links to the top level Thing.
+            ...
+
+Thing:TypeAlias = 'Mapping'
+''' 
+
+        with captured_output() as (out, err):
+            node, c = self.checkChains(
+                code, 
+                    ['annotations -> ()',
+                    'TypeAlias -> (TypeAlias -> (), TypeAlias -> (), TypeAlias -> ())',
+                    'Mapping -> ()',
+                    'Dict -> ()',
+                    'Type -> (Type -> (Subscript -> ()))',
+                    'C -> (C -> (Attribute -> ()), C -> (Attribute -> ()), C -> (Attribute -> '
+                    '(Attribute -> ())))',
+                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()), TypeAlias -> ())'], 
+                strict=False
+            )
+        produced_messages = out.getvalue().strip().split("\n")
+
+        expected_warnings = [
+            "W: unbound identifier 'field'",
+            "W: unbound identifier 'D'",
+        ]
+
+        assert len(produced_messages) == len(expected_warnings), len(produced_messages)
+        assert all(any(w in pw for pw in produced_messages) for w in expected_warnings)
+
+        # locals of C
+        self.assertEqual(c.dump_chains(node.body[-2]), 
+                         ['method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'field -> (field -> (), field -> (), TypeAlias -> ())',
+                            'D -> (D -> ())'])
+        
+        # locals of D
+        self.assertEqual(c.dump_chains(node.body[-2].body[-1]), 
+                         ['field2 -> (TypeAlias -> (), field2 -> (), field2 -> ())',
+                            'method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'method -> ()',
+                            'Thing -> ()'])
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_pep563_self_referential_annotation(self):
+        code = '''
+"""
+module docstring
+"""
+from __future__ import annotations
+class B:
+    A: A # this should point to the top-level class
+class A:
+    A: 'str'
+'''
+        self.checkChains(
+                code, 
+                ['annotations -> ()',
+                 'B -> ()', 
+                 'A -> (A -> ())'], # good
+                strict=False
+            )
+
+        code = '''
+from __future__ import annotations
+class A:
+    A: 'str'
+class B:
+    A: A # this should point to the top-level class
+'''
+        self.checkChains(
+                code, 
+                ['annotations -> ()',
+                 'A -> (A -> ())', 
+                 'B -> ()'], 
+                strict=False
+            )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_wilcard_import_annotation(self):
+        code = '''
+from typing import *
+primes: List[int] # should resolve to the star
+        '''
+
+        self.checkChains(
+                code, 
+                ['* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                strict=False
+            )
+        # same with 'from __future__ import annotations'
+        self.checkChains(
+                'from __future__ import annotations\n' + code, 
+                ['annotations -> ()', '* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                strict=False
+            )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_wilcard_import_annotation_and_global_scope(self):
+        # we might argue that it should resolve to both the wildcard 
+        # defined name and the type alias, but we're currently ignoring these
+        # kind of scenarios.
+        code = '''
+from __future__ import annotations
+from typing import *
+primes: List[int]
+List = list
+    '''
+
+        self.checkChains(
+                code, 
+                ['annotations -> ()',
+                '* -> ()',
+                'primes -> (Subscript -> ())',
+                'List -> (List -> (Subscript -> ()))'],
+                strict=False
+            )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_in_functions_locals(self):
+        
+        code = '''
+class A:... # this one for pep 563 style
+def generate():
+    class A(int):... # this one for runtime style
+    class C:
+        field: A = 1
+        def method(self, arg: A) -> None: ...
+    return C
+X = generate()
+        '''
+
+        # runtime style
+        mod, chains = self.checkChains(
+                code, 
+                ['A -> ()', 
+                 'generate -> (generate -> (Call -> ()))', 
+                 'X -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['A -> (A -> (), A -> ())', 
+                          'C -> (C -> ())'])
+
+        # pep 563 style
+        mod, chains = self.checkChains(
+                'from __future__ import annotations\n' + code, 
+                ['annotations -> ()', 
+                 'A -> (A -> (), A -> ())',
+                 'generate -> (generate -> (Call -> ()))', 
+                 'X -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[2]), 
+                         ['A -> ()', 
+                          'C -> (C -> ())'])
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_in_inner_functions_locals(self):
+
+        code = '''
+mytype = mytype2 = object
+def outer():
+    def middle():
+        def inner(a:mytype, b:mytype2): pass
+        class mytype(str):
+            ...
+        return inner
+    class mytype2(int):
+        ...
+    return middle()
+fn = outer()
+        '''
+
+        mod = ast.parse(code)
+        chains = beniget.DefUseChains('test')
+        with captured_output() as (out, err):
+            chains.visit(mod)
+        
+        produced_messages = out.getvalue().strip().split("\n")
+
+        self.assertEqual(produced_messages, ["W: unbound identifier 'mytype' at test:5:20"])
+
+        self.assertEqual(
+                chains.dump_chains(mod), 
+                ['mytype -> ()', 
+                 'mytype2 -> ()', 
+                 'outer -> (outer -> (Call -> ()))', 
+                 'fn -> ()'],
+            )
+        
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['middle -> (middle -> (Call -> ()))', 
+                          'mytype2 -> (mytype2 -> ())'])
+        self.assertEqual(chains.dump_chains(mod.body[1].body[0]), 
+                         ['inner -> (inner -> ())', 
+                          'mytype -> ()']) # annotation is unbound, so not linked here (and a warning is emitted)
+
+        # in this case, the behaviour changes radically with pep 563
+
+        mod, chains = self.checkChains(
+                'from __future__ import annotations\n' + code, 
+                ['annotations -> ()', 
+                 'mytype -> (mytype -> ())', 
+                 'mytype2 -> (mytype2 -> ())', 
+                 'outer -> (outer -> (Call -> ()))', 
+                 'fn -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[2]), 
+                         ['middle -> (middle -> (Call -> ()))', 
+                          'mytype2 -> ()'])
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+                         ['inner -> (inner -> ())', 
+                          'mytype -> ()'])
+
+        # but if we remove 'mytype = mytype2 = object' and 
+        # keep the __future__ import then all anotations refers 
+        # to the inner classes. 
+    
+    def test_lookup_scopes(self):
+        from beniget.beniget import _get_lookup_scopes
+        mod, fn, cls, lambd, gen, comp = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp()
+        assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
+        assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
+        assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
+        assert _get_lookup_scopes((mod, cls, fn, cls, fn)) == [mod, fn, fn]
+        assert _get_lookup_scopes((mod, cls, fn, lambd, gen)) == [mod, fn, lambd, gen]
+        assert _get_lookup_scopes((mod, fn, comp)) == [mod, fn, comp]
+        assert _get_lookup_scopes((mod, fn)) == [mod, fn]
+        assert _get_lookup_scopes((mod, cls)) == [mod, cls]
+        assert _get_lookup_scopes((mod,)) == [mod]
+
+        with self.assertRaises(ValueError, msg='invalid heads: must include at least one element'):
+            _get_lookup_scopes(())
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_inner_inner_fn(self):
+        code = '''
+def outer():
+    def middle():
+        def inner(a:mytype): 
+            ...
+    class mytype(str):...
+'''
+        mod, chains = self.checkChains(
+                code, 
+                ['outer -> ()',],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[0]), 
+                         ['middle -> ()',
+                          'mytype -> (mytype -> ())'])
+
+        mod, chains = self.checkChains(
+            'from __future__ import annotations\n' + code,
+             ['annotations -> ()',
+              'outer -> ()',],
+        )
+        self.assertEqual(chains.dump_chains(mod.body[1]), 
+                         ['middle -> ()',
+                          'mytype -> (mytype -> ())'])
+    
+
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_very_nested(self):
+        
+        # this code does not produce any pyright warnings
+        code = '''
+from __future__ import annotations
+
+# when the following line is defined, 
+# all annotations references points to it.
+# when it's not defined, all anotation points
+# to the inner classes. 
+# in both cases pyright doesn't report any errors.
+mytype = mytype2 = object
+
+def outer():
+    def middle():
+        def inner(a:mytype, b:mytype2): 
+            return getattr(a, 'count')(b)
+        class mytype(str):
+            class substr(int):
+                ...
+            def count(self, sep:substr) -> mytype:
+                def c(x:mytype, y:mytype2) -> mytype:
+                    return mytype('{},{}'.format(x,y))
+                return c(self, mytype2(sep))
+        return inner(mytype(), mytype2())
+    class mytype2(int):
+        ...
+    return middle()
+fn = outer()
+        '''
+
+        mod, chains = self.checkChains(
+                code, 
+                ['annotations -> ()',
+                'mytype -> (mytype -> (), mytype -> (), mytype -> (), mytype -> ())',
+                'mytype2 -> (mytype2 -> (), mytype2 -> ())',
+                'outer -> (outer -> (Call -> ()))',
+                'fn -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[2]), 
+                         ['middle -> (middle -> (Call -> ()))',
+                          'mytype2 -> (mytype2 -> (Call -> (Call -> ())), '
+                          'mytype2 -> (Call -> (Call -> ())))'])
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+                         ['inner -> (inner -> (Call -> ()))',
+                          'mytype -> (mytype -> (Call -> (Call -> ())), mytype -> (Call -> ()))'])
+
+        mod, chains = self.checkChains(
+                code.replace('mytype = mytype2 = object', 'pass'), 
+                ['annotations -> ()',
+                'outer -> (outer -> (Call -> ()))',
+                'fn -> ()'],
+            )
+        self.assertEqual(chains.dump_chains(mod.body[2]), 
+                         ['middle -> (middle -> (Call -> ()))',
+                          'mytype2 -> (mytype2 -> (Call -> (Call -> ())), '
+                                       'mytype2 -> (Call -> (Call -> ())), '
+                                       'mytype2 -> (), '
+                                       'mytype2 -> ())'])
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+                         ['inner -> (inner -> (Call -> ()))',
+                          'mytype -> (mytype -> (Call -> (Call -> ())), '
+                                     'mytype -> (Call -> ()), '
+                                     'mytype -> (), '
+                                     'mytype -> (), '
+                                     'mytype -> (), '
+                                     'mytype -> ())'])
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_pep563_type_alias_override_class(self):
+        code = '''
+from __future__ import annotations
+class B:
+    A: A # this should point to the top-level alias
+class A:
+    A: A # this should point to the top-level alias
+A = bytes
+'''
+        self.checkChains(
+                code, 
+                ['annotations -> ()',
+                 'B -> ()', 
+                 'A -> ()',
+                 'A -> (A -> (), A -> ())'], # good
+                strict=False
+            )
+        
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         class StrictDefUseChains(beniget.DefUseChains):
