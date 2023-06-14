@@ -1,5 +1,5 @@
-import tests.definitions
-import tests.chains
-import tests.capture
-import tests.attributes
-import tests.doc
+import tests.test_definitions
+import tests.test_chains
+import tests.test_capture
+import tests.test_attributes
+import tests.test_doc
