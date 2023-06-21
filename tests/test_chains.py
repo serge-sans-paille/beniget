@@ -217,6 +217,17 @@ for _ in [1]:
             code,
             ['i -> (i -> (), i -> ())', 'i -> (i -> ())'])
 
+    def test_redefinition_in_comp(self):
+        code = "[name for name in 'hello']\nfor name in 'hello':name"
+        if sys.version_info.major >= 3:
+            self.checkChains(
+                code,
+                ['name -> (name -> ())'])
+        else:
+            self.checkChains(
+                code,
+                ['name -> (name -> (ListComp -> ()))', 'name -> (name -> ())'])
+
     def test_nested_while(self):
         code = '''
 done = 1

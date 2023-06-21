@@ -462,15 +462,17 @@ class DefUseChains(ast.NodeVisitor):
                     if not isinstance(scope, ast.ClassDef):
                         defs = self._definitions[lvl + depth: lvl]
                         if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
-                            looked_up_definitions.clear()
+                            looked_up_definitions.append(StopIteration)
                             break
                         looked_up_definitions.extend(reversed(defs))
                     lvl += depth
 
         for defs in looked_up_definitions:
-            if name in defs:
+            if defs is StopIteration:
+                break
+            elif name in defs:
                 return defs[name] if not stars else stars + list(defs[name])
-            if "*" in defs:
+            elif "*" in defs:
                 stars.extend(defs["*"])
 
         d = self.chains.setdefault(node, Def(node))
