@@ -980,7 +980,7 @@ fn = outer()
         # but if we remove 'mytype = mytype2 = object' and 
         # keep the __future__ import then all anotations refers 
         # to the inner classes. 
-    
+
     def test_lookup_scopes(self):
         from beniget.beniget import _get_lookup_scopes
         mod, fn, cls, lambd, gen, comp = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp()
