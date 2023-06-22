@@ -492,11 +492,11 @@ class DefUseChains(ast.NodeVisitor):
     def process_body(self, stmts):
         deadcode = False
         for stmt in stmts:
+            self.visit(stmt)
             if isinstance(stmt, (ast.Break, ast.Continue, ast.Raise)):
                 if not deadcode:
                     deadcode = True
                     self._deadcode += 1
-            self.visit(stmt)
         if deadcode:
             self._deadcode -= 1
 
@@ -918,10 +918,7 @@ class DefUseChains(ast.NodeVisitor):
     visit_AsyncWith = visit_With
 
     def visit_Raise(self, node):
-        if node.exc:
-            self.visit(node.exc)
-        if node.cause:
-            self.visit(node.cause)
+        self.generic_visit(node)
 
     def visit_Try(self, node):
         with self.DefinitionContext(self._definitions[-1].copy()) as failsafe_defs:

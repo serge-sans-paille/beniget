@@ -217,6 +217,13 @@ for _ in [1]:
             code,
             ['i -> (i -> (), i -> ())', 'i -> (i -> ())'])
 
+    def test_straight_raise(self):
+        code = "raise next([e for e in [1]])"
+        if sys.version_info.major >= 3:
+            self.checkChains(code, [])
+        else:
+            self.checkChains(code, ['e -> (e -> (ListComp -> (Call -> ())))'])
+
     def test_redefinition_in_comp(self):
         code = "[name for name in 'hello']\nfor name in 'hello':name"
         if sys.version_info.major >= 3:
