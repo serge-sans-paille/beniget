@@ -1302,7 +1302,7 @@ def _validate_comprehension(node):
         bound = getattr(name.target, 'id', None)
         if bound in iter_names:
             raise SyntaxError('assignment expression cannot rebind '
-                             f'comprehension iteration variable {bound!r}')
+                              "comprehension iteration variable '{}'".format(bound))
 
 def _iter_arguments(args):
     """
