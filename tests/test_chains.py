@@ -26,10 +26,10 @@ def captured_output():
 class TestDefUseChains(TestCase):
     def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
+            def warn(self, msg, node):
                 raise RuntimeError(
-                    "W: unbound identifier '{}' at {}:{}".format(
-                        name, node.lineno, node.col_offset
+                    "W: {} at {}:{}".format(
+                        msg, node.lineno, node.col_offset
                     )
                 )
 
@@ -647,45 +647,37 @@ if (a := a + a):
         code = '''
 stuff = []
 
+# assignment expression cannot rebind comprehension iteration variable
 [[(a := a) for _ in range(5)] for a in range(5)] # INVALID
 [b := 0 for b, _ in stuff] # INVALID
 [c for c in (c := stuff)] # INVALID
 [False and (d := 0) for d, _ in stuff] # INVALID
 [_ for _, e in stuff if True or (e := 1)] # INVALID
 
+# assignment expression cannot be used in a comprehension iterable expression
 [_ for _ in (f := stuff)] # INVALID
 [_ for _ in range(2) for _ in (g := stuff)] # INVALID
 [_ for _ in [_ for _ in (h := stuff)]] # INVALID
 [_ for _ in (lambda: (i := stuff))()] # INVALID
 
 class Example:
+    # assignment expression within a comprehension cannot be used in a class body
     [(j := i) for i in range(5)] # INVALID
 '''
-        # TODO: Better validate comprehensions.
-        self.check_message(code, ["W: unbound identifier 'a' at <unknown>:4:8"])
-        
-        # TODO: None of the invalid assigned name should show up.
-        node, chains = self.checkChains(
-            code,
-            ['stuff -> (stuff -> (comprehension -> (ListComp -> ())), stuff -> (NamedExpr '
-            '-> (comprehension -> (ListComp -> ()))), stuff -> (comprehension -> '
-            '(ListComp -> ())), stuff -> (comprehension -> (ListComp -> ())), stuff -> '
-            '(NamedExpr -> (comprehension -> (ListComp -> ()))), stuff -> (NamedExpr -> '
-            '(comprehension -> (ListComp -> ()))), stuff -> (NamedExpr -> (comprehension '
-            '-> (ListComp -> (comprehension -> (ListComp -> ()))))))',
-            'a -> ()',
-            'b -> ()',
-            'c -> ()',
-            'd -> ()',
-            'e -> ()',
-            'f -> ()',
-            'g -> ()',
-            'h -> ()',
-            'Example -> ()']
-            , strict=False
-        )
-        # The invalid assigned name doesn't show-up.
+        # None of the invalid assigned name shows up.
+        node, chains = self.checkChains(code, ['stuff -> ()', 'Example -> ()'], strict=False)        
         self.assertEqual(chains.dump_chains(node.body[-1]), [])
+        # It triggers useful warnings
+        self.check_message(code, ["W: assignment expression cannot rebind comprehension iteration variable 'a' at <unknown>:5:0", 
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'b' at <unknown>:6:0", 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:7:0', 
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'd' at <unknown>:8:0", 
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'e' at <unknown>:9:0", 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:12:0', 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:13:0', 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:14:0', 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:15:0',
+                                  'W: assignment expression within a comprehension cannot be used in a class body at <unknown>:19:6'])
     
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound(self):

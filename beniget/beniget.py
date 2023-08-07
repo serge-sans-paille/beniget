@@ -1,5 +1,6 @@
 from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
+from itertools import chain as iterchain
 import sys
 
 import gast as ast
@@ -383,8 +384,10 @@ class DefUseChains(ast.NodeVisitor):
             return ""
 
     def unbound_identifier(self, name, node):
-        location = self.location(node)
-        print("W: unbound identifier '{}'{}".format(name, location))
+        self.warn("unbound identifier '{}'".format(name), node)
+    
+    def warn(self, msg, node):
+        print("W: {}{}".format(msg, self.location(node)))
 
     def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
         # We may hit the situation where we refer to a local variable which is
@@ -1058,7 +1061,11 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_ListComp(self, node):
         dnode = self.chains.setdefault(node, Def(node))
-
+        try:
+            _validate_comprehension(node)
+        except SyntaxError as e:
+            self.warn(str(e), node)
+            return dnode
         with self.CompScopeContext(node):
             for comprehension in node.generators:
                 self.visit(comprehension).add_user(dnode)
@@ -1070,7 +1077,11 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_DictComp(self, node):
         dnode = self.chains.setdefault(node, Def(node))
-
+        try:
+            _validate_comprehension(node)
+        except SyntaxError as e:
+            self.warn(str(e), node)
+            return dnode
         with self.CompScopeContext(node):
             for comprehension in node.generators:
                 self.visit(comprehension).add_user(dnode)
@@ -1144,9 +1155,6 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.value).add_user(dnode)
         if isinstance(node.target, ast.Name):
             self.visit_Name(node.target, named_expr=True)
-        else:
-            # invalid named expression
-            self.visit(node.target)
         return dnode
 
     def is_in_current_scope(self, name):
@@ -1170,6 +1178,7 @@ class DefUseChains(ast.NodeVisitor):
                         enclosing_scope = self._scopes[index]
                     if index < -1 and isinstance(enclosing_scope, ast.ClassDef):
                         # invalid named expression, not calling set_definition.
+                        self.warn('assignment expression within a comprehension cannot be used in a class body', node)
                         return dnode
                 
                 self.set_definition(node.id, dnode, index)
@@ -1264,6 +1273,36 @@ class DefUseChains(ast.NodeVisitor):
         if node.optional_vars:
             self.visit(node.optional_vars)
         return dnode
+
+def _validate_comprehension(node):
+    """
+    Raises Syntax error if the comprehension is invalid.
+    """
+    iter_names = set()
+    
+    for gen in node.generators:
+        for name in filter(lambda n: isinstance(n, ast.NamedExpr), ast.walk(gen.iter)):
+            raise SyntaxError('assignment expression cannot be used '
+                                'in a comprehension iterable expression')
+        for name in filter(lambda n: isinstance(n, ast.Name), ast.walk(gen.target)):
+            iter_names.add(name.id)
+    
+    # build the iterator used to find named expressions, 
+    # for performance, we're not using ast.walk(node)
+    if isinstance(node, ast.DictComp):
+        iterator = iterchain(ast.walk(node.key), ast.walk(node.value))
+    else:
+        iterator = ast.walk(node.elt)
+    for gen in node.generators:
+        for i in gen.ifs:
+            iterator = iterchain(iterator, ast.walk(i))
+        iterator = iterchain(iterator, ast.walk(gen.target))
+    
+    for name in filter(lambda n: isinstance(n, ast.NamedExpr), iterator):
+        bound = getattr(name.target, 'id', None)
+        if bound in iter_names:
+            raise SyntaxError('assignment expression cannot rebind '
+                             f'comprehension iteration variable {bound!r}')
 
 def _iter_arguments(args):
     """
