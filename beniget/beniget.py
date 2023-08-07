@@ -1187,8 +1187,12 @@ class DefUseChains(ast.NodeVisitor):
                 tmp_store, elt.ctx = elt.ctx, tmp_store
                 self.visit(elt)
                 tmp_store, elt.ctx = elt.ctx, tmp_store
-            elif isinstance(elt, ast.Subscript):
+            elif isinstance(elt, (ast.Subscript, ast.Attribute)):
                 self.visit(elt)
+            elif isinstance(elt, ast.Starred) and isinstance(elt.value, ast.Name):
+                tmp_store, elt.value.ctx = elt.value.ctx, tmp_store
+                self.visit(elt)
+                tmp_store, elt.value.ctx = elt.value.ctx, tmp_store
             elif isinstance(elt, (ast.List, ast.Tuple)):
                 self.visit_Destructured(elt)
         return dnode
