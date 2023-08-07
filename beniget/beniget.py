@@ -1222,7 +1222,7 @@ class DefUseChains(ast.NodeVisitor):
 
     # misc
 
-    def visit_comprehension(self, node, is_nested:bool):
+    def visit_comprehension(self, node, is_nested):
         dnode = self.chains.setdefault(node, Def(node))
         if not is_nested:
             # There's one part of a comprehension or generator expression that executes in the surrounding scope, 
