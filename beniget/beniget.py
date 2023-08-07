@@ -1,5 +1,5 @@
 from collections import defaultdict, OrderedDict
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 import sys
 
 import gast as ast
@@ -1227,13 +1227,12 @@ class DefUseChains(ast.NodeVisitor):
         if not is_nested:
             # There's one part of a comprehension or generator expression that executes in the surrounding scope, 
             # regardless of Python version: it's the expression for the outermost iterable.
-            scope_ctx = self.SwitchScopeContext(self._definitions[:-1], self._scopes[:-1], 
-                                        self._scope_depths[:-1], self._precomputed_locals[:-1])
+            with self.SwitchScopeContext(self._definitions[:-1], self._scopes[:-1], 
+                                        self._scope_depths[:-1], self._precomputed_locals[:-1]):
+                self.visit(node.iter).add_user(dnode)
         else:
             # If a comprehension has multiple for clauses, 
             # the iterables for inner for clauses are evaluated in the comprehension's scope:
-            scope_ctx = suppress()
-        with scope_ctx:
             self.visit(node.iter).add_user(dnode)
         self.visit(node.target)
         for if_ in node.ifs:
