@@ -332,6 +332,10 @@ while done:
     def test_simple_import_as(self):
         code = "import x as y; y()"
         self.checkChains(code, ["y -> (y -> (Call -> ()))"])
+    
+    def test_simple_lambda(self):
+        node, c = self.checkChains( "lambda y: True", [])
+        self.assertEqual(c.dump_chains(node.body[0].value), ['y -> ()'])
 
     def test_multiple_import_as(self):
         code = "import x as y, z; y"

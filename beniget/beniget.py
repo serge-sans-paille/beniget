@@ -1025,6 +1025,11 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Lambda(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
+            self._defered.append((node,
+                                  list(self._definitions),
+                                  list(self._scopes),
+                                  list(self._scope_depths),
+                                  list(self._precomputed_locals)))
             return dnode
         elif step is DefinitionStep:
             dnode = self.chains[node]
