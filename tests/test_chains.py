@@ -598,6 +598,7 @@ cos = pop()'''
             'cos -> (cos -> (Call -> ()))'
         ])
     
+    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
     def test_class_scope_comprehension(self):
         code = '''
 class Cls:
@@ -615,6 +616,7 @@ class Cls:
                           'foo -> (comprehension -> (GeneratorExp -> ())), '
                           'foo -> (comprehension -> (DictComp -> ())))'])
     
+    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
     def test_class_scope_comprehension_invalid(self):
         code = '''
 class Foo:
