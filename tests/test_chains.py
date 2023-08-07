@@ -643,7 +643,7 @@ if (a := a + a):
         # for-target name appearing in any comprehension containing the assignment expression.
         # A further exception applies when an assignment expression occurs in a comprehension whose 
         # containing scope is a class scope. If the rules above were to result in the target 
-        # being assigned in that class’s scope, the assignment expression is expressly invalid.
+        # being assigned in that class's scope, the assignment expression is expressly invalid.
         code = '''
 stuff = []
 
