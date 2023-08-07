@@ -1224,9 +1224,9 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_comprehension(self, node, is_nested):
         dnode = self.chains.setdefault(node, Def(node))
-        if not is_nested:
+        if not is_nested and sys.version_info.major >= 3:
             # There's one part of a comprehension or generator expression that executes in the surrounding scope, 
-            # regardless of Python version: it's the expression for the outermost iterable.
+            # it's the expression for the outermost iterable.
             with self.SwitchScopeContext(self._definitions[:-1], self._scopes[:-1], 
                                         self._scope_depths[:-1], self._precomputed_locals[:-1]):
                 self.visit(node.iter).add_user(dnode)
