@@ -621,16 +621,16 @@ class DefUseChains(ast.NodeVisitor):
         assert not self._scope_depths
         assert not self._precomputed_locals
 
-    def set_definition(self, name, dnode_or_dnodes):
+    def set_definition(self, name, dnode_or_dnodes, index=-1):
         if self._deadcode:
             return
         # set the islive flag to False on killed Defs
-        for d in self._definitions[-1].get(name, ()):
+        for d in self._definitions[index].get(name, ()):
             d.islive = False
         if isinstance(dnode_or_dnodes, Def):
-            self._definitions[-1][name] = ordered_set((dnode_or_dnodes,))
+            self._definitions[index][name] = ordered_set((dnode_or_dnodes,))
         else:
-            self._definitions[-1][name] = ordered_set(dnode_or_dnodes)
+            self._definitions[index][name] = ordered_set(dnode_or_dnodes)
 
     @staticmethod
     def add_to_definition(definition, name, dnode_or_dnodes):
@@ -1142,22 +1142,39 @@ class DefUseChains(ast.NodeVisitor):
     def visit_NamedExpr(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.value).add_user(dnode)
-        self.visit(node.target)
+        if isinstance(node.target, ast.Name):
+            self.visit_Name(node.target, named_expr=True)
+        else:
+            # invalid named expression
+            self.visit(node.target)
         return dnode
 
     def is_in_current_scope(self, name):
         return any(name in defs
                    for defs in self._definitions[self._scope_depths[-1]:])
 
-    def visit_Name(self, node, skip_annotation=False):
+    def visit_Name(self, node, skip_annotation=False, named_expr=False):
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             dnode = self.chains.setdefault(node, Def(node))
             if any(node.id in _globals for _globals in self._globals):
                 self.set_or_extend_global(node.id, dnode)
             else:
-                self.set_definition(node.id, dnode)
-                if dnode not in self.locals[self._scopes[-1]]:
-                    self.locals[self._scopes[-1]].append(dnode)
+                index = -1
+                if named_expr:
+                    # special code for warlus target: should be 
+                    # stored in first non comprehension scope
+                    enclosing_scope = self._scopes[index]
+                    while isinstance(enclosing_scope, (ast.DictComp, ast.ListComp, 
+                                                       ast.SetComp, ast.GeneratorExp)):
+                        index -= 1
+                        enclosing_scope = self._scopes[index]
+                    if index < -1 and isinstance(enclosing_scope, ast.ClassDef):
+                        # invalid named expression, not calling set_definition.
+                        return dnode
+                
+                self.set_definition(node.id, dnode, index)
+                if dnode not in self.locals[self._scopes[index]]:
+                    self.locals[self._scopes[index]].append(dnode)
 
             # Name.annotation is a special case because of gast
             if node.annotation is not None and not skip_annotation and not self.future_annotations:

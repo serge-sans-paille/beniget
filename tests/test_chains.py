@@ -626,6 +626,67 @@ if (a := a + a):
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
     
+    @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
+    def test_named_expr_comprehension(self):
+        # Warlus target should be stored in first non comprehension scope
+        code = ('cities = ["Halifax", "Toronto"]\n'
+            'if any((witness := city).startswith("H") for city in cities):'
+            'witness')
+        self.checkChains(
+            code, ['cities -> (cities -> (comprehension -> (GeneratorExp -> (Call -> ()))))', 
+                   'witness -> (witness -> ())']
+        )
+        
+    @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
+    def test_named_expr_comprehension_invalid(self):
+        # an assignment expression target name cannot be the same as a 
+        # for-target name appearing in any comprehension containing the assignment expression.
+        # A further exception applies when an assignment expression occurs in a comprehension whose 
+        # containing scope is a class scope. If the rules above were to result in the target 
+        # being assigned in that class’s scope, the assignment expression is expressly invalid.
+        code = '''
+stuff = []
+
+[[(a := a) for _ in range(5)] for a in range(5)] # INVALID
+[b := 0 for b, _ in stuff] # INVALID
+[c for c in (c := stuff)] # INVALID
+[False and (d := 0) for d, _ in stuff] # INVALID
+[_ for _, e in stuff if True or (e := 1)] # INVALID
+
+[_ for _ in (f := stuff)] # INVALID
+[_ for _ in range(2) for _ in (g := stuff)] # INVALID
+[_ for _ in [_ for _ in (h := stuff)]] # INVALID
+[_ for _ in (lambda: (i := stuff))()] # INVALID
+
+class Example:
+    [(j := i) for i in range(5)] # INVALID
+'''
+        # TODO: Better validate comprehensions.
+        self.check_message(code, ["W: unbound identifier 'a' at <unknown>:4:8"])
+        
+        # TODO: None of the invalid assigned name should show up.
+        node, chains = self.checkChains(
+            code,
+            ['stuff -> (stuff -> (comprehension -> (ListComp -> ())), stuff -> (NamedExpr '
+            '-> (comprehension -> (ListComp -> ()))), stuff -> (comprehension -> '
+            '(ListComp -> ())), stuff -> (comprehension -> (ListComp -> ())), stuff -> '
+            '(NamedExpr -> (comprehension -> (ListComp -> ()))), stuff -> (NamedExpr -> '
+            '(comprehension -> (ListComp -> ()))), stuff -> (NamedExpr -> (comprehension '
+            '-> (ListComp -> (comprehension -> (ListComp -> ()))))))',
+            'a -> ()',
+            'b -> ()',
+            'c -> ()',
+            'd -> ()',
+            'e -> ()',
+            'f -> ()',
+            'g -> ()',
+            'h -> ()',
+            'Example -> ()']
+            , strict=False
+        )
+        # The invalid assigned name doesn't show-up.
+        self.assertEqual(chains.dump_chains(node.body[-1]), [])
+    
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound(self):
         code = '''
