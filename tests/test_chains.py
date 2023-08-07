@@ -540,7 +540,8 @@ class Visitor:
                              ['Attr -> (Attr -> (Attr -> ()))',
                               'Visitor -> ()'])
             self.assertEqual(c.dump_chains(node.body[-1]), ['Attr -> ()'])
-
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_star_assignment(self):
         code = '''
 curr, *parts = [1,2,3]
@@ -554,6 +555,7 @@ while curr:
         self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))', 
                                 'parts -> (Starred -> (), parts -> (), parts -> ())']*2)
     
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_star_assignment_nested(self):
         code = '''
 (curr, *parts),i = [1,2,3],0
