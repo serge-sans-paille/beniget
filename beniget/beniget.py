@@ -781,19 +781,10 @@ class DefUseChains(ast.NodeVisitor):
         for target in node.targets:
             self.visit(target)
     
-    def _is_TypeAlias_annotation(self, annotation):
-        if isinstance(annotation, ast.Name):
-            return annotation.id=='TypeAlias'
-        if isinstance(annotation, ast.Attribute):
-            if isinstance(annotation.value, ast.Name):
-                if annotation.value.id in {'typing', 'typing_extensions', 't'}:
-                    return annotation.attr=='TypeAlias'
-        return False
-
     def visit_AnnAssign(self, node):
         visit_value = True
-        if (self.is_stub and node.value and 
-            self._is_TypeAlias_annotation(node.annotation)):
+        if (self.is_stub and node.value and _is_typing_name(
+                node.annotation, 'TypeAlias')):
             # support for PEP 613 – Explicit Type Aliases
             # BUT an untyped global expression 'x=int' will NOT be considered a type alias.
             visit_value = False
@@ -1147,10 +1138,23 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Call(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.func).add_user(dnode)
-        for arg in node.args:
-            self.visit(arg).add_user(dnode)
-        for kw in node.keywords:
-            self.visit(kw.value).add_user(dnode)
+        if self.is_stub and _is_typing_name(node.func, 'TypeVar'):
+            # In stubs, constraints and bound argument 
+            # of TypeVar() can be forward references.
+            current_scopes = list(self._scopes)
+            for arg in node.args:
+                self._defered_annotations[-1].append(
+                    (arg, current_scopes,
+                    lambda darg:darg.add_user(dnode)))
+            for kw in node.keywords:
+                self._defered_annotations[-1].append(
+                    (kw.value, current_scopes,
+                    lambda dkw:dkw.add_user(dnode)))
+        else:
+            for arg in node.args:
+                self.visit(arg).add_user(dnode)
+            for kw in node.keywords:
+                self.visit(kw.value).add_user(dnode)
         return dnode
 
     visit_Repr = visit_Await
@@ -1305,6 +1309,23 @@ def _iter_arguments(args):
         yield arg
     if args.kwarg:
         yield args.kwarg
+
+def _is_name(expr, name, modules=()):
+    """
+    Returns True if the expression matches:
+     - Name(id=<name>) or
+     - Attribue(value=Name(id=<one of modules>), attr=<name>)
+    """
+    if isinstance(expr, ast.Name):
+        return expr.id==name
+    if isinstance(expr, ast.Attribute):
+        if isinstance(expr.value, ast.Name):
+            if expr.value.id in modules:
+                return expr.attr==name
+    return False
+
+def _is_typing_name(expr, name):
+    return _is_name(expr, name, {'typing', 'typing_extensions', 't'})
 
 def lookup_annotation_name_defs(name, heads, locals_map):
     r"""

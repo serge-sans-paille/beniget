@@ -1172,6 +1172,28 @@ LiteralValue: TypeAlias = list[LiteralValue]|object
                  'LiteralValue -> (TypeAlias -> ())'],
                 strict=False,
             )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 semantics")
+    def test_stubs_typevar_forward_ref(self):
+        code = '''
+from typing import TypeVar
+AnyStr = TypeVar('AnyStr', F, bound=ast.AST)
+import ast
+F = object
+'''
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (Call -> ()))',
+                 'AnyStr -> ()',
+                 'ast -> (ast -> (Attribute -> (Call -> ())))',
+                 'F -> (F -> (Call -> ()))'],
+                is_stub=True
+            )
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (Call -> ()))', 'AnyStr -> ()', 'ast -> ()', 'F -> ()'],
+                strict=False,
+            )
         
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
