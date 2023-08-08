@@ -296,7 +296,7 @@ class DefUseChains(ast.NodeVisitor):
             - future_annotations: bool, PEP 563 mode 
             - is_stub: bool, stub module semantics mode, implies future_annotations=True.
                 When the module is a stub, there is no need for quoting to do a forward reference 
-                inside a type alias, typevar bound argument or the generic part of base classes.
+                inside a type alias, typevar bound argument or a classdef base expression.
         """
         self.chains = {}
         self.locals = defaultdict(list)
