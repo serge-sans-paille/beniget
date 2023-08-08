@@ -780,20 +780,40 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.value)
         for target in node.targets:
             self.visit(target)
+    
+    def _is_TypeAlias_annotation(self, annotation):
+        if isinstance(annotation, ast.Name):
+            return annotation.id=='TypeAlias'
+        if isinstance(annotation, ast.Attribute):
+            if isinstance(annotation.value, ast.Name):
+                if annotation.value.id in {'typing', 'typing_extensions', 't'}:
+                    return annotation.attr=='TypeAlias'
+        return False
 
     def visit_AnnAssign(self, node):
-        if node.value:
+        visit_value = True
+        if (self.is_stub and node.value and 
+            self._is_TypeAlias_annotation(node.annotation)):
+            # support for PEP 613 – Explicit Type Aliases
+            # BUT an untyped global expression 'x=int' will NOT be considered a type alias.
+            visit_value = False
+            self._defered_annotations[-1].append(
+                (node.value, list(self._scopes),
+                lambda dvalue:dvalue.add_user(dtarget)))
+        elif node.value:
             dvalue = self.visit(node.value)
+        
         if not self.future_annotations:
             dannotation = self.visit(node.annotation)
         else:
             self._defered_annotations[-1].append(
                 (node.annotation, list(self._scopes),
                 lambda d:dtarget.add_user(d)))
+        
         dtarget = self.visit(node.target)
         if not self.future_annotations:
             dtarget.add_user(dannotation)
-        if node.value:
+        if node.value and visit_value:
             dvalue.add_user(dtarget)
 
     def visit_AugAssign(self, node):

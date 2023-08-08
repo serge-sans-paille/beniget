@@ -1146,6 +1146,33 @@ F = object
                 is_stub=True
             )
         
+        self.checkChains(
+                code, 
+                ['Thing -> (Thing -> (Subscript -> (_ScandirIterator -> ())))',
+                 '_ScandirIterator -> ()', 
+                 'F -> ()'],
+                strict=False,
+            )
+
+    @skipIf(sys.version_info.major < 3, "Python 3 semantics")
+    def test_stubs_forward_ref(self):
+        code = '''
+import TypeAlias
+LiteralValue: TypeAlias = list[LiteralValue]|object
+'''
+        self.checkChains(
+                code, 
+                ['TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (LiteralValue -> (Subscript -> (BinOp -> ((#0)))), TypeAlias -> ())'],
+                is_stub=True
+            )
+        self.checkChains(
+                code, 
+                ['TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (TypeAlias -> ())'],
+                strict=False,
+            )
+        
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         class StrictDefUseChains(beniget.DefUseChains):
