@@ -1136,13 +1136,17 @@ A = bytes
 Thing = object
 class _ScandirIterator(str, int, Thing[_ScandirIterator[F]], object):
     ...
-F = object
+class C(F, k=H):
+    ...
+F = H = object
 '''
         self.checkChains(
                 code, 
                 ['Thing -> (Thing -> (Subscript -> (_ScandirIterator -> (_ScandirIterator -> (Subscript -> ((#2)))))))',
                  '_ScandirIterator -> (_ScandirIterator -> (Subscript -> (Subscript -> ((#0)))))',
-                 'F -> (F -> (Subscript -> (Subscript -> (_ScandirIterator -> (_ScandirIterator -> ((#2)))))))'],
+                 'C -> ()',
+                 'F -> (F -> (Subscript -> (Subscript -> (_ScandirIterator -> (_ScandirIterator -> ((#2)))))), F -> (C -> ()))',
+                 'H -> (H -> (C -> ()))'],
                 is_stub=True
             )
         
@@ -1150,7 +1154,9 @@ F = object
                 code, 
                 ['Thing -> (Thing -> (Subscript -> (_ScandirIterator -> ())))',
                  '_ScandirIterator -> ()', 
-                 'F -> ()'],
+                 'C -> ()',
+                 'F -> ()',
+                 'H -> ()'],
                 strict=False,
             )
 

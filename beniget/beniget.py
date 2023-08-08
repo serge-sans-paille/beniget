@@ -721,32 +721,25 @@ class DefUseChains(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def _link_stubs_generic_base(self, dclass, node, dvalue, dslice):
-        # Mirrors self.visit_Subscript
-        dnode = self.chains.setdefault(node, Def(node))
-        dvalue.add_user(dnode)
-        dslice.add_user(dnode)
-        dnode.add_user(dclass)
-
     def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.locals[self._scopes[-1]].append(dnode)
 
-        for base in node.bases:
-            if self.is_stub and isinstance(base, ast.Subscript):
-                # special treatment for generic arguments of base classes in stub modules
-                # so they can contain forward-references.
-                dvalue = self.visit(base.value)
+        if self.is_stub:
+            # special treatment for base classes in stub modules
+            # so they can contain forward-references.
+            currentscopes = list(self._scopes)
+            for base in node.bases:
                 self._defered_annotations[-1].append((
-                    base.slice, list(self._scopes), 
-                    # lambda argument defaults being bound at definition time, 
-                    # so they won't be overriden by next loop iteration
-                    lambda dslice, base=base, dvalue=dvalue: 
-                    self._link_stubs_generic_base(dnode, base, dvalue, dslice)))
-            else:
+                    base, currentscopes, lambda dbase: dbase.add_user(dnode)))
+            for keyword in node.keywords:
+                self._defered_annotations[-1].append((
+                    keyword.value, currentscopes, lambda dkeyword: dkeyword.add_user(dnode)))
+        else:
+            for base in node.bases:
                 self.visit(base).add_user(dnode)
-        for keyword in node.keywords:
-            self.visit(keyword.value).add_user(dnode)
+            for keyword in node.keywords:
+                self.visit(keyword.value).add_user(dnode)
         for decorator in node.decorator_list:
             self.visit(decorator).add_user(dnode)
 
