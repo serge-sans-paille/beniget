@@ -1157,7 +1157,7 @@ F = object
     @skipIf(sys.version_info.major < 3, "Python 3 semantics")
     def test_stubs_forward_ref(self):
         code = '''
-import TypeAlias
+from typing import TypeAlias
 LiteralValue: TypeAlias = list[LiteralValue]|object
 '''
         self.checkChains(
