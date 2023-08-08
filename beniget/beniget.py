@@ -290,15 +290,19 @@ class DefUseChains(ast.NodeVisitor):
     One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
     """
 
-    def __init__(self, filename=None, future_annotations=False):
+    def __init__(self, filename=None, future_annotations=False, is_stub=False):
         """
             - filename: str, included in error messages if specified
-            - future_annotations: bool, PEP 563 compatible mode 
+            - future_annotations: bool, PEP 563 mode 
+            - is_stub: bool, stub module semantics mode, implies future_annotations=True.
+                When the module is a stub, there is no need for quoting to do a forward reference 
+                inside a type alias, typevar bound argument or the generic part of base classes.
         """
         self.chains = {}
         self.locals = defaultdict(list)
 
         self.filename = filename
+        self.is_stub = is_stub
 
         # deep copy of builtins, to remain reentrant
         self._builtins = {k: Def(v) for k, v in Builtins.items()}
@@ -340,7 +344,7 @@ class DefUseChains(ast.NodeVisitor):
 
         # attributes set in visit_Module
         self.module = None
-        self.future_annotations = future_annotations
+        self.future_annotations = is_stub or future_annotations
 
     #
     ## helpers
@@ -717,12 +721,30 @@ class DefUseChains(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
+    def _link_stubs_generic_base(self, dclass, node, dvalue, dslice):
+        # Mirrors self.visit_Subscript
+        dnode = self.chains.setdefault(node, Def(node))
+        dvalue.add_user(dnode)
+        dslice.add_user(dnode)
+        dnode.add_user(dclass)
+
     def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.locals[self._scopes[-1]].append(dnode)
 
         for base in node.bases:
-            self.visit(base).add_user(dnode)
+            if self.is_stub and isinstance(base, ast.Subscript):
+                # special treatment for generic arguments of base classes in stub modules
+                # so they can contain forward-references.
+                dvalue = self.visit(base.value)
+                self._defered_annotations[-1].append((
+                    base.slice, list(self._scopes), 
+                    # lambda argument defaults being bound at definition time, 
+                    # so they won't be overriden by next loop iteration
+                    lambda dslice, base=base, dvalue=dvalue: 
+                    self._link_stubs_generic_base(dnode, base, dvalue, dslice)))
+            else:
+                self.visit(base).add_user(dnode)
         for keyword in node.keywords:
             self.visit(keyword.value).add_user(dnode)
         for decorator in node.decorator_list:

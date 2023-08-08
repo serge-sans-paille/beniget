@@ -24,7 +24,7 @@ def captured_output():
 
 
 class TestDefUseChains(TestCase):
-    def checkChains(self, code, ref, strict=True):
+    def checkChains(self, code, ref, strict=True, is_stub=False):
         class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
                 raise RuntimeError(
@@ -35,9 +35,9 @@ class TestDefUseChains(TestCase):
 
         node = ast.parse(code)
         if strict:
-            c = StrictDefUseChains()
+            c = StrictDefUseChains(is_stub=is_stub)
         else:
-            c = beniget.DefUseChains()
+            c = beniget.DefUseChains(is_stub=is_stub)
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
         return node, c
@@ -1128,6 +1128,22 @@ A = bytes
                  'A -> ()',
                  'A -> (A -> (), A -> ())'], # good
                 strict=False
+            )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 semantics")
+    def test_stubs_generic_base_forward_ref(self):
+        code = '''
+Thing = object
+class _ScandirIterator(str, int, Thing[_ScandirIterator[F]], object):
+    ...
+F = object
+'''
+        self.checkChains(
+                code, 
+                ['Thing -> (Thing -> (Subscript -> (_ScandirIterator -> (_ScandirIterator -> (Subscript -> ((#2)))))))',
+                 '_ScandirIterator -> (_ScandirIterator -> (Subscript -> (Subscript -> ((#0)))))',
+                 'F -> (F -> (Subscript -> (Subscript -> (_ScandirIterator -> (_ScandirIterator -> ((#2)))))))'],
+                is_stub=True
             )
         
 class TestUseDefChains(TestCase):
