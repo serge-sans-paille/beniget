@@ -290,9 +290,10 @@ class DefUseChains(ast.NodeVisitor):
     One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
     """
 
-    def __init__(self, filename=None):
+    def __init__(self, filename=None, future_annotations=False):
         """
             - filename: str, included in error messages if specified
+            - future_annotations: bool, PEP 563 compatible mode 
         """
         self.chains = {}
         self.locals = defaultdict(list)
@@ -339,7 +340,7 @@ class DefUseChains(ast.NodeVisitor):
 
         # attributes set in visit_Module
         self.module = None
-        self.future_annotations = False
+        self.future_annotations = future_annotations
 
     #
     ## helpers
