@@ -778,7 +778,7 @@ class DefUseChains(ast.NodeVisitor):
         visit_value = True
         if (self.is_stub and node.value and _is_typing_name(
                 node.annotation, 'TypeAlias')):
-            # support for PEP 613 – Explicit Type Aliases
+            # support for PEP 613 - Explicit Type Aliases
             # BUT an untyped global expression 'x=int' will NOT be considered a type alias.
             visit_value = False
             self._defered_annotations[-1].append(
