@@ -1161,26 +1161,32 @@ class DefUseChains(ast.NodeVisitor):
         return any(name in defs
                    for defs in self._definitions[self._scope_depths[-1]:])
 
+    def _first_non_comprehension_scope(self):
+        index = -1
+        enclosing_scope = self._scopes[index]
+        while isinstance(enclosing_scope, (ast.DictComp, ast.ListComp, 
+                                            ast.SetComp, ast.GeneratorExp)):
+            index -= 1
+            enclosing_scope = self._scopes[index]
+        return index, enclosing_scope
+
     def visit_Name(self, node, skip_annotation=False, named_expr=False):
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             dnode = self.chains.setdefault(node, Def(node))
             if any(node.id in _globals for _globals in self._globals):
                 self.set_or_extend_global(node.id, dnode)
             else:
-                index = -1
-                if named_expr:
-                    # special code for warlus target: should be 
-                    # stored in first non comprehension scope
-                    enclosing_scope = self._scopes[index]
-                    while isinstance(enclosing_scope, (ast.DictComp, ast.ListComp, 
-                                                       ast.SetComp, ast.GeneratorExp)):
-                        index -= 1
-                        enclosing_scope = self._scopes[index]
-                    if index < -1 and isinstance(enclosing_scope, ast.ClassDef):
-                        # invalid named expression, not calling set_definition.
-                        self.warn('assignment expression within a comprehension cannot be used in a class body', node)
-                        return dnode
-                
+                # special code for warlus target: should be 
+                # stored in first non comprehension scope
+                index, enclosing_scope = (self._first_non_comprehension_scope() 
+                                          if named_expr else (-1, self._scopes[-1]))
+
+                if index < -1 and isinstance(enclosing_scope, ast.ClassDef):
+                    # invalid named expression, not calling set_definition.
+                    self.warn('assignment expression within a comprehension '
+                              'cannot be used in a class body', node)
+                    return dnode
+            
                 self.set_definition(node.id, dnode, index)
                 if dnode not in self.locals[self._scopes[index]]:
                     self.locals[self._scopes[index]].append(dnode)
@@ -1276,7 +1282,9 @@ class DefUseChains(ast.NodeVisitor):
 
 def _validate_comprehension(node):
     """
-    Raises Syntax error if the comprehension is invalid.
+    Raises SyntaxError if:
+     - a named expression is used in a comprehension iterable expression
+     - a named expression rebinds a comprehension iteration variable
     """
     iter_names = set()
     
