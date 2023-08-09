@@ -470,7 +470,7 @@ class TestDefIsLive(TestCase):
         if sys.version_info >= (3, 11):
             class ExceptionGroup(Exception):
                 @property
-                def exceptions(self) -> tuple:
+                def exceptions(self):
                     pass
         '''
         if sys.version_info>=(3,10):
