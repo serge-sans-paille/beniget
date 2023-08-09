@@ -624,13 +624,25 @@ class DefUseChains(ast.NodeVisitor):
     def set_definition(self, name, dnode_or_dnodes):
         if self._deadcode:
             return
+        
+        if isinstance(dnode_or_dnodes, Def):
+            dnodes = ordered_set((dnode_or_dnodes,))
+        else:
+            dnodes = ordered_set(dnode_or_dnodes)
+
         # set the islive flag to False on killed Defs
         for d in self._definitions[-1].get(name, ()):
+            if not isinstance(d.node, ast.AST) or d in dnodes:
+                # A builtin or a redundant call to set_definition(),
+                # this happens when we merge definitions from different branches
+                # of a 'if' statement for instance. 
+                # We never explicitely mark the builtins as killed, since 
+                # it can be easily deducted.
+                continue
+            
             d.islive = False
-        if isinstance(dnode_or_dnodes, Def):
-            self._definitions[-1][name] = ordered_set((dnode_or_dnodes,))
-        else:
-            self._definitions[-1][name] = ordered_set(dnode_or_dnodes)
+        
+        self._definitions[-1][name] = dnodes
 
     @staticmethod
     def add_to_definition(definition, name, dnode_or_dnodes):

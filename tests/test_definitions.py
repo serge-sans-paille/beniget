@@ -405,15 +405,7 @@ class TestDefIsLive(TestCase):
         c.visit(node)
 
         def checkDefs(dumped, ref):
-            for r in ref:
-                var = r.split(':')[0]
-                starts = [d for d in dumped if d.startswith(var+':')]
-                # there are tons of builtins always accessible,
-                # so we don't do exact matches
-                if starts:
-                    self.assertIn(r, dumped, "wrong lineno(s): {}".format(starts))
-                else:
-                    raise AssertionError('{} not found in {}'.format(var, node))
+            self.assertEqual(dumped, ref)
 
         checkDefs(c._dump_locals(node, only_live=True), livelocals)
         checkDefs(c._dump_locals(node), locals)
@@ -469,3 +461,15 @@ class TestDefIsLive(TestCase):
             a = a + 1
             """
         self.checkLiveLocals(code, ["a:4"], ["a:2,3,4"])
+    
+    def test_BuiltinNameRedefConditional(self):
+        code = '''
+        import sys
+        class property:...
+        if sys.version_info >= (3, 11):
+            class ExceptionGroup(Exception):
+                @property
+                def exceptions(self) -> tuple: ...
+        '''
+        self.checkLiveLocals(code, ['sys:2', 'property:3', 'ExceptionGroup:5'], 
+                             ['sys:2', 'property:3', 'ExceptionGroup:5'])
