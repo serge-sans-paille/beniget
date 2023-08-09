@@ -465,11 +465,13 @@ class TestDefIsLive(TestCase):
     def test_BuiltinNameRedefConditional(self):
         code = '''
         import sys
-        class property:...
+        class property:
+            pass
         if sys.version_info >= (3, 11):
             class ExceptionGroup(Exception):
                 @property
-                def exceptions(self) -> tuple: ...
+                def exceptions(self) -> tuple:
+                    pass
         '''
         if sys.version_info>=(3,10):
             self.checkLiveLocals(code, ['sys:2', 'property:3', 'ExceptionGroup:5'], 
