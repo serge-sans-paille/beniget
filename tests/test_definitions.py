@@ -471,7 +471,7 @@ class TestDefIsLive(TestCase):
                 @property
                 def exceptions(self) -> tuple: ...
         '''
-        if sys.version_info>=3.10:
+        if sys.version_info>=(3,10):
             self.checkLiveLocals(code, ['sys:2', 'property:3', 'ExceptionGroup:5'], 
                                 ['sys:2', 'property:3', 'ExceptionGroup:5'])
         else:
