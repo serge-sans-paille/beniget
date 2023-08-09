@@ -474,8 +474,8 @@ class TestDefIsLive(TestCase):
                     pass
         '''
         if sys.version_info>=(3,10):
-            self.checkLiveLocals(code, ['sys:2', 'property:3', 'ExceptionGroup:5'], 
-                                ['sys:2', 'property:3', 'ExceptionGroup:5'])
+            self.checkLiveLocals(code, ['sys:2', 'property:3', 'ExceptionGroup:6'], 
+                                ['sys:2', 'property:3', 'ExceptionGroup:6'])
         else:
-            self.checkLiveLocals(code, ['sys:None', 'property:3', 'ExceptionGroup:5'], 
-                                ['sys:None', 'property:3', 'ExceptionGroup:5'])
+            self.checkLiveLocals(code, ['sys:None', 'property:3', 'ExceptionGroup:6'], 
+                                ['sys:None', 'property:3', 'ExceptionGroup:6'])
