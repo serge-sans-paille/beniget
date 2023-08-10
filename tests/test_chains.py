@@ -336,6 +336,18 @@ while done:
     def test_simple_lambda(self):
         node, c = self.checkChains( "lambda y: True", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['y -> ()'])
+    
+    def test_lambda_defaults(self):
+        node, c = self.checkChains( "x=y=1;(lambda y, x=x: (True, x, y, z)); x=y=z=2", 
+                                   ['x -> (x -> (Lambda -> ()))',
+                                    'y -> ()', 
+                                    'x -> ()', 
+                                    'y -> ()',
+                                    'z -> (z -> (Tuple -> (Lambda -> ())))']) 
+        self.assertEqual(c.dump_chains(node.body[1].value), [
+            'y -> (y -> (Tuple -> (Lambda -> ())))',
+            'x -> (x -> (Tuple -> (Lambda -> ())))',
+        ])
 
     def test_multiple_import_as(self):
         code = "import x as y, z; y"

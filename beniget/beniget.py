@@ -1025,6 +1025,8 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Lambda(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
+            for default in node.args.defaults:
+                self.visit(default).add_user(dnode)
             self._defered.append((node,
                                   list(self._definitions),
                                   list(self._scopes),
@@ -1034,7 +1036,8 @@ class DefUseChains(ast.NodeVisitor):
         elif step is DefinitionStep:
             dnode = self.chains[node]
             with self.ScopeContext(node):
-                self.visit(node.args)
+                for a in node.args.args:
+                    self.visit(a)
                 self.visit(node.body).add_user(dnode)
             return dnode
         else:
