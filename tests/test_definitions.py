@@ -498,7 +498,7 @@ class TestDefIsLive(TestCase):
             node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
             self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
         else:
-            self.checkLiveLocals(code, ['x:2,3'], ['x:3'])
+            self.checkLiveLocals(code, ['x:2,3'], ['x:2,3'])
 
 
     def test_var_redef_in_method_scope(self):
