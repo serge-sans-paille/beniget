@@ -494,8 +494,12 @@ class TestDefIsLive(TestCase):
         x = True
         [x for x in (1,2)]
         '''
-        node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
-        self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
+        if sys.version_info > (3,):
+            node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
+            self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
+        else:
+            self.checkLiveLocals(code, ['x:2,3'], ['x:3'])
+
 
     def test_var_redef_in_method_scope(self):
         code = '''\
