@@ -398,17 +398,18 @@ def foo(a):
         self.checkLocals(code, ["a", "b"])
 
 class TestDefIsLive(TestCase):
+
+    def checkLocals(self, c, node, ref, only_live=False):
+        self.assertEqual(sorted(c._dump_locals(node, only_live=only_live)), 
+                         sorted(ref))
     
     def checkLiveLocals(self, code, livelocals, locals):
         node = ast.parse(dedent(code))
         c = StrictDefUseChains()
         c.visit(node)
-
-        def checkDefs(dumped, ref):
-            self.assertEqual(sorted(dumped), sorted(ref))
-
-        checkDefs(c._dump_locals(node, only_live=True), livelocals)
-        checkDefs(c._dump_locals(node), locals)
+        self.checkLocals(c, node, locals)
+        self.checkLocals(c, node, livelocals, only_live=True)
+        return node, c
     
     def test_LocalAssignRedefIfElseOverride(self):
         code = """
@@ -487,6 +488,28 @@ class TestDefIsLive(TestCase):
             i = 3
         """
         self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+    
+    def test_var_in_comp_doesnt_kill_upper_scope_var(self):
+        code = '''
+        x = True
+        [x for x in (1,2)]
+        '''
+        node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
+        self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
+
+    def test_var_redef_in_method_scope(self):
+        code = '''\
+        v = True # not killed
+        class C:
+            v = True # killed
+            v = False
+            def __init__(self):
+                v = 1 # killed
+                v = False # not killed
+        '''
+        node, c = self.checkLiveLocals(code, ['v:1', 'C:2'], ['v:1', 'C:2'])
+        self.checkLocals(c, node.body[-1], ['v:4', '__init__:5'], only_live=True)
+        self.checkLocals(c, node.body[-1].body[-1], ['self:5', 'v:7'], only_live=True)
     
     def test_if_body_might_not_run(self):
         code = """
