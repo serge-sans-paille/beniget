@@ -479,3 +479,42 @@ class TestDefIsLive(TestCase):
         else:
             self.checkLiveLocals(code, ['sys:None', 'property:3', 'ExceptionGroup:6'], 
                                 ['sys:None', 'property:3', 'ExceptionGroup:6'])
+    
+    def test_loop_body_might_not_run(self):
+        code = """
+        i = 2
+        while int: 
+            i = 3
+        """
+        self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+    
+    def test_if_body_might_not_run(self):
+        code = """
+        i = 2
+        if int: 
+            i = 3
+        """
+        self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+
+    def test_more_loops(self):
+        # All variables here are live for beniget. Constant
+        # folding with control-flow understanding will reveal 
+        # that the else branch of the while loop is unreachable 
+        # (so the k assignment is never executed).
+        # But beniget over-approximate this.
+        code = '''
+        b = 1
+        while True:
+            v = 1
+            if v:
+                b = 2
+                break
+        else:
+            v = [(1,3)]
+            for v,k in v:
+                pass
+            else:
+                k = 2
+        '''
+        self.checkLiveLocals(code, ['b:2,6', 'v:9,10,4', 'k:10,13'],  
+                                ['b:2,6', 'v:9,10,4', 'k:10,13'])

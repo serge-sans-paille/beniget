@@ -639,6 +639,11 @@ class DefUseChains(ast.NodeVisitor):
                 # We never explicitely mark the builtins as killed, since 
                 # it can be easily deducted.
                 continue
+
+            if any(d in definitions.get(name, ()) for definitions in self._definitions[:-1]):
+                # The definition exists in an enclosing definition context, so we can't
+                # be sure wether it's killed or not
+                continue
             
             d.islive = False
         
