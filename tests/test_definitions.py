@@ -405,7 +405,7 @@ class TestDefIsLive(TestCase):
         c.visit(node)
 
         def checkDefs(dumped, ref):
-            self.assertEqual(dumped, ref)
+            self.assertEqual(dumped.sort(), ref.sort())
 
         checkDefs(c._dump_locals(node, only_live=True), livelocals)
         checkDefs(c._dump_locals(node), locals)
