@@ -474,7 +474,7 @@ class TestDefIsLive(TestCase):
         if sys.version_info>=(3,10):
             self.checkLiveLocals(code, ["sys:2", "_PY37PLUS:4,6"], ["sys:2", "_PY37PLUS:4,6"])
         else:
-            self.checkLiveLocals(code, ["sys:None", "_PY37PLUS:4,6"], ["sys:2", "_PY37PLUS:4,6"])
+            self.checkLiveLocals(code, ["sys:None", "_PY37PLUS:4,6"], ["sys:None", "_PY37PLUS:4,6"])
     
     def test_BuiltinNameRedefConditional(self):
         code = '''
