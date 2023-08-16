@@ -1286,27 +1286,26 @@ def _validate_comprehension(node):
      - a named expression is used in a comprehension iterable expression
      - a named expression rebinds a comprehension iteration variable
     """
-    iter_names = set()
-    
-    for gen in node.generators:
-        for name in filter(lambda n: isinstance(n, ast.NamedExpr), ast.walk(gen.iter)):
-            raise SyntaxError('assignment expression cannot be used '
-                                'in a comprehension iterable expression')
-        for name in filter(lambda n: isinstance(n, ast.Name), ast.walk(gen.target)):
-            iter_names.add(name.id)
-    
     # build the iterator used to find named expressions, 
-    # for performance, we're not using ast.walk(node)
+    # for performance, we're not using ast.walk(node), because we
+    # are already checking the generators[].iter field separately.
     if isinstance(node, ast.DictComp):
         iterator = iterchain(ast.walk(node.key), ast.walk(node.value))
     else:
         iterator = ast.walk(node.elt)
+    iter_names = set() # comprehension iteration variables
     for gen in node.generators:
+        for name in (n for n in ast.walk(gen.iter) 
+                     if isinstance(n, ast.NamedExpr)):
+            raise SyntaxError('assignment expression cannot be used '
+                                'in a comprehension iterable expression')
+        iter_names.update(n.id for n in ast.walk(gen.target) 
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store))
         for i in gen.ifs:
             iterator = iterchain(iterator, ast.walk(i))
         iterator = iterchain(iterator, ast.walk(gen.target))
-    
-    for name in filter(lambda n: isinstance(n, ast.NamedExpr), iterator):
+    named_expr_iter = (n for n in iterator if  isinstance(n, ast.NamedExpr))
+    for name in named_expr_iter:
         bound = getattr(name.target, 'id', None)
         if bound in iter_names:
             raise SyntaxError('assignment expression cannot rebind '
