@@ -75,6 +75,11 @@ class TestDefUseChains(TestCase):
         code = "for a, b in ((1,2), (3,4)): a"
         self.checkChains(code, ["a -> (a -> ())", "b -> ()"])
 
+    if sys.version_info.major >= 3:
+        def test_type_destructuring_starred(self):
+            code = "a, *b = range(2); b"
+            self.checkChains(code, ['a -> ()', 'b -> (b -> ())'])
+
     def test_assign_in_loop(self):
         code = "a = 2\nwhile 1: a = 1\na"
         self.checkChains(code, ["a -> (a -> ())", "a -> (a -> ())"])

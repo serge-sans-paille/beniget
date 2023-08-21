@@ -1145,7 +1145,13 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.slice).add_user(dnode)
         return dnode
 
-    visit_Starred = visit_Await
+    def visit_Starred(self, node):
+        if isinstance(node.ctx, ast.Store):
+            return self.visit(node.value)
+        else:
+            dnode = self.chains.setdefault(node, Def(node))
+            self.visit(node.value).add_user(dnode)
+            return dnode
 
     def visit_NamedExpr(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -1195,7 +1201,7 @@ class DefUseChains(ast.NodeVisitor):
                 tmp_store, elt.ctx = elt.ctx, tmp_store
                 self.visit(elt)
                 tmp_store, elt.ctx = elt.ctx, tmp_store
-            elif isinstance(elt, ast.Subscript):
+            elif isinstance(elt, (ast.Subscript, ast.Starred)):
                 self.visit(elt)
             elif isinstance(elt, (ast.List, ast.Tuple)):
                 self.visit_Destructured(elt)
