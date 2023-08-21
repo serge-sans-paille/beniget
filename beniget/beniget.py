@@ -1232,7 +1232,7 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(node.iter).add_user(dnode)
         else:
             # If a comprehension has multiple for clauses, 
-            # the iterables for inner for clauses are evaluated in the comprehension's scope:
+            # the iterables of the inner for clauses are evaluated in the comprehension's scope:
             self.visit(node.iter).add_user(dnode)
         self.visit(node.target)
         for if_ in node.ifs:
