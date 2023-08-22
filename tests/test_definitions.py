@@ -89,6 +89,11 @@ class TestGlobals(TestCase):
         code = "x, y = 1, 2"
         self.checkGlobals(code, ["x", "y"])
 
+    if sys.version_info.major >= 3:
+        def testGlobalStarredDestructuring(self):
+            code = "x, *y = 1, [2]"
+            self.checkGlobals(code, ["x", "y"])
+
     def testGlobalAugAssign(self):
         code = "x = 1; x += 2"
         self.checkGlobals(code, ["x"])
@@ -369,6 +374,10 @@ class TestLocals(TestCase):
             )
             self.checkLocals(code, ["a", "bar"])
 
+        def test_LocalDestructuring(self):
+            code = "def foo(x): y, *z = x"
+            self.checkLocals(code, ["x", "y", "z"])
+
     def test_LocalMadeGlobal(self):
         code = "def foo(): global a; a = 1"
         self.checkLocals(code, [])
@@ -558,3 +567,4 @@ class TestDefIsLive(TestCase):
         '''
         self.checkLiveLocals(code, ['b:2,6', 'v:9,10,4', 'k:10,13'],  
                                 ['b:2,6', 'v:9,10,4', 'k:10,13'])
+
