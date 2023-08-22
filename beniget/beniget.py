@@ -1,6 +1,5 @@
 from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
-from itertools import chain as iterchain
 import sys
 
 import gast as ast
