@@ -574,7 +574,7 @@ while curr:
         break
 '''
         self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))', 
-                                'parts -> (Starred -> (), parts -> (), parts -> ())']*2)
+                                'parts -> (parts -> (), parts -> ())']*2)
     
     @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_star_assignment_nested(self):
@@ -588,7 +588,7 @@ while curr:
         break
 '''
         self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))',
-                                'parts -> (Starred -> (), parts -> (), parts -> (Tuple -> ()))',
+                                'parts -> (parts -> (), parts -> (Tuple -> ()))',
                                 'i -> (i -> (Tuple -> ()))']*2)
     
     def test_attribute_assignment(self):
