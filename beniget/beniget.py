@@ -1068,8 +1068,9 @@ class DefUseChains(ast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
 
         with self.CompScopeContext(node):
-            for comprehension in node.generators:
-                self.visit(comprehension).add_user(dnode)
+            for i, comprehension in enumerate(node.generators):
+                self.visit_comprehension(comprehension, 
+                                         is_nested=i!=0).add_user(dnode)
             self.visit(node.elt).add_user(dnode)
 
         return dnode
@@ -1080,8 +1081,9 @@ class DefUseChains(ast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
 
         with self.CompScopeContext(node):
-            for comprehension in node.generators:
-                self.visit(comprehension).add_user(dnode)
+            for i, comprehension in enumerate(node.generators):
+                self.visit_comprehension(comprehension, 
+                                         is_nested=i!=0).add_user(dnode)
             self.visit(node.key).add_user(dnode)
             self.visit(node.value).add_user(dnode)
 
@@ -1234,9 +1236,18 @@ class DefUseChains(ast.NodeVisitor):
 
     # misc
 
-    def visit_comprehension(self, node):
+    def visit_comprehension(self, node, is_nested):
         dnode = self.chains.setdefault(node, Def(node))
-        self.visit(node.iter).add_user(dnode)
+        if not is_nested and sys.version_info.major >= 3:
+            # There's one part of a comprehension or generator expression that executes in the surrounding scope, 
+            # it's the expression for the outermost iterable.
+            with self.SwitchScopeContext(self._definitions[:-1], self._scopes[:-1], 
+                                        self._scope_depths[:-1], self._precomputed_locals[:-1]):
+                self.visit(node.iter).add_user(dnode)
+        else:
+            # If a comprehension has multiple for clauses, 
+            # the iterables of the inner for clauses are evaluated in the comprehension's scope:
+            self.visit(node.iter).add_user(dnode)
         self.visit(node.target)
         for if_ in node.ifs:
             self.visit(if_).add_user(dnode)

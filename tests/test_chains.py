@@ -618,6 +618,36 @@ cos = pop()'''
             'pop -> (pop -> (Call -> ()))',
             'cos -> (cos -> (Call -> ()))'
         ])
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
+    def test_class_scope_comprehension(self):
+        code = '''
+class Cls:
+    foo = b'1',
+    [_ for _ in foo]
+    {_ for _ in foo}
+    (_ for _ in foo)
+    {_:1 for _ in foo}
+'''
+        node, chains = self.checkChains(code, ['Cls -> ()'])
+        self.assertEqual(chains.dump_chains(node.body[0]),
+                         ['foo -> ('
+                          'foo -> (comprehension -> (ListComp -> ())), '
+                          'foo -> (comprehension -> (SetComp -> ())), '
+                          'foo -> (comprehension -> (GeneratorExp -> ())), '
+                          'foo -> (comprehension -> (DictComp -> ())))'])
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
+    def test_class_scope_comprehension_invalid(self):
+        code = '''
+class Foo:
+    x = 5
+    y = [x for i in range(1)]
+    z = [i for i in range(1) for j in range(x)]
+'''
+        self.check_message(code, ["W: unbound identifier 'x' at test:4:9", 
+                                  "W: unbound identifier 'x' at test:5:44"], 'test')
+
 
     @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
     def test_named_expr_simple(self):
