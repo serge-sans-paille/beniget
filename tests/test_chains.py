@@ -75,6 +75,11 @@ class TestDefUseChains(TestCase):
         code = "for a, b in ((1,2), (3,4)): a"
         self.checkChains(code, ["a -> (a -> ())", "b -> ()"])
 
+    if sys.version_info.major >= 3:
+        def test_type_destructuring_starred(self):
+            code = "a, *b = range(2); b"
+            self.checkChains(code, ['a -> ()', 'b -> (b -> ())'])
+
     def test_assign_in_loop(self):
         code = "a = 2\nwhile 1: a = 1\na"
         self.checkChains(code, ["a -> (a -> ())", "a -> (a -> ())"])
@@ -332,6 +337,22 @@ while done:
     def test_simple_import_as(self):
         code = "import x as y; y()"
         self.checkChains(code, ["y -> (y -> (Call -> ()))"])
+    
+    def test_simple_lambda(self):
+        node, c = self.checkChains( "lambda y: True", [])
+        self.assertEqual(c.dump_chains(node.body[0].value), ['y -> ()'])
+    
+    def test_lambda_defaults(self):
+        node, c = self.checkChains( "x=y=1;(lambda y, x=x: (True, x, y, z)); x=y=z=2", 
+                                   ['x -> (x -> (Lambda -> ()))',
+                                    'y -> ()', 
+                                    'x -> ()', 
+                                    'y -> ()',
+                                    'z -> (z -> (Tuple -> (Lambda -> ())))']) 
+        self.assertEqual(c.dump_chains(node.body[1].value), [
+            'y -> (y -> (Tuple -> (Lambda -> ())))',
+            'x -> (x -> (Tuple -> (Lambda -> ())))',
+        ])
 
     def test_multiple_import_as(self):
         code = "import x as y, z; y"

@@ -1025,11 +1025,19 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Lambda(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
+            for default in node.args.defaults:
+                self.visit(default).add_user(dnode)
+            self._defered.append((node,
+                                  list(self._definitions),
+                                  list(self._scopes),
+                                  list(self._scope_depths),
+                                  list(self._precomputed_locals)))
             return dnode
         elif step is DefinitionStep:
             dnode = self.chains[node]
             with self.ScopeContext(node):
-                self.visit(node.args)
+                for a in node.args.args:
+                    self.visit(a)
                 self.visit(node.body).add_user(dnode)
             return dnode
         else:
@@ -1137,7 +1145,13 @@ class DefUseChains(ast.NodeVisitor):
         self.visit(node.slice).add_user(dnode)
         return dnode
 
-    visit_Starred = visit_Await
+    def visit_Starred(self, node):
+        if isinstance(node.ctx, ast.Store):
+            return self.visit(node.value)
+        else:
+            dnode = self.chains.setdefault(node, Def(node))
+            self.visit(node.value).add_user(dnode)
+            return dnode
 
     def visit_NamedExpr(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -1187,12 +1201,8 @@ class DefUseChains(ast.NodeVisitor):
                 tmp_store, elt.ctx = elt.ctx, tmp_store
                 self.visit(elt)
                 tmp_store, elt.ctx = elt.ctx, tmp_store
-            elif isinstance(elt, (ast.Subscript, ast.Attribute)):
+            elif isinstance(elt, (ast.Subscript, ast.Starred, ast.Attribute)):
                 self.visit(elt)
-            elif isinstance(elt, ast.Starred) and isinstance(elt.value, ast.Name):
-                tmp_store, elt.value.ctx = elt.value.ctx, tmp_store
-                self.visit(elt)
-                tmp_store, elt.value.ctx = elt.value.ctx, tmp_store
             elif isinstance(elt, (ast.List, ast.Tuple)):
                 self.visit_Destructured(elt)
         return dnode
