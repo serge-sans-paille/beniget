@@ -561,7 +561,44 @@ class Visitor:
                              ['Attr -> (Attr -> (Attr -> ()))',
                               'Visitor -> ()'])
             self.assertEqual(c.dump_chains(node.body[-1]), ['Attr -> ()'])
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
+    def test_star_assignment(self):
+        code = '''
+curr, *parts = [1,2,3]
+while curr:
+    print(curr)
+    if parts:
+        curr, *parts = parts
+    else:
+        break
+'''
+        self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))', 
+                                'parts -> (parts -> (), parts -> ())']*2)
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
+    def test_star_assignment_nested(self):
+        code = '''
+(curr, *parts),i = [1,2,3],0
+while curr:
+    print(curr)
+    if parts:
+        (curr, *parts),i = parts,i
+    else:
+        break
+'''
+        self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))',
+                                'parts -> (parts -> (), parts -> (Tuple -> ()))',
+                                'i -> (i -> (Tuple -> ()))']*2)
+    
+    def test_attribute_assignment(self):
+        code = "d=object();d.name,x = 't',1"
+        self.checkChains(code, ['d -> (d -> (Attribute -> ()))',
+                                'x -> ()'])
 
+    def test_call_assignment(self):
+        code = "NameError().name = 't'"
+        self.checkChains(code, [])
 
     @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_annotation_uses_class_level_name(self):
