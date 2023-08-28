@@ -26,10 +26,10 @@ def captured_output():
 class TestDefUseChains(TestCase):
     def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
+            def warn(self, msg, node):
                 raise RuntimeError(
-                    "W: unbound identifier '{}' at {}:{}".format(
-                        name, node.lineno, node.col_offset
+                    "W: {} at {}:{}".format(
+                        msg, node.lineno, node.col_offset
                     )
                 )
 
@@ -561,7 +561,44 @@ class Visitor:
                              ['Attr -> (Attr -> (Attr -> ()))',
                               'Visitor -> ()'])
             self.assertEqual(c.dump_chains(node.body[-1]), ['Attr -> ()'])
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
+    def test_star_assignment(self):
+        code = '''
+curr, *parts = [1,2,3]
+while curr:
+    print(curr)
+    if parts:
+        curr, *parts = parts
+    else:
+        break
+'''
+        self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))', 
+                                'parts -> (parts -> (), parts -> ())']*2)
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
+    def test_star_assignment_nested(self):
+        code = '''
+(curr, *parts),i = [1,2,3],0
+while curr:
+    print(curr)
+    if parts:
+        (curr, *parts),i = parts,i
+    else:
+        break
+'''
+        self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))',
+                                'parts -> (parts -> (), parts -> (Tuple -> ()))',
+                                'i -> (i -> (Tuple -> ()))']*2)
+    
+    def test_attribute_assignment(self):
+        code = "d=object();d.name,x = 't',1"
+        self.checkChains(code, ['d -> (d -> (Attribute -> ()))',
+                                'x -> ()'])
 
+    def test_call_assignment(self):
+        code = "NameError().name = 't'"
+        self.checkChains(code, [])
 
     @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_annotation_uses_class_level_name(self):
@@ -618,6 +655,36 @@ cos = pop()'''
             'pop -> (pop -> (Call -> ()))',
             'cos -> (cos -> (Call -> ()))'
         ])
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
+    def test_class_scope_comprehension(self):
+        code = '''
+class Cls:
+    foo = b'1',
+    [_ for _ in foo]
+    {_ for _ in foo}
+    (_ for _ in foo)
+    {_:1 for _ in foo}
+'''
+        node, chains = self.checkChains(code, ['Cls -> ()'])
+        self.assertEqual(chains.dump_chains(node.body[0]),
+                         ['foo -> ('
+                          'foo -> (comprehension -> (ListComp -> ())), '
+                          'foo -> (comprehension -> (SetComp -> ())), '
+                          'foo -> (comprehension -> (GeneratorExp -> ())), '
+                          'foo -> (comprehension -> (DictComp -> ())))'])
+    
+    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
+    def test_class_scope_comprehension_invalid(self):
+        code = '''
+class Foo:
+    x = 5
+    y = [x for i in range(1)]
+    z = [i for i in range(1) for j in range(x)]
+'''
+        self.check_message(code, ["W: unbound identifier 'x' at test:4:9", 
+                                  "W: unbound identifier 'x' at test:5:44"], 'test')
+
 
     @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
     def test_named_expr_simple(self):
@@ -646,6 +713,59 @@ if (a := a + a):
         self.checkChains(
             code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
         )
+    
+    @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
+    def test_named_expr_comprehension(self):
+        # Warlus target should be stored in first non comprehension scope
+        code = ('cities = ["Halifax", "Toronto"]\n'
+            'if any((witness := city).startswith("H") for city in cities):'
+            'witness')
+        self.checkChains(
+            code, ['cities -> (cities -> (comprehension -> (GeneratorExp -> (Call -> ()))))', 
+                   'witness -> (witness -> ())']
+        )
+        
+    @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
+    def test_named_expr_comprehension_invalid(self):
+        # an assignment expression target name cannot be the same as a 
+        # for-target name appearing in any comprehension containing the assignment expression.
+        # A further exception applies when an assignment expression occurs in a comprehension whose 
+        # containing scope is a class scope. If the rules above were to result in the target 
+        # being assigned in that class's scope, the assignment expression is expressly invalid.
+        code = '''
+stuff = []
+
+# assignment expression cannot rebind comprehension iteration variable
+[[(a := a) for _ in range(5)] for a in range(5)] # INVALID
+[b := 0 for b, _ in stuff] # INVALID
+[c for c in (c := stuff)] # INVALID
+[False and (d := 0) for d, _ in stuff] # INVALID
+[_ for _, e in stuff if True or (e := 1)] # INVALID
+
+# assignment expression cannot be used in a comprehension iterable expression
+[_ for _ in (f := stuff)] # INVALID
+[_ for _ in range(2) for _ in (g := stuff)] # INVALID
+[_ for _ in [_ for _ in (h := stuff)]] # INVALID
+[_ for _ in (lambda: (i := stuff))()] # INVALID
+
+class Example:
+    # assignment expression within a comprehension cannot be used in a class body
+    [(j := i) for i in range(5)] # INVALID
+'''
+        # None of the invalid assigned name shows up.
+        node, chains = self.checkChains(code, ['stuff -> ()', 'Example -> ()'], strict=False)        
+        self.assertEqual(chains.dump_chains(node.body[-1]), [])
+        # It triggers useful warnings
+        self.check_message(code, ["W: assignment expression cannot rebind comprehension iteration variable 'a' at <unknown>:5:0", 
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'b' at <unknown>:6:0", 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:7:0', 
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'd' at <unknown>:8:0", 
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'e' at <unknown>:9:0", 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:12:0', 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:13:0', 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:14:0', 
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:15:0',
+                                  'W: assignment expression within a comprehension cannot be used in a class body at <unknown>:19:6'])
     
     @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound(self):

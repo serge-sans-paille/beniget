@@ -383,8 +383,10 @@ class DefUseChains(ast.NodeVisitor):
             return ""
 
     def unbound_identifier(self, name, node):
-        location = self.location(node)
-        print("W: unbound identifier '{}'{}".format(name, location))
+        self.warn("unbound identifier '{}'".format(name), node)
+    
+    def warn(self, msg, node):
+        print("W: {}{}".format(msg, self.location(node)))
 
     def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
         # We may hit the situation where we refer to a local variable which is
@@ -621,7 +623,7 @@ class DefUseChains(ast.NodeVisitor):
         assert not self._scope_depths
         assert not self._precomputed_locals
 
-    def set_definition(self, name, dnode_or_dnodes):
+    def set_definition(self, name, dnode_or_dnodes, index=-1):
         if self._deadcode:
             return
         
@@ -1081,10 +1083,15 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_ListComp(self, node):
         dnode = self.chains.setdefault(node, Def(node))
-
+        try:
+            _validate_comprehension(node)
+        except SyntaxError as e:
+            self.warn(str(e), node)
+            return dnode
         with self.CompScopeContext(node):
-            for comprehension in node.generators:
-                self.visit(comprehension).add_user(dnode)
+            for i, comprehension in enumerate(node.generators):
+                self.visit_comprehension(comprehension, 
+                                         is_nested=i!=0).add_user(dnode)
             self.visit(node.elt).add_user(dnode)
 
         return dnode
@@ -1093,10 +1100,15 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_DictComp(self, node):
         dnode = self.chains.setdefault(node, Def(node))
-
+        try:
+            _validate_comprehension(node)
+        except SyntaxError as e:
+            self.warn(str(e), node)
+            return dnode
         with self.CompScopeContext(node):
-            for comprehension in node.generators:
-                self.visit(comprehension).add_user(dnode)
+            for i, comprehension in enumerate(node.generators):
+                self.visit_comprehension(comprehension, 
+                                         is_nested=i!=0).add_user(dnode)
             self.visit(node.key).add_user(dnode)
             self.visit(node.value).add_user(dnode)
 
@@ -1171,22 +1183,43 @@ class DefUseChains(ast.NodeVisitor):
     def visit_NamedExpr(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.value).add_user(dnode)
-        self.visit(node.target)
+        if isinstance(node.target, ast.Name):
+            self.visit_Name(node.target, named_expr=True)
         return dnode
 
     def is_in_current_scope(self, name):
         return any(name in defs
                    for defs in self._definitions[self._scope_depths[-1]:])
 
-    def visit_Name(self, node, skip_annotation=False):
+    def _first_non_comprehension_scope(self):
+        index = -1
+        enclosing_scope = self._scopes[index]
+        while isinstance(enclosing_scope, (ast.DictComp, ast.ListComp, 
+                                            ast.SetComp, ast.GeneratorExp)):
+            index -= 1
+            enclosing_scope = self._scopes[index]
+        return index, enclosing_scope
+
+    def visit_Name(self, node, skip_annotation=False, named_expr=False):
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             dnode = self.chains.setdefault(node, Def(node))
             if any(node.id in _globals for _globals in self._globals):
                 self.set_or_extend_global(node.id, dnode)
             else:
-                self.set_definition(node.id, dnode)
-                if dnode not in self.locals[self._scopes[-1]]:
-                    self.locals[self._scopes[-1]].append(dnode)
+                # special code for warlus target: should be 
+                # stored in first non comprehension scope
+                index, enclosing_scope = (self._first_non_comprehension_scope() 
+                                          if named_expr else (-1, self._scopes[-1]))
+
+                if index < -1 and isinstance(enclosing_scope, ast.ClassDef):
+                    # invalid named expression, not calling set_definition.
+                    self.warn('assignment expression within a comprehension '
+                              'cannot be used in a class body', node)
+                    return dnode
+            
+                self.set_definition(node.id, dnode, index)
+                if dnode not in self.locals[self._scopes[index]]:
+                    self.locals[self._scopes[index]].append(dnode)
 
             # Name.annotation is a special case because of gast
             if node.annotation is not None and not skip_annotation and not self.future_annotations:
@@ -1216,7 +1249,7 @@ class DefUseChains(ast.NodeVisitor):
                 tmp_store, elt.ctx = elt.ctx, tmp_store
                 self.visit(elt)
                 tmp_store, elt.ctx = elt.ctx, tmp_store
-            elif isinstance(elt, (ast.Subscript, ast.Starred)):
+            elif isinstance(elt, (ast.Subscript, ast.Starred, ast.Attribute)):
                 self.visit(elt)
             elif isinstance(elt, (ast.List, ast.Tuple)):
                 self.visit_Destructured(elt)
@@ -1249,9 +1282,18 @@ class DefUseChains(ast.NodeVisitor):
 
     # misc
 
-    def visit_comprehension(self, node):
+    def visit_comprehension(self, node, is_nested):
         dnode = self.chains.setdefault(node, Def(node))
-        self.visit(node.iter).add_user(dnode)
+        if not is_nested and sys.version_info.major >= 3:
+            # There's one part of a comprehension or generator expression that executes in the surrounding scope, 
+            # it's the expression for the outermost iterable.
+            with self.SwitchScopeContext(self._definitions[:-1], self._scopes[:-1], 
+                                        self._scope_depths[:-1], self._precomputed_locals[:-1]):
+                self.visit(node.iter).add_user(dnode)
+        else:
+            # If a comprehension has multiple for clauses, 
+            # the iterables of the inner for clauses are evaluated in the comprehension's scope:
+            self.visit(node.iter).add_user(dnode)
         self.visit(node.target)
         for if_ in node.ifs:
             self.visit(if_).add_user(dnode)
@@ -1276,6 +1318,25 @@ class DefUseChains(ast.NodeVisitor):
         if node.optional_vars:
             self.visit(node.optional_vars)
         return dnode
+
+def _validate_comprehension(node):
+    """
+    Raises SyntaxError if:
+     - a named expression is used in a comprehension iterable expression
+     - a named expression rebinds a comprehension iteration variable
+    """
+    iter_names = set() # comprehension iteration variables
+    for gen in node.generators:
+        for namedexpr in (n for n in ast.walk(gen.iter) if isinstance(n, ast.NamedExpr)):
+            raise SyntaxError('assignment expression cannot be used '
+                                'in a comprehension iterable expression')
+        iter_names.update(n.id for n in ast.walk(gen.target) 
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store))
+    for namedexpr in (n for n in ast.walk(node) if  isinstance(n, ast.NamedExpr)):
+        bound = getattr(namedexpr.target, 'id', None)
+        if bound in iter_names:
+            raise SyntaxError('assignment expression cannot rebind '
+                              "comprehension iteration variable '{}'".format(bound))
 
 def _iter_arguments(args):
     """
