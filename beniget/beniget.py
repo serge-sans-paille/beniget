@@ -633,13 +633,13 @@ class DefUseChains(ast.NodeVisitor):
             dnodes = ordered_set(dnode_or_dnodes)
 
         # set the islive flag to False on killed Defs
-        for d in self._definitions[-1].get(name, ()):
+        for d in self._definitions[index].get(name, ()):
             if not isinstance(d.node, ast.AST):
                 # A builtin: we never explicitely mark the builtins as killed, since 
                 # it can be easily deducted.
                 continue
             if d in dnodes or any(d in definitions.get(name, ()) for 
-                   definitions in self._definitions[:-1]):
+                   definitions in self._definitions[:index]):
                 # The definition exists in another definition context, so we can't
                 # be sure wether it's killed or not, this happens when:
                 # - a variable is conditionnaly declared (d in dnodes)
@@ -647,7 +647,7 @@ class DefUseChains(ast.NodeVisitor):
                 continue
             d.islive = False
         
-        self._definitions[-1][name] = dnodes
+        self._definitions[index][name] = dnodes
 
     @staticmethod
     def add_to_definition(definition, name, dnode_or_dnodes):
