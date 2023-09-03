@@ -407,25 +407,18 @@ def foo(a):
         self.checkLocals(code, ["a", "b"])
 
 class TestDefIsLive(TestCase):
+
+    def checkLocals(self, c, node, ref, only_live=False):
+        self.assertEqual(sorted(c._dump_locals(node, only_live=only_live)), 
+                         sorted(ref))
     
     def checkLiveLocals(self, code, livelocals, locals):
         node = ast.parse(dedent(code))
         c = StrictDefUseChains()
         c.visit(node)
-
-        def checkDefs(dumped, ref):
-            for r in ref:
-                var = r.split(':')[0]
-                starts = [d for d in dumped if d.startswith(var+':')]
-                # there are tons of builtins always accessible,
-                # so we don't do exact matches
-                if starts:
-                    self.assertIn(r, dumped, "wrong lineno(s): {}".format(starts))
-                else:
-                    raise AssertionError('{} not found in {}'.format(var, node))
-
-        checkDefs(c._dump_locals(node, only_live=True), livelocals)
-        checkDefs(c._dump_locals(node), locals)
+        self.checkLocals(c, node, locals)
+        self.checkLocals(c, node, livelocals, only_live=True)
+        return node, c
     
     def test_LocalAssignRedefIfElseOverride(self):
         code = """
@@ -478,3 +471,100 @@ class TestDefIsLive(TestCase):
             a = a + 1
             """
         self.checkLiveLocals(code, ["a:4"], ["a:2,3,4"])
+
+    def test_BothLive(self):
+        code = '''
+        import sys
+        if sys.version_info >= (3, 7, 0):
+            _PY37PLUS = True
+        else:
+            _PY37PLUS = False
+        '''
+        if sys.version_info>=(3,10):
+            self.checkLiveLocals(code, ["sys:2", "_PY37PLUS:4,6"], ["sys:2", "_PY37PLUS:4,6"])
+        else:
+            self.checkLiveLocals(code, ["sys:None", "_PY37PLUS:4,6"], ["sys:None", "_PY37PLUS:4,6"])
+    
+    def test_BuiltinNameRedefConditional(self):
+        code = '''
+        import sys
+        class property:
+            pass
+        if sys.version_info >= (3, 11):
+            class ExceptionGroup(Exception):
+                @property
+                def exceptions(self):
+                    pass
+        '''
+        if sys.version_info>=(3,10):
+            self.checkLiveLocals(code, ['sys:2', 'property:3', 'ExceptionGroup:6'], 
+                                ['sys:2', 'property:3', 'ExceptionGroup:6'])
+        else:
+            self.checkLiveLocals(code, ['sys:None', 'property:3', 'ExceptionGroup:6'], 
+                                ['sys:None', 'property:3', 'ExceptionGroup:6'])
+    
+    def test_loop_body_might_not_run(self):
+        code = """
+        i = 2
+        while int: 
+            i = 3
+        """
+        self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+    
+    def test_var_in_comp_doesnt_kill_upper_scope_var(self):
+        code = '''
+        x = True
+        [x for x in (1,2)]
+        '''
+        if sys.version_info > (3,):
+            node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
+            self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
+        else:
+            self.checkLiveLocals(code, ['x:3'], ['x:2,3'])
+
+
+    def test_var_redef_in_method_scope(self):
+        code = '''\
+        v = True # not killed
+        class C:
+            v = True # killed
+            v = False
+            def __init__(self):
+                v = 1 # killed
+                v = False # not killed
+        '''
+        node, c = self.checkLiveLocals(code, ['v:1', 'C:2'], ['v:1', 'C:2'])
+        self.checkLocals(c, node.body[-1], ['v:4', '__init__:5'], only_live=True)
+        self.checkLocals(c, node.body[-1].body[-1], ['self:5', 'v:7'], only_live=True)
+    
+    def test_if_body_might_not_run(self):
+        code = """
+        i = 2
+        if int: 
+            i = 3
+        """
+        self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+
+    def test_more_loops(self):
+        # All variables here are live for beniget. Constant
+        # folding with control-flow understanding will reveal 
+        # that the else branch of the while loop is unreachable 
+        # (so the k assignment is never executed).
+        # But beniget over-approximate this.
+        code = '''
+        b = 1
+        while True:
+            v = 1
+            if v:
+                b = 2
+                break
+        else:
+            v = [(1,3)]
+            for v,k in v:
+                pass
+            else:
+                k = 2
+        '''
+        self.checkLiveLocals(code, ['b:2,6', 'v:9,10,4', 'k:10,13'],  
+                                ['b:2,6', 'v:9,10,4', 'k:10,13'])
+
