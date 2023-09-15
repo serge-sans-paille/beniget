@@ -689,7 +689,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_FunctionDef(self, node, step=DeclarationStep):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
-            self.locals[self._scopes[-1]].append(dnode)
+            self.add_to_locals(node.name, dnode)
 
             if not self.future_annotations:
                 for arg in _iter_arguments(node.args):
@@ -735,7 +735,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
-        self.locals[self._scopes[-1]].append(dnode)
+        self.add_to_locals(node.name, dnode)
 
         for base in node.bases:
             self.visit(base).add_user(dnode)
@@ -960,12 +960,18 @@ class DefUseChains(ast.NodeVisitor):
         if node.msg:
             self.visit(node.msg)
 
+    def add_to_locals(self, name, dnode):
+        if any(name in _globals for _globals in self._globals):
+            self.set_or_extend_global(name, dnode)
+        else:
+            self.locals[self._scopes[-1]].append(dnode)
+
     def visit_Import(self, node):
         for alias in node.names:
             dalias = self.chains.setdefault(alias, Def(alias))
             base = alias.name.split(".", 1)[0]
             self.set_definition(alias.asname or base, dalias)
-            self.locals[self._scopes[-1]].append(dalias)
+            self.add_to_locals(alias.asname or base, dalias)
 
     def visit_ImportFrom(self, node):
         for alias in node.names:
@@ -974,7 +980,7 @@ class DefUseChains(ast.NodeVisitor):
                 self.extend_definition('*', dalias)
             else:
                 self.set_definition(alias.asname or alias.name, dalias)
-            self.locals[self._scopes[-1]].append(dalias)
+            self.add_to_locals(alias.asname or alias.name, dalias)
 
     def visit_Exec(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -1203,6 +1209,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Name(self, node, skip_annotation=False, named_expr=False):
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             dnode = self.chains.setdefault(node, Def(node))
+            # FIXME: find a smart way to merge the code below with add_to_locals
             if any(node.id in _globals for _globals in self._globals):
                 self.set_or_extend_global(node.id, dnode)
             else:
@@ -1216,7 +1223,7 @@ class DefUseChains(ast.NodeVisitor):
                     self.warn('assignment expression within a comprehension '
                               'cannot be used in a class body', node)
                     return dnode
-            
+
                 self.set_definition(node.id, dnode, index)
                 if dnode not in self.locals[self._scopes[index]]:
                     self.locals[self._scopes[index]].append(dnode)

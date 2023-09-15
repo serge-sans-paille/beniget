@@ -171,6 +171,26 @@ class TestGlobals(TestCase):
         code = "def foo(): global x; x = 1"
         self.checkGlobals(code, ["foo", "x"])
 
+    def testGlobalThroughKeywordAndClassDef(self):
+        code = "def foo():\n global x\n class x: pass"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndFunctionDef(self):
+        code = "def foo():\n global x\n def x(): pass"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndImport(self):
+        code = "def foo(): global x; import math as x"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndFor(self):
+        code = "def foo():\n global x\n for x in (1,2):\n  pass"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndImportFrom(self):
+        code = "def foo(): global x; from math import cos as x"
+        self.checkGlobals(code, ["foo", "x"])
+
     def testGlobalThroughMultipleKeyword(self):
         code = "def foo(): global x\ndef bar(): global x; x = 1"
         self.checkGlobals(code, ["bar", "foo", "x"])
