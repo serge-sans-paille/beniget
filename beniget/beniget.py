@@ -665,6 +665,14 @@ class DefUseChains(ast.NodeVisitor):
     def extend_global(self, name, dnode_or_dnodes):
         if self._deadcode:
             return
+        # `name` *should* be in self._definitions[0] because we extend the
+        # globals. Yet the original code maybe faulty and we need to cope with
+        # it.
+        if name not in self._definitions[0]:
+            if isinstance(dnode_or_dnodes, Def):
+                self.locals[self.module].append(dnode_or_dnodes)
+            else:
+                self.locals[self.module].extend(dnode_or_dnodes)
         DefUseChains.add_to_definition(self._definitions[0], name,
                                        dnode_or_dnodes)
 
