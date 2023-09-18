@@ -111,6 +111,9 @@ class TestDefUseChains(TestCase):
         self.checkChains(code, ['a -> (a -> ())',
                                 'foo -> ()'])
 
+    def test_augassign_undefined_global(self):
+        code = "def foo():\n def bar():\n  global x\n  x+=1; x"
+        self.checkChains(code, ['foo -> ()', 'x -> (x -> ())'], strict=False)
 
     def test_expanded_augassign(self):
         code = "a = 1; a = a + 2"
