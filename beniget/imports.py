@@ -10,13 +10,22 @@ class ImportInfo:
     """
     __slots__ = 'orgmodule', 'orgname'
 
-    def __init__(self, orgmodule, orgname) -> None:
+    def __init__(self, orgmodule, orgname=None) -> None:
         """
         :param orgmodule: str
         :param orgname: str or None
         """
         self.orgmodule = orgmodule
         self.orgname = orgname
+    
+    def target(self) -> str:
+        """
+        Returns the qualified name of the the imported symbol.
+        """
+        if self.orgname:
+            return f"{self.orgmodule}.{self.orgname}"
+        else:
+            return self.orgmodule
 
 _alias_needs_lineno = sys.implementation.name == 'cpython' and sys.version_info < (3,10)
 
@@ -56,7 +65,7 @@ class ImportParser(ast.NodeVisitor):
             if _alias_needs_lineno:
                 al.lineno = node.lineno
         
-        return self._result
+        return self._result.copy()
 
     def visit_ImportFrom(self, node):
         self._result.clear()
@@ -98,4 +107,4 @@ class ImportParser(ast.NodeVisitor):
             if _alias_needs_lineno:
                 alias.lineno = node.lineno
 
-        return self._result
+        return self._result.copy()

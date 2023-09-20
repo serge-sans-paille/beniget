@@ -27,11 +27,11 @@ class TestImportParser(TestCase):
         assert len(expected)==len(node.body)
         for import_node, expected_names in zip(node.body, expected):
             assert isinstance(import_node, (ast.Import, ast.ImportFrom))
-            for al,(orgmodule, orgname) in parser.visit(import_node).items():
+            for al,i in parser.visit(import_node).items():
                 assert Def(al).name() in expected_names
                 expected_orgmodule, expected_orgname = expected_names[Def(al).name()]
-                assert orgmodule == expected_orgmodule
-                assert orgname == expected_orgname
+                assert i.orgmodule == expected_orgmodule
+                assert i.orgname == expected_orgname
                 ran=True
         assert ran
     
@@ -49,10 +49,10 @@ class TestImportParser(TestCase):
         assert len(expected)==len(node.body)
         for import_node, expected_names in zip(node.body, expected):
             assert isinstance(import_node, (ast.Import, ast.ImportFrom))
-            for al,(orgmodule, orgname) in parser.visit(import_node).items():
+            for al,i in parser.visit(import_node).items():
                 assert Def(al).name() in expected_names
                 expected_orgmodule, expected_orgname = expected_names[Def(al).name()]
-                assert orgmodule == expected_orgmodule
-                assert orgname == expected_orgname
+                assert i.orgmodule == expected_orgmodule
+                assert i.orgname == expected_orgname
                 ran=True
         assert ran

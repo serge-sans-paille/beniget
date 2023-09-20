@@ -1,8 +1,11 @@
-from collections import defaultdict, OrderedDict
+from collections import defaultdict, OrderedDict, deque
 from contextlib import contextmanager
 import sys
+import os.path
 
 import gast as ast
+
+from beniget.imports import ImportParser
 
 # TODO: remove me when python 2 is not supported anymore
 class _ordered_set(object):
@@ -267,6 +270,64 @@ def collect_locals(node):
     visitor.generic_visit(node)
     return visitor.Locals
 
+def posixpath_splitparts(path):
+    """
+    Split a POSIX filename in parts.
+
+    >>> posixpath_splitparts('typing.pyi')
+    ('typing.pyi',)
+    
+    >>> posixpath_splitparts('/var/lib/config.ini')
+    ('var', 'lib', 'config.ini')
+
+    >>> posixpath_splitparts('/var/lib/config/')
+    ('var', 'lib', 'config')
+
+    >>> posixpath_splitparts('c:/dir/config.ini')
+    ('c:', 'dir', 'config.ini')
+    """
+    sep = '/'
+    r = deque(path.split(sep))
+    # make sure the parts doesn't 
+    # start or ends with a separator or empty string.
+    while r and r[0] in (sep, ''):
+        r.popleft()
+    while r and r[-1] in (sep, ''):
+        r.pop()
+    return tuple(r)
+
+def potential_module_names(filename: str):
+    """
+    Returns a tuple of potential module 
+    names deducted from the filename.
+
+    >>> potential_module_names('/var/lib/config.py')
+    ('var.lib.config', 'lib.config', 'config')
+    >>> potential_module_names('git-repos/pydoctor/pydoctor/driver.py')
+    ('pydoctor.pydoctor.driver', 'pydoctor.driver', 'driver')
+    >>> potential_module_names('git-repos/pydoctor/pydoctor/__init__.py')
+    ('pydoctor.pydoctor', 'pydoctor')
+    """
+    parts = posixpath_splitparts(filename)
+    mod = os.path.splitext(parts[-1])[0]
+    if mod == '__init__':
+        parts = parts[:-1]
+    else:
+        parts = parts[:-1] + (mod,)
+    
+    names = []
+    len_parts = len(parts)
+    for i in range(len_parts):
+        p = parts[i:]
+        if not p or any(not all(sb.isidentifier() 
+                        for sb in s.split('.')) for s in p):
+            # the path cannot be converted to a module name
+            # because there are unallowed caracters.
+            continue
+        names.append('.'.join(p))
+    
+    return tuple(names) or ('',)
+
 
 class DefUseChains(ast.NodeVisitor):
     """
@@ -290,19 +351,61 @@ class DefUseChains(ast.NodeVisitor):
     One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
     """
 
-    def __init__(self, filename=None, future_annotations=False, is_stub=False):
+    def __init__(self,
+                 filename=None,
+                 *,
+                 modname=None,
+                 future_annotations=False, 
+                 is_stub=False):
         """
-            - filename: str, included in error messages if specified
+            - filename: str, POSIX-like path pointing to the source file, 
+              you can use `Path.as_posix` to ensure the value has proper format. 
+              It's recommended to either provide the filename of the source
+              relative to the root of the package or provide both 
+              a module name and a filename.
+              Included in error messages and used as part of the import resolving.
+            - modname: str, fully qualified name of the module we're analysing. 
+              Required to have a correct parsing of relative imports.
+              A module name may end with '.__init__' to indicate the module is a package.
             - future_annotations: bool, PEP 563 mode 
             - is_stub: bool, stub module semantics mode, implies future_annotations=True.
-                When the module is a stub, there is no need for quoting to do a forward reference 
-                inside a type alias, typevar bound argument or a classdef base expression.
+                When the module is a stub file, there is no need for quoting to do a forward reference 
+                inside: 
+                    - annotations (like PEP 563 mode)
+                    - `TypeAlias`` values
+                    - ``TypeVar()`` call arguments
+                    - classe base expressions, keywords and decorators
+                    - function decorators
         """
         self.chains = {}
         self.locals = defaultdict(list)
+        # mapping from ast.alias to their ImportInfo.
+        self.imports = {}
 
         self.filename = filename
         self.is_stub = is_stub
+        
+        # determine module name, we provide some flexibility: 
+        # - The module name is not required to have correct parsing when the 
+        #   filename is a relative filename that starts at the package root. 
+        # - We deduce whether the module is a package from module name or filename
+        #   if they ends with __init__.
+        # - The module name doesn't have to be provided to use _is_qualname() 
+        #   if filename is provided.
+        is_package = False
+        if filename and posixpath_splitparts(filename)[-1].split('.')[0] == '__init__':
+            is_package = True
+        if modname:
+            if modname.endswith('.__init__'):
+                modname = modname[:-9] # strip __init__
+                is_package = True
+            self._modnames = (modname, )
+        elif filename:
+            self._modnames = potential_module_names(filename)
+        else:
+            self._modnames = ('', )
+        self.modname = next(iter(self._modnames))
+        self.is_package = is_package
 
         # deep copy of builtins, to remain reentrant
         self._builtins = {k: Def(v) for k, v in Builtins.items()}
@@ -342,6 +445,8 @@ class DefUseChains(ast.NodeVisitor):
         # dead code levels, it's non null for code that cannot be executed
         self._deadcode = 0
 
+        self._import_parser = ImportParser(self.modname, is_package=self.is_package)
+
         # attributes set in visit_Module
         self.module = None
         self.future_annotations = is_stub or future_annotations
@@ -349,6 +454,48 @@ class DefUseChains(ast.NodeVisitor):
     #
     ## helpers
     #
+
+    def _is_qualname(self, expr, qnames):
+        """
+        Returns True if - one of - the expression's definition(s) matches
+        one of the given qualified names.
+
+        The expression definition is looked up with 
+        `lookup_annotation_name_defs`.
+        """
+        
+        if isinstance(expr, ast.Name):
+            try:
+                defs = lookup_annotation_name_defs(
+                    expr.id, self._scopes, self.locals)
+            except Exception:
+                return False
+            
+            for d in defs:
+                if isinstance(d.node, ast.alias):
+                    # the symbol is an imported name
+                    import_alias = self.imports[d.node].target()
+                    if any(import_alias == n for n in qnames):
+                        return True
+                elif any('{}.{}'.format(mod, d.name()) in qnames for mod in self._modnames):
+                    # the symbol is a localy defined name
+                    return True
+                else:
+                    # localy defined name, but module name doesn't match
+                    break
+
+        elif isinstance(expr, ast.Attribute):
+            for n in qnames:
+                mod, _, _name = n.rpartition('.')
+                if mod and expr.attr == _name:
+                    if self._is_qualname(expr.value, set((mod,))):
+                        return True
+        return False
+
+    def _is_typing_name(self, expr, name):
+        return self._is_qualname(expr, set(('typing.{}'.format(name),
+                                           'typing_extensions.{}'.format(name))))
+
     def _dump_locals(self, node, only_live=False):
         """
         Like `dump_definitions` but returns the result grouped by symbol name and it includes linenos.
@@ -776,7 +923,7 @@ class DefUseChains(ast.NodeVisitor):
     
     def visit_AnnAssign(self, node):
         visit_value = True
-        if (self.is_stub and node.value and _is_typing_name(
+        if (self.is_stub and node.value and self._is_typing_name(
                 node.annotation, 'TypeAlias')):
             # support for PEP 613 - Explicit Type Aliases
             # BUT an untyped global expression 'x=int' will NOT be considered a type alias.
@@ -976,6 +1123,7 @@ class DefUseChains(ast.NodeVisitor):
             base = alias.name.split(".", 1)[0]
             self.set_definition(alias.asname or base, dalias)
             self.locals[self._scopes[-1]].append(dalias)
+        self.imports.update(self._import_parser.visit(node))
 
     def visit_ImportFrom(self, node):
         for alias in node.names:
@@ -985,6 +1133,7 @@ class DefUseChains(ast.NodeVisitor):
             else:
                 self.set_definition(alias.asname or alias.name, dalias)
             self.locals[self._scopes[-1]].append(dalias)
+        self.imports.update(self._import_parser.visit(node))
 
     def visit_Exec(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -1131,7 +1280,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_Call(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.func).add_user(dnode)
-        if self.is_stub and _is_typing_name(node.func, 'TypeVar'):
+        if self.is_stub and self._is_typing_name(node.func, 'TypeVar'):
             # In stubs, constraints and bound argument 
             # of TypeVar() can be forward references.
             current_scopes = list(self._scopes)
@@ -1302,23 +1451,6 @@ def _iter_arguments(args):
         yield arg
     if args.kwarg:
         yield args.kwarg
-
-def _is_name(expr, name, modules=()):
-    """
-    Returns True if the expression matches:
-     - Name(id=<name>) or
-     - Attribue(value=Name(id=<one of modules>), attr=<name>)
-    """
-    if isinstance(expr, ast.Name):
-        return expr.id==name
-    if isinstance(expr, ast.Attribute):
-        if isinstance(expr.value, ast.Name):
-            if expr.value.id in modules:
-                return expr.attr==name
-    return False
-
-def _is_typing_name(expr, name):
-    return _is_name(expr, name, {'typing', 'typing_extensions', 't'})
 
 def lookup_annotation_name_defs(name, heads, locals_map):
     r"""
