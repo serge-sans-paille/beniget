@@ -125,7 +125,7 @@ class ImportParser(ast.NodeVisitor):
     Call to `visit` will parse the given import node into a mapping of aliases to `ImportInfo`.
     """
 
-    def __init__(self, modname, *, is_package):
+    def __init__(self, modname, is_package=False):
         self._modname = tuple(modname.split("."))
         self._is_package = is_package
         self._result = {}
