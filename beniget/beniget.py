@@ -103,9 +103,9 @@ class ImportInfo:
         self.orgmodule = orgmodule
         self.orgname = orgname
     
-    def target(self) -> str:
+    def target(self):
         """
-        Returns the qualified name of the the imported symbol.
+        Returns the qualified name of the the imported symbol, str.
         """
         if self.orgname:
             return f"{self.orgmodule}.{self.orgname}"
@@ -125,7 +125,7 @@ class ImportParser(ast.NodeVisitor):
     Call to `visit` will parse the given import node into a mapping of aliases to `ImportInfo`.
     """
 
-    def __init__(self, modname, *, is_package) -> None:
+    def __init__(self, modname, *, is_package):
         self._modname = tuple(modname.split("."))
         self._is_package = is_package
         self._result = {}
