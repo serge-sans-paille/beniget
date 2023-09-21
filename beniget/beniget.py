@@ -332,9 +332,11 @@ def potential_module_names(filename):
 class DefUseChains(ast.NodeVisitor):
     """
     Module visitor that gathers two kinds of informations:
-        - locals: Dict[node, List[Def]], a mapping between a node and the list
+        - locals: dict[node, list[Def]], a mapping between a node and the list
           of variable defined in this node,
-        - chains: Dict[node, Def], a mapping between nodes and their chains.
+        - chains: dict[node, Def], a mapping between nodes and their chains.
+        - imports: dict[node, ImportInfo], a mapping between import aliases
+          and their resolved target.
 
     >>> import gast as ast
     >>> module = ast.parse("from b import c, d; c()")
