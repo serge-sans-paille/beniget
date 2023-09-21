@@ -472,7 +472,8 @@ class DefUseChains(ast.NodeVisitor):
               Included in error messages and used as part of the import resolving.
             - modname: str, fully qualified name of the module we're analysing. 
               A module name may end with '.__init__' to indicate the module is a package.
-            - future_annotations: bool, PEP 563 mode 
+            - future_annotations: bool, PEP 563 mode. 
+              It will auotmatically be enabled if the module has ``from __future__ import annotations``.
             - is_stub: bool, stub module semantics mode, implies future_annotations=True.
               It will auotmatically be enabled if the filename endswith '.pyi'.
               When the module is a stub file, there is no need for quoting to do a forward reference 
@@ -976,8 +977,13 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(kw_default).add_user(dnode)
             for default in node.args.defaults:
                 self.visit(default).add_user(dnode)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
+            if self.is_stub:
+                for decorator in node.decorator_list:
+                    self._defered_annotations[-1].append((
+                        decorator, currentscopes, None))
+            else:
+                for decorator in node.decorator_list:
+                    self.visit(decorator)
 
             if not self.future_annotations and node.returns:
                 self.visit(node.returns)
@@ -1004,7 +1010,7 @@ class DefUseChains(ast.NodeVisitor):
         self.add_to_locals(node.name, dnode)
 
         if self.is_stub:
-            # special treatment for base classes in stub modules
+            # special treatment for classes in stub modules
             # so they can contain forward-references.
             currentscopes = list(self._scopes)
             for base in node.bases:
@@ -1013,13 +1019,16 @@ class DefUseChains(ast.NodeVisitor):
             for keyword in node.keywords:
                 self._defered_annotations[-1].append((
                     keyword.value, currentscopes, lambda dkeyword: dkeyword.add_user(dnode)))
+            for decorator in node.decorator_list:
+                self._defered_annotations[-1].append((
+                    decorator, currentscopes, lambda ddecorator: ddecorator.add_user(dnode)))
         else:
             for base in node.bases:
                 self.visit(base).add_user(dnode)
             for keyword in node.keywords:
                 self.visit(keyword.value).add_user(dnode)
-        for decorator in node.decorator_list:
-            self.visit(decorator).add_user(dnode)
+            for decorator in node.decorator_list:
+                self.visit(decorator).add_user(dnode)
 
         with self.ScopeContext(node):
             self.set_definition("__class__", Def("__class__"))

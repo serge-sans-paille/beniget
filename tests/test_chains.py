@@ -1418,7 +1418,31 @@ LiteralValue: TypeAlias = list[LiteralValue]|object
                 filename='typing.pyi',
             )
     
-    # TODO: add tests for decorators.
+    @skipIf(sys.version_info.major < 3, "Python 3 semantics")
+    def test_stubs_class_decorators(self):
+        code = '''
+@dataclass_transform
+class Thing:
+    x: int
+def dataclass_transform(f):...
+'''
+        self.checkChains(
+                code, 
+                ['Thing -> ()', 'dataclass_transform -> (dataclass_transform -> (Thing -> ()))'], 
+                filename='some.pyi')
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 semantics")
+    def test_stubs_function_decorators(self):
+        code = '''
+class Thing:
+    @property
+    def x(self) -> int:...
+def property(f):...
+'''
+        self.checkChains(
+                code, 
+                ['Thing -> ()', 'property -> (property -> ())'], 
+                filename='some.pyi')
         
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
