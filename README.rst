@@ -16,7 +16,7 @@ Basically Beniget provides four analyses:
 - ``beniget.Ancestors`` that maps each node to the list of enclosing nodes;
 - ``beniget.DefUseChains`` that maps each node to the list of definition points in that node;
 - ``beniget.UseDefChains`` that maps each node to the list of possible definition of that node.
-- ``beniget.ImportParser`` that maps each import alias node to their resolved origin name and module.
+- ``beniget.ImportParser`` that maps import alias node to their resolved origin name and module.
 
 See sample usages and/or run ``pydoc beniget`` for more information :-).
 

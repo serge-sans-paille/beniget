@@ -383,7 +383,7 @@ class DefUseChains(ast.NodeVisitor):
         self.imports = {}
 
         self.filename = filename
-        self.is_stub = is_stub
+        self.is_stub = is_stub or filename is not None and filename.endswith('.pyi')
         
         # determine module name, we provide some flexibility: 
         # - The module name is not required to have correct parsing when the 
@@ -449,7 +449,7 @@ class DefUseChains(ast.NodeVisitor):
 
         # attributes set in visit_Module
         self.module = None
-        self.future_annotations = is_stub or future_annotations
+        self.future_annotations = self.is_stub or future_annotations
 
     #
     ## helpers
