@@ -2,8 +2,7 @@ import gast as ast
 from unittest import TestCase
 from textwrap import dedent
 
-from beniget.imports import ImportParser
-from beniget.beniget import Def
+from beniget import Def, ImportParser
 
 class TestImportParser(TestCase):
 
