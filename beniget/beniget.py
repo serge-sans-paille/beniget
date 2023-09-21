@@ -108,7 +108,7 @@ class ImportInfo:
         Returns the qualified name of the the imported symbol, str.
         """
         if self.orgname:
-            return f"{self.orgmodule}.{self.orgname}"
+            return "{}.{}".format(self.orgmodule, self.orgname)
         else:
             return self.orgmodule
 
