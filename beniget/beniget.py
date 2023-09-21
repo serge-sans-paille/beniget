@@ -365,17 +365,17 @@ class DefUseChains(ast.NodeVisitor):
               a module name and a filename.
               Included in error messages and used as part of the import resolving.
             - modname: str, fully qualified name of the module we're analysing. 
-              Required to have a correct parsing of relative imports.
               A module name may end with '.__init__' to indicate the module is a package.
             - future_annotations: bool, PEP 563 mode 
             - is_stub: bool, stub module semantics mode, implies future_annotations=True.
-                When the module is a stub file, there is no need for quoting to do a forward reference 
-                inside: 
-                    - annotations (like PEP 563 mode)
-                    - `TypeAlias`` values
-                    - ``TypeVar()`` call arguments
-                    - classe base expressions, keywords and decorators
-                    - function decorators
+              It will auotmatically be enabled if the filename endswith '.pyi'.
+              When the module is a stub file, there is no need for quoting to do a forward reference 
+              inside: 
+                - annotations (like PEP 563 mode)
+                - `TypeAlias`` values
+                - ``TypeVar()`` call arguments
+                - classe base expressions, keywords and decorators
+                - function decorators
         """
         self.chains = {}
         self.locals = defaultdict(list)

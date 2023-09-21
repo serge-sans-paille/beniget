@@ -1456,11 +1456,31 @@ class TestDefUseChainsUnderstandsFilename(TestCase):
         self.assertEqual(potential_module_names('git-repos/pydoctor/pydoctor/__init__.py'), 
                          ('pydoctor.pydoctor', 'pydoctor'))
 
-    def test_def_use_chains_init(self):
+    def test_def_use_chains_init_modname(self):
         self.assertEqual(beniget.DefUseChains(
             'typing.pyi').modname, 'typing')
         self.assertEqual(beniget.DefUseChains(
             'beniget/beniget.py').modname, 'beniget.beniget')
         self.assertEqual(beniget.DefUseChains(
             '/root/repos/beniget/beniget/beniget.py', 
-            modname='beniget.beniget').modname, 'beniget.beniget')
+            modname='beniget.__init__').modname, 'beniget')
+    
+    def test_def_use_chains_init_is_stub(self):
+        self.assertEqual(beniget.DefUseChains(
+            'typing.pyi').is_stub, True)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget.py').is_stub, False)
+        self.assertEqual(beniget.DefUseChains(
+            '/root/repos/beniget/beniget/beniget.pyi').is_stub, True)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget.py', is_stub=True).is_stub, True)
+    
+    def test_def_use_chains_init_is_package(self):
+        self.assertEqual(beniget.DefUseChains(
+            'typing.pyi').is_package, False)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget.py').is_package, False)
+        self.assertEqual(beniget.DefUseChains(
+            '/root/repos/beniget/beniget/__init__.pyi').is_package, True)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget/', modname='beniget.__init__').is_package, True)
