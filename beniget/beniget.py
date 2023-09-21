@@ -95,7 +95,7 @@ class ImportInfo:
     """
     __slots__ = 'orgmodule', 'orgname'
 
-    def __init__(self, orgmodule, orgname=None) -> None:
+    def __init__(self, orgmodule, orgname=None):
         """
         :param orgmodule: str
         :param orgname: str or None
