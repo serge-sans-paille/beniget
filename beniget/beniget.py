@@ -353,7 +353,6 @@ class DefUseChains(ast.NodeVisitor):
 
     def __init__(self,
                  filename=None,
-                 *,
                  modname=None,
                  future_annotations=False, 
                  is_stub=False):
