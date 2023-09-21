@@ -296,7 +296,7 @@ def posixpath_splitparts(path):
         r.pop()
     return tuple(r)
 
-def potential_module_names(filename: str):
+def potential_module_names(filename):
     """
     Returns a tuple of potential module 
     names deducted from the filename.
