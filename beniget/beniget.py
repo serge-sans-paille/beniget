@@ -1,6 +1,7 @@
 from collections import defaultdict, OrderedDict, deque
 from contextlib import contextmanager
 import sys
+import platform
 import os.path
 
 import gast as ast
@@ -112,7 +113,7 @@ class ImportInfo:
         else:
             return self.orgmodule
 
-_alias_needs_lineno = sys.implementation.name == 'cpython' and sys.version_info < (3,10)
+_alias_needs_lineno = platform.python_implementation().lower() == 'cpython' and sys.version_info < (3,10)
 
 # The MIT License (MIT)
 # Copyright (c) 2017 Jelle Zijlstra
