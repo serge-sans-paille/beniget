@@ -358,7 +358,7 @@ while done:
         node, c = self.checkChains( "lambda *args: args", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['args -> (args -> (Lambda -> ()))'])
     
-    def test_lambda_varargs(self):
+    def test_lambda_kwargs(self):
         node, c = self.checkChains( "lambda **kwargs: kwargs", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['kwargs -> (kwargs -> (Lambda -> ()))'])
 
