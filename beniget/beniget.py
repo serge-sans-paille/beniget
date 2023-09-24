@@ -1050,6 +1050,7 @@ class DefUseChains(ast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             for default in node.args.defaults:
                 self.visit(default).add_user(dnode)
+            # a lambda never has kw_defaults
             self._defered.append((node,
                                   list(self._definitions),
                                   list(self._scopes),
@@ -1059,7 +1060,7 @@ class DefUseChains(ast.NodeVisitor):
         elif step is DefinitionStep:
             dnode = self.chains[node]
             with self.ScopeContext(node):
-                for a in node.args.args:
+                for a in _iter_arguments(node.args):
                     self.visit(a)
                 self.visit(node.body).add_user(dnode)
             return dnode
