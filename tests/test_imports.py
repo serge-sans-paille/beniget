@@ -2,11 +2,11 @@ import gast as ast
 from unittest import TestCase
 from textwrap import dedent
 
-from beniget import Def, ImportParser
+from beniget import Def, parse_import
 
 class TestImportParser(TestCase):
 
-    def test_import_parser(self):
+    def test_import_parsing(self):
         code = '''
         import mod2
         import pack.subpack
@@ -21,12 +21,11 @@ class TestImportParser(TestCase):
                      'l':('mod2','_l'), 
                      'm':('mod2','_m')},
                     {'C':('pack.subpack.stuff','C')},]
-        parser = ImportParser('mod1', is_package=False)
         node = ast.parse(dedent(code))
         assert len(expected)==len(node.body)
         for import_node, expected_names in zip(node.body, expected):
             assert isinstance(import_node, (ast.Import, ast.ImportFrom))
-            for al,i in parser.visit(import_node).items():
+            for al,i in parse_import(import_node, 'mod1', is_package=False).items():
                 assert Def(al).name() in expected_names
                 expected_orgmodule, expected_orgname = expected_names[Def(al).name()]
                 assert i.orgmodule == expected_orgmodule
@@ -43,12 +42,11 @@ class TestImportParser(TestCase):
         expected = [{'b':('top.mod2','bar')},
                     {'foo':('top.subpack.other.pack','foo')},
                     {'x': ('......error', 'x')}]
-        parser = ImportParser('top.subpack.other', is_package=True)
         node = ast.parse(dedent(code))
         assert len(expected)==len(node.body)
         for import_node, expected_names in zip(node.body, expected):
             assert isinstance(import_node, (ast.Import, ast.ImportFrom))
-            for al,i in parser.visit(import_node).items():
+            for al,i in parse_import(import_node, 'top.subpack.other', is_package=True).items():
                 assert Def(al).name() in expected_names
                 expected_orgmodule, expected_orgname = expected_names[Def(al).name()]
                 assert i.orgmodule == expected_orgmodule

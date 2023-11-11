@@ -118,44 +118,37 @@ _alias_needs_lineno = platform.python_implementation().lower() == 'cpython' and 
 # The MIT License (MIT)
 # Copyright (c) 2017 Jelle Zijlstra
 # Adapted from the project typeshed_client.
-class ImportParser(ast.NodeVisitor):
+def parse_import(node, modname, is_package=False):
     """
-    Transform import statements into a mapping from `ast.alias` to `ImportInfo`.
-    One instance of `ImportParser` can be used to parse all imports in a given module.
-
-    Call to `visit` will parse the given import node into a mapping of aliases to `ImportInfo`.
+    Parse the given import node into a mapping of aliases to `ImportInfo`.
+    
+    :param node: the import node.
+    :param str modname: the name of the module.
+    :param bool is_package: whether the module is a package.
+    :rtype: dict[ast.alias, ImportInfo]
     """
+    result = {}
 
-    def __init__(self, modname, is_package=False):
-        self._modname = tuple(modname.split("."))
-        self._is_package = is_package
-        self._result = {}
+    
+    # This seems to be the most resonable place to fix the ast.alias node not having
+    # proper line number information on python3.9 and before.
+    if _alias_needs_lineno:
+        for alias in node.names:
+            alias.lineno = node.lineno
 
-    def generic_visit(self, node):
-        raise TypeError('unexpected node type: {}'.format(type(node)))
-
-    def visit_Import(self, node):
-        self._result.clear()
+    if isinstance(node, ast.Import):
         for al in node.names:
             if al.asname:
-                self._result[al] = ImportInfo(orgmodule=al.name)
+                result[al] = ImportInfo(orgmodule=al.name)
             else:
                 # Here, we're not including information 
                 # regarding the submodules imported - if there is one.
                 # This is because this analysis map the names bounded by imports, 
                 # not the dependencies.
-                self._result[al] = ImportInfo(orgmodule=al.name.split(".", 1)[0])
-            
-            # This seems to be the most resonable place to fix the ast.alias node not having
-            # proper line number information on python3.9 and before.
-            if _alias_needs_lineno:
-                al.lineno = node.lineno
-        
-        return self._result.copy()
-
-    def visit_ImportFrom(self, node):
-        self._result.clear()
-        current_module = self._modname
+                result[al] = ImportInfo(orgmodule=al.name.split(".", 1)[0])
+    
+    elif isinstance(node, ast.ImportFrom):
+        current_module = tuple(modname.split("."))
 
         if node.module is None:
             module = ()
@@ -167,12 +160,12 @@ class ImportParser(ast.NodeVisitor):
         else:
             # parse relative imports
             if node.level == 1:
-                if self._is_package:
+                if is_package:
                     relative_module = current_module
                 else:
                     relative_module = current_module[:-1]
             else:
-                if self._is_package:
+                if is_package:
                     relative_module = current_module[: 1 - node.level]
                 else:
                     relative_module = current_module[: -node.level]
@@ -185,15 +178,15 @@ class ImportParser(ast.NodeVisitor):
             source_module = relative_module + module
 
         for alias in node.names:
-            self._result[alias] = ImportInfo(
+            result[alias] = ImportInfo(
                 orgmodule=".".join(source_module), orgname=alias.name
             )
-            
-            # fix the ast.alias node not having proper line number on python3.9 and before.
-            if _alias_needs_lineno:
-                alias.lineno = node.lineno
 
-        return self._result.copy()
+    else:
+        raise TypeError('unexpected node type: {}'.format(type(node)))
+    
+    return result
+
 
 class Def(object):
     """
@@ -561,8 +554,6 @@ class DefUseChains(ast.NodeVisitor):
 
         # dead code levels, it's non null for code that cannot be executed
         self._deadcode = 0
-
-        self._import_parser = ImportParser(self.modname, is_package=self.is_package)
 
         # attributes set in visit_Module
         self.module = None
@@ -1279,7 +1270,7 @@ class DefUseChains(ast.NodeVisitor):
             base = alias.name.split(".", 1)[0]
             self.set_definition(alias.asname or base, dalias)
             self.add_to_locals(alias.asname or base, dalias)
-        self.imports.update(self._import_parser.visit(node))
+        self.imports.update(parse_import(node, self.modname, is_package=self.is_package))
 
     def visit_ImportFrom(self, node):
         for alias in node.names:
@@ -1289,7 +1280,7 @@ class DefUseChains(ast.NodeVisitor):
             else:
                 self.set_definition(alias.asname or alias.name, dalias)
             self.add_to_locals(alias.asname or alias.name, dalias)
-        self.imports.update(self._import_parser.visit(node))
+        self.imports.update(parse_import(node, self.modname, is_package=self.is_package))
 
     def visit_Exec(self, node):
         dnode = self.chains.setdefault(node, Def(node))

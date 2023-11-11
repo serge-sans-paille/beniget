@@ -1,4 +1,4 @@
 from __future__ import absolute_import
 from beniget.version import __version__
 from beniget.beniget import (Ancestors, DefUseChains, UseDefChains, Def, 
-                             ImportParser, ImportInfo)
+                             parse_import, ImportInfo)
