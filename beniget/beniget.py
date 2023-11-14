@@ -1143,10 +1143,10 @@ class DefUseChains(ast.NodeVisitor):
             return dnode
         
         def visit_MatchOr(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
-        for pat in node.patterns:
-            self.visit(pat).add_user(dnode)
-        return dnode
+            dnode = self.chains.setdefault(node, Def(node))
+            for pat in node.patterns:
+                self.visit(pat).add_user(dnode)
+            return dnode
 
     # expressions
 
