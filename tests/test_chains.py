@@ -21,6 +21,8 @@ def captured_output():
 
 
 class TestDefUseChains(TestCase):
+    maxDiff = None
+
     def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
             def warn(self, msg, node):
@@ -1247,7 +1249,104 @@ A = bytes
         code = 'from typing import Optional; var:Optional'
         self.checkChains(code, ['Optional -> (Optional -> ())', 
                                 'var -> ()'])
-        
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_value(self):
+        code = '''
+command = 123
+match command:
+    case 123 as b:
+        b+=1
+        '''
+        self.checkChains(code, ['command -> (command -> ())',
+                                'b -> (b -> ())'])
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_list(self):
+        code = '''
+command = 'go there'
+match command.split():
+    case ["go", direction]:
+        print(direction)
+    case _:
+        raise ValueError("Sorry")
+        '''
+        self.checkChains(code, ['command -> (command -> (Attribute -> (Call -> ())))',
+                                'direction -> (MatchSequence -> (), direction -> (Call -> ()))'])
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_list_star(self):
+        code = '''
+command = 'drop'
+match command.split():
+    case ["go", direction]: ...
+    case ["drop", *objects]:
+        print(objects)
+        '''
+        self.checkChains(code, ['command -> (command -> (Attribute -> (Call -> ())))',
+                                'direction -> (MatchSequence -> ())',
+                                'objects -> (MatchSequence -> (), objects -> (Call -> ()))'])
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_dict(self):
+        code = '''
+ui = object()
+action = dict(text='')
+match action:
+    case {"text": str(message), "color": str(c), **rest}:
+        ui.set_text_color(c)
+        ui.display(message)
+        print(rest)
+    case {"sleep": float(duration)}:
+        ui.wait(duration)
+    case {"sound": str(url), "format": "ogg"}:
+        ui.play(url)
+    case {"sound": _, "format": _}:
+        raise ValueError("Unsupported audio format")
+print(c)
+        '''
+        self.checkChains(code, ['ui -> (ui -> (Attribute -> (Call -> ())), ui -> (Attribute -> (Call -> ())), ui -> (Attribute -> (Call -> ())), ui -> (Attribute -> (Call -> ())))',
+                                'action -> (action -> ())',
+                                'message -> (MatchClass -> (rest -> (rest -> (Call -> ()))), message -> (Call -> ()))',
+                                'c -> (MatchClass -> (rest -> (rest -> (Call -> ()))), c -> (Call -> ()), c -> (Call -> ()))',
+                                'rest -> (rest -> (Call -> ()))',
+                                'duration -> (MatchClass -> (MatchMapping -> ()), duration -> (Call -> ()))',
+                                'url -> (MatchClass -> (MatchMapping -> ()), url -> (Call -> ()))'])
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_class_rebinds_attrs(self):
+
+        code = '''
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+point = Point(-2,1)
+match point:
+    case Point(x=0, y=0):
+        print("Origin")
+    case Point(x=0, y=y):
+        print(f"Y={y}")
+    case Point(x=x, y=0):
+        print(f"X={x}")
+    case Point(x=x, y=y):
+        print("Somewhere else")
+    case _:
+        print("Not a point")
+print(x, y)
+        '''
+        self.checkChains(
+                code, ['dataclass -> (dataclass -> (Point -> (Point -> (Call -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()))))',
+                       'Point -> (Point -> (Call -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()))',
+                       'point -> (point -> ())',
+                       'y -> (MatchClass -> (), y -> (FormattedValue -> (JoinedStr -> (Call -> ()))), y -> (Call -> ()))',
+                       'x -> (MatchClass -> (), x -> (FormattedValue -> (JoinedStr -> (Call -> ()))), x -> (Call -> ()))',
+                       'x -> (MatchClass -> (), x -> (Call -> ()))',
+                       'y -> (MatchClass -> (), y -> (Call -> ()))'])
+
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         class StrictDefUseChains(beniget.DefUseChains):
