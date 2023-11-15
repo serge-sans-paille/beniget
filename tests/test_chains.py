@@ -48,8 +48,12 @@ class TestDefUseChains(TestCase):
             stdnode = _ast.parse(code)
             
             import difflib
+            if sys.version_info >= (3,9):
+                diffargs = dict(indent=4)
+            else:
+                diffargs = {}
             diff = '\n'.join(difflib.context_diff(
-                    ast.dump(node, indent=4).splitlines(),
+                    ast.dump(node, **diffargs).splitlines(),
                     _ast.dump(stdnode, indent=4).splitlines(), 
                     fromfile='gast', tofile='ast',
                 ))
