@@ -4,7 +4,7 @@ import sys
 import ast as _ast
 import gast as _gast
 import beniget
-from beniget.beniget import loose_isinstance
+from beniget.beniget import lisinstance
 
 
 class Capture(_ast.NodeVisitor):
@@ -20,7 +20,7 @@ class Capture(_ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Name(self, node):
-        if loose_isinstance(node.ctx, 'Load'):
+        if lisinstance(node.ctx, 'Load'):
             if node not in self.users:
                 # FIXME: IRL, should be the definition of this use
                 self.captured.add(node.id)

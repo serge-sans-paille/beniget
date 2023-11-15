@@ -4,7 +4,7 @@ import sys
 import ast as _ast
 import gast as _gast
 import beniget
-from beniget.beniget import loose_isinstance
+from beniget.beniget import lisinstance
 
 
 class Attributes(_ast.NodeVisitor):
@@ -16,7 +16,7 @@ class Attributes(_ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         for stmt in node.body:
-            if loose_isinstance(stmt, 'FunctionDef'):
+            if lisinstance(stmt, 'FunctionDef'):
                 self_def = self.chains.chains[stmt.args.args[0]]
                 self.users.update(use.node for use in self_def.users())
         self.generic_visit(node)
