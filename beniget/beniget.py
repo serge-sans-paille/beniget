@@ -133,6 +133,8 @@ class Def(object):
             return self.node.name
         elif loose_isinstance(self.node, 'Name'):
             return self.node.id
+        elif loose_isinstance(self.node, 'arg'):
+            return self.node.arg
         elif loose_isinstance(self.node, 'alias'):
             base = self.node.name.split(".", 1)[0]
             return self.node.asname or base
