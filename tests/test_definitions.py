@@ -1,3 +1,4 @@
+from textwrap import dedent
 from unittest import TestCase
 import gast as ast
 import beniget
@@ -88,6 +89,11 @@ class TestGlobals(TestCase):
         code = "x, y = 1, 2"
         self.checkGlobals(code, ["x", "y"])
 
+    if sys.version_info.major >= 3:
+        def testGlobalStarredDestructuring(self):
+            code = "x, *y = 1, [2]"
+            self.checkGlobals(code, ["x", "y"])
+
     def testGlobalAugAssign(self):
         code = "x = 1; x += 2"
         self.checkGlobals(code, ["x"])
@@ -158,14 +164,35 @@ class TestGlobals(TestCase):
 
     def testGlobalThroughKeyword(self):
         code = "def foo(): global x"
+        # a global keyword does not actually create a global
+        self.checkGlobals(code, ["foo"])
+
+    def testGlobalThroughKeywordAndAssign(self):
+        code = "def foo(): global x; x = 1"
         self.checkGlobals(code, ["foo", "x"])
 
-    def testGlobalThroughKeywords(self):
-        code = "def foo(): global x, y"
-        self.checkGlobals(code, ["foo", "x", "y"])
+    def testGlobalThroughKeywordAndClassDef(self):
+        code = "def foo():\n global x\n class x: pass"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndFunctionDef(self):
+        code = "def foo():\n global x\n def x(): pass"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndImport(self):
+        code = "def foo(): global x; import math as x"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndFor(self):
+        code = "def foo():\n global x\n for x in (1,2):\n  pass"
+        self.checkGlobals(code, ["foo", "x"])
+
+    def testGlobalThroughKeywordAndImportFrom(self):
+        code = "def foo(): global x; from math import cos as x"
+        self.checkGlobals(code, ["foo", "x"])
 
     def testGlobalThroughMultipleKeyword(self):
-        code = "def foo(): global x\ndef bar(): global x"
+        code = "def foo(): global x\ndef bar(): global x; x = 1"
         self.checkGlobals(code, ["bar", "foo", "x"])
 
     def testGlobalBeforeKeyword(self):
@@ -174,7 +201,7 @@ class TestGlobals(TestCase):
 
     def testGlobalsBeforeKeyword(self):
         code = "x = 1\ndef foo(): global x, y"
-        self.checkGlobals(code, ["foo", "x", "y"])
+        self.checkGlobals(code, ["foo", "x"])
 
     if sys.version_info.major >= 3:
 
@@ -184,7 +211,11 @@ class TestGlobals(TestCase):
 
         def testGlobalsAfterKeyword(self):
             code = "def foo(): global x, y\ny : 1"
-            self.checkGlobals(code, ["foo", "x", "y"])
+            self.checkGlobals(code, ["foo", "y"])
+
+    def testGlobalKeyworaInClassd(self):
+        code = "class F: global x; x = 1"
+        self.checkGlobals(code, ["F", "x"])
 
     def testGlobalImport(self):
         code = "import foo"
@@ -284,7 +315,7 @@ class TestClasses(TestCase):
 
 class TestLocals(TestCase):
     def checkLocals(self, code, ref):
-        node = ast.parse(code)
+        node = ast.parse(dedent(code))
         c = StrictDefUseChains()
         c.visit(node)
         functions = [n for n in node.body if isinstance(n, ast.FunctionDef)]
@@ -335,6 +366,17 @@ class TestLocals(TestCase):
     def test_LocalAssignRedef(self):
         code = "def foo(a): a = 1"
         self.checkLocals(code, ["a", "a"])
+    
+    def test_LocalAssignRedefIfElseOverride(self):
+        code = """
+            def foo(): 
+                if NotImplemented:
+                    x = 2
+                else:
+                    x = 3
+                x = 0
+        """
+        self.checkLocals(code, ["x", "x", "x"])
 
     def test_LocalNestedFun(self):
         code = "def foo(a):\n def bar(): return a\n return bar"
@@ -352,7 +394,11 @@ class TestLocals(TestCase):
             )
             self.checkLocals(code, ["a", "bar"])
 
-    def test_LocalGlobal(self):
+        def test_LocalDestructuring(self):
+            code = "def foo(x): y, *z = x"
+            self.checkLocals(code, ["x", "y", "z"])
+
+    def test_LocalMadeGlobal(self):
         code = "def foo(): global a; a = 1"
         self.checkLocals(code, [])
 
@@ -379,3 +425,166 @@ def foo(a):
         if a == 1: print(b)
         else: b = a"""
         self.checkLocals(code, ["a", "b"])
+
+class TestDefIsLive(TestCase):
+
+    def checkLocals(self, c, node, ref, only_live=False):
+        self.assertEqual(sorted(c._dump_locals(node, only_live=only_live)), 
+                         sorted(ref))
+    
+    def checkLiveLocals(self, code, livelocals, locals):
+        node = ast.parse(dedent(code))
+        c = StrictDefUseChains()
+        c.visit(node)
+        self.checkLocals(c, node, locals)
+        self.checkLocals(c, node, livelocals, only_live=True)
+        return node, c
+    
+    def test_LocalAssignRedefIfElseOverride(self):
+        code = """
+            if NotImplemented:
+                x = 2
+            else:
+                x = 3
+            x = 0
+        """
+        self.checkLiveLocals(code, ["x:6"], ["x:3,5,6"])
+    
+    def test_LocalAssignmentRedefInEachBranch(self):
+        code = """
+        x = 10
+        if NotImplemented:
+            x = 100
+        else:
+            x = 1000
+        """
+        self.checkLiveLocals(code, ["x:4,6"], ["x:2,4,6"])
+
+    def test_AssignmentInsideBothBranchesOfTryExcept(self):
+        code = """
+            try:
+                1 / 0
+            except ZeroDivisionError:
+                x = 10
+            except RuntimeError:
+                x = -1
+        """
+        self.checkLiveLocals(code, ["x:5,7"], ["x:5,7"])
+
+    def test_AssignmentOverrideFinallyBlock(self):
+        code = """
+            try:
+                1 / 0
+            except ZeroDivisionError:
+                x = 10
+            except RuntimeError:
+                x = -1
+            finally:
+                x = None
+        """
+        self.checkLiveLocals(code, ["x:9"], ["x:5,7,9"])
+    
+    def test_AssignmentSimple(self):
+        code = """
+            a = 1
+            a = a + 1
+            a = a + 1
+            """
+        self.checkLiveLocals(code, ["a:4"], ["a:2,3,4"])
+
+    def test_BothLive(self):
+        code = '''
+        import sys
+        if sys.version_info >= (3, 7, 0):
+            _PY37PLUS = True
+        else:
+            _PY37PLUS = False
+        '''
+        if sys.version_info>=(3,10):
+            self.checkLiveLocals(code, ["sys:2", "_PY37PLUS:4,6"], ["sys:2", "_PY37PLUS:4,6"])
+        else:
+            self.checkLiveLocals(code, ["sys:None", "_PY37PLUS:4,6"], ["sys:None", "_PY37PLUS:4,6"])
+    
+    def test_BuiltinNameRedefConditional(self):
+        code = '''
+        import sys
+        class property:
+            pass
+        if sys.version_info >= (3, 11):
+            class ExceptionGroup(Exception):
+                @property
+                def exceptions(self):
+                    pass
+        '''
+        if sys.version_info>=(3,10):
+            self.checkLiveLocals(code, ['sys:2', 'property:3', 'ExceptionGroup:6'], 
+                                ['sys:2', 'property:3', 'ExceptionGroup:6'])
+        else:
+            self.checkLiveLocals(code, ['sys:None', 'property:3', 'ExceptionGroup:6'], 
+                                ['sys:None', 'property:3', 'ExceptionGroup:6'])
+    
+    def test_loop_body_might_not_run(self):
+        code = """
+        i = 2
+        while int: 
+            i = 3
+        """
+        self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+    
+    def test_var_in_comp_doesnt_kill_upper_scope_var(self):
+        code = '''
+        x = True
+        [x for x in (1,2)]
+        '''
+        if sys.version_info > (3,):
+            node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
+            self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
+        else:
+            self.checkLiveLocals(code, ['x:3'], ['x:2,3'])
+
+
+    def test_var_redef_in_method_scope(self):
+        code = '''\
+        v = True # not killed
+        class C:
+            v = True # killed
+            v = False
+            def __init__(self):
+                v = 1 # killed
+                v = False # not killed
+        '''
+        node, c = self.checkLiveLocals(code, ['v:1', 'C:2'], ['v:1', 'C:2'])
+        self.checkLocals(c, node.body[-1], ['v:4', '__init__:5'], only_live=True)
+        self.checkLocals(c, node.body[-1].body[-1], ['self:5', 'v:7'], only_live=True)
+    
+    def test_if_body_might_not_run(self):
+        code = """
+        i = 2
+        if int: 
+            i = 3
+        """
+        self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+
+    def test_more_loops(self):
+        # All variables here are live for beniget. Constant
+        # folding with control-flow understanding will reveal 
+        # that the else branch of the while loop is unreachable 
+        # (so the k assignment is never executed).
+        # But beniget over-approximate this.
+        code = '''
+        b = 1
+        while True:
+            v = 1
+            if v:
+                b = 2
+                break
+        else:
+            v = [(1,3)]
+            for v,k in v:
+                pass
+            else:
+                k = 2
+        '''
+        self.checkLiveLocals(code, ['b:2,6', 'v:9,10,4', 'k:10,13'],  
+                                ['b:2,6', 'v:9,10,4', 'k:10,13'])
+
