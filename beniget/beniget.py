@@ -779,14 +779,11 @@ class DefUseChains(ast.NodeVisitor):
         if node.value:
             dvalue = self.visit(node.value)
         if not self.future_annotations:
-            dannotation = self.visit(node.annotation)
+            self.visit(node.annotation)
         else:
             self._defered_annotations[-1].append(
-                (node.annotation, list(self._scopes),
-                lambda d:dtarget.add_user(d)))
+                (node.annotation, list(self._scopes), None))
         dtarget = self.visit(node.target)
-        if not self.future_annotations:
-            dtarget.add_user(dannotation)
         if node.value:
             dvalue.add_user(dtarget)
 
