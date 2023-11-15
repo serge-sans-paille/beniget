@@ -1,10 +1,13 @@
 from unittest import TestCase
 from textwrap import dedent
-import gast as ast
+import sys
+import ast as _ast
+import gast as _gast
 import beniget
+from beniget.beniget import loose_isinstance
 
 
-class Attributes(ast.NodeVisitor):
+class Attributes(_ast.NodeVisitor):
     def __init__(self, module_node):
         self.chains = beniget.DefUseChains()
         self.chains.visit(module_node)
@@ -13,7 +16,7 @@ class Attributes(ast.NodeVisitor):
 
     def visit_ClassDef(self, node):
         for stmt in node.body:
-            if isinstance(stmt, ast.FunctionDef):
+            if loose_isinstance(stmt, 'FunctionDef'):
                 self_def = self.chains.chains[stmt.args.args[0]]
                 self.users.update(use.node for use in self_def.users())
         self.generic_visit(node)
@@ -24,8 +27,9 @@ class Attributes(ast.NodeVisitor):
 
 
 class TestAttributes(TestCase):
+    ast = _gast
     def checkAttribute(self, code, extract, ref):
-        module = ast.parse(dedent(code))
+        module = self.ast.parse(dedent(code))
         c = Attributes(module)
         c.visit(extract(module))
         self.assertEqual(c.attributes, ref)
@@ -97,3 +101,7 @@ class TestAttributes(TestCase):
                         self = list
                     return self.pop"""
         self.checkAttribute(code, lambda n: n.body[0], set())
+
+if sys.version_info >= (3,6):
+    class TestAttributesStdlib(TestAttributes):
+        ast = _ast
