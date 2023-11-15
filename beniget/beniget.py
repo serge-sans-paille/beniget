@@ -1,39 +1,10 @@
-from collections import defaultdict, OrderedDict
+from collections import defaultdict
 from contextlib import contextmanager
 import sys
 
 import gast as ast
 
-# TODO: remove me when python 2 is not supported anymore
-class _ordered_set(object):
-    def __init__(self, elements=None):
-        self.values = OrderedDict.fromkeys(elements or [])
-
-    def add(self, value):
-        self.values[value] = None
-
-    def update(self, values):
-        self.values.update((k, None) for k in values)
-
-    def __iter__(self):
-        return iter(self.values.keys())
-
-    def __contains__(self, value):
-        return value in self.values
-
-    def __add__(self, other):
-        out = self.values.copy()
-        out.update(other.values)
-        return out
-
-    def __len__(self):
-        return len(self.values)
-
-if sys.version_info >= (3,6):
-    from .ordered_set import ordered_set
-else:
-    # python < 3,6 we fall back on older version of the ordered_set
-    ordered_set = _ordered_set
+from .ordered_set import ordered_set
 
 class Ancestors(ast.NodeVisitor):
     """
@@ -160,11 +131,8 @@ class Def(object):
             )
 
 
-if sys.version_info.major == 2:
-    BuiltinsSrc = __builtins__
-else:
-    import builtins
-    BuiltinsSrc = builtins.__dict__
+import builtins
+BuiltinsSrc = builtins.__dict__
 
 Builtins = {k: v for k, v in BuiltinsSrc.items()}
 
@@ -242,9 +210,8 @@ class CollectLocals(ast.NodeVisitor):
     def skip(self, _):
         pass
 
-    if sys.version_info.major >= 3:
-        visit_SetComp = visit_DictComp = visit_ListComp = skip
-        visit_GeneratorExp = skip
+    visit_SetComp = visit_DictComp = visit_ListComp = skip
+    visit_GeneratorExp = skip
 
     visit_Lambda = skip
 
@@ -529,13 +496,7 @@ class DefUseChains(ast.NodeVisitor):
         self._scope_depths.pop()
         self._scopes.pop()
 
-    if sys.version_info.major >= 3:
-        CompScopeContext = ScopeContext
-    else:
-        @contextmanager
-        def CompScopeContext(self, node):
-            yield
-
+    CompScopeContext = ScopeContext
 
     @contextmanager
     def DefinitionContext(self, definitions):
@@ -1291,7 +1252,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_comprehension(self, node, is_nested):
         dnode = self.chains.setdefault(node, Def(node))
-        if not is_nested and sys.version_info.major >= 3:
+        if not is_nested:
             # There's one part of a comprehension or generator expression that executes in the surrounding scope, 
             # it's the expression for the outermost iterable.
             with self.SwitchScopeContext(self._definitions[:-1], self._scopes[:-1], 
