@@ -1052,101 +1052,96 @@ class DefUseChains(ast.NodeVisitor):
         self.generic_visit(node)
 
     # pattern matching
-    if sys.version_info > (3, 10):
 
-        def visit_Match(self, node):
+    def visit_Match(self, node):
 
-            self.visit(node.subject)
+        self.visit(node.subject)
 
-            defs = []
-            for kase in node.cases:
-                if kase.guard:
-                    self.visit(kase.guard)
-                self.visit(kase.pattern)
-                
-                with self.DefinitionContext(self._definitions[-1].copy()) as case_defs:
-                    self.process_body(kase.body)
-                defs.append(case_defs)
+        defs = []
+        for kase in node.cases:
+            if kase.guard:
+                self.visit(kase.guard)
+            self.visit(kase.pattern)
             
-            if len(defs) < 2:
-                defs += [[]] * (2-len(defs))
+            with self.DefinitionContext(self._definitions[-1].copy()) as case_defs:
+                self.process_body(kase.body)
+            defs.append(case_defs)
+        
+        if not defs:
+            return
+        if len(defs) == 1:
+            body_defs, orelse_defs, rest = defs[0], [], []
+        else:
+            body_defs, orelse_defs, rest = defs[0], defs[1], defs[2:]
+        while True:
+            # merge defs, like in if-else but repeat the process for x branches       
+            for d in body_defs:
+                if d in orelse_defs:
+                    self.set_definition(d, body_defs[d] + orelse_defs[d])
+                else:
+                    self.extend_definition(d, body_defs[d])
+            for d in orelse_defs:
+                if d not in body_defs:
+                    self.extend_definition(d, orelse_defs[d])
+            if not rest:
+                break
+            body_defs = self._definitions[-1]
+            orelse_defs, rest = rest[0], rest[1:]
+    
+    def visit_MatchValue(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        self.visit(node.value)
+        return dnode
 
-            body_defs, orelse_defs, *rest = defs
-
-            while True:
-                # merge defs, like in if-else but repeat the process for x branches       
-                for d in body_defs:
-                    if d in orelse_defs:
-                        self.set_definition(d, body_defs[d] + orelse_defs[d])
-                    else:
-                        self.extend_definition(d, body_defs[d])
-
-                for d in orelse_defs:
-                    if d in body_defs:
-                        pass  # already done in the previous loop
-                    else:
-                        self.extend_definition(d, orelse_defs[d])
-                
-                if not rest:
-                    break
-                
-                body_defs = self._definitions[-1]
-                orelse_defs, *rest = rest
-        
-        def visit_MatchValue(self, node):
-            dnode = self.chains.setdefault(node, Def(node))
-            self.visit(node.value)
-            return dnode
-
-        visit_MatchSingleton = visit_MatchValue
-        
-        def visit_MatchSequence(self, node):
-            # mimics a list
-            with _setattrs(node, ctx=ast.Load(), elts=node.patterns):
-                return self.visit_List(node)
-        
-        def visit_MatchMapping(self, node):
-            dnode = self.chains.setdefault(node, Def(node))
-            with _setattrs(node, values=node.patterns):
-                # mimics a dict
-                self.visit_Dict(node)
-            if node.rest:
-                with _setattrs(node, id=node.rest, ctx=ast.Store(), annotation=None):
-                    self.visit_Name(node)
-            return dnode
-        
-        def visit_MatchClass(self, node):
-            # mimics a call
-            dnode = self.chains.setdefault(node, Def(node))
-            self.visit(node.cls).add_user(dnode)
-            for arg in node.patterns:
-                self.visit(arg).add_user(dnode)
-            for kw in node.kwd_patterns:
-                self.visit(kw).add_user(dnode)
-            return dnode
-        
-        def visit_MatchStar(self, node):
-            dnode = self.chains.setdefault(node, Def(node))
-            if node.name:
-                # mimics store name
-                with _setattrs(node, id=node.name, ctx=ast.Store(), annotation=None):
-                    self.visit_Name(node)
-            return dnode
-        
-        def visit_MatchAs(self, node):
-            dnode = self.chains.setdefault(node, Def(node))
-            if node.pattern:
-                self.visit(node.pattern)
-            if node.name:
-                with _setattrs(node, id=node.name, ctx=ast.Store(), annotation=None):
-                    self.visit_Name(node)
-            return dnode
-        
-        def visit_MatchOr(self, node):
-            dnode = self.chains.setdefault(node, Def(node))
-            for pat in node.patterns:
-                self.visit(pat).add_user(dnode)
-            return dnode
+    visit_MatchSingleton = visit_MatchValue
+    
+    def visit_MatchSequence(self, node):
+        # mimics a list
+        with _setattrs(node, ctx=ast.Load(), elts=node.patterns):
+            return self.visit_List(node)
+    
+    def visit_MatchMapping(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        with _setattrs(node, values=node.patterns):
+            # mimics a dict
+            self.visit_Dict(node)
+        if node.rest:
+            with _setattrs(node, id=node.rest, ctx=ast.Store(), annotation=None):
+                self.visit_Name(node)
+        return dnode
+    
+    def visit_MatchClass(self, node):
+        # mimics a call
+        dnode = self.chains.setdefault(node, Def(node))
+        self.visit(node.cls).add_user(dnode)
+        for arg in node.patterns:
+            self.visit(arg).add_user(dnode)
+        for kw in node.kwd_patterns:
+            self.visit(kw).add_user(dnode)
+        return dnode
+    
+    def visit_MatchStar(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        if node.name:
+            # mimics store name
+            with _setattrs(node, id=node.name, ctx=ast.Store(), annotation=None):
+                self.visit_Name(node)
+        return dnode
+    
+    def visit_MatchAs(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        if node.pattern:
+            self.visit(node.pattern)
+        if node.name:
+            with _setattrs(node, id=node.name, ctx=ast.Store(), annotation=None):
+                self.visit_Name(node)
+        return dnode
+    
+    def visit_MatchOr(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        for pat in node.patterns:
+            self.visit(pat).add_user(dnode)
+        return dnode
 
     # expressions
 
