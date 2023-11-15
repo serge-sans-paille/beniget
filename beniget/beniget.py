@@ -38,7 +38,7 @@ else:
 
 def lisinstance(o, cls):
     """
-    Loose isinstance check, ike isisntance() but support string based comparaisons.
+    Loose isinstance check, like isisntance() but support string based comparisons.
 
     >>> assert lisinstance(ast.ClassDef(), ('AST', 'FunctionDef'))
     """
