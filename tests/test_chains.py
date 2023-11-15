@@ -35,20 +35,6 @@ class TestDefUseChains(TestCase):
                 )
         
         node = ast.parse(code)
-        
-        if sys.version_info >= (3,6):
-
-            stdnode = _ast.parse(code)
-            if strict:
-                c = StrictDefUseChains()
-            else:
-                c = beniget.DefUseChains()
-            try:
-                c.visit(stdnode)
-            except RuntimeError as e:
-                raise RuntimeError('{}:\n\n\ngast:{}\n\n\nast:{}'.format(e, ast.dump(node), _ast.dump(stdnode)))
-            self.assertEqual(c.dump_chains(stdnode), ref)
-
         if strict:
             c = StrictDefUseChains()
         else:
@@ -56,6 +42,30 @@ class TestDefUseChains(TestCase):
         
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
+        
+        if sys.version_info >= (3,6):
+
+            stdnode = _ast.parse(code)
+            
+            import difflib
+            diff = '\n'.join(difflib.context_diff(
+                    ast.dump(node, indent=4).splitlines(),
+                    _ast.dump(stdnode, indent=4).splitlines(), 
+                    fromfile='gast', tofile='ast',
+                ))
+
+            if strict:
+                sc = StrictDefUseChains()
+            else:
+                sc = beniget.DefUseChains()
+            try:
+                sc.visit(stdnode)
+            
+            except RuntimeError as e:
+                raise RuntimeError(f'{str(e)!r} occured in the standard lib test, the diff gast -> ast is the following:\n{diff}')
+            
+            self.assertEqual(sc.dump_chains(stdnode), ref, 
+                             f'assertion error in the standard lib test, the diff gast -> ast is the following:\n{diff}')
         
         return node, c
 
@@ -963,7 +973,7 @@ Thing:TypeAlias = 'Mapping'
                     'Type -> (Type -> (Subscript -> ()))',
                     'C -> (C -> (Attribute -> ()), C -> (Attribute -> ()), C -> (Attribute -> '
                     '(Attribute -> ())))',
-                    'Thing -> (Thing -> (Subscript -> ()), Thing -> (), TypeAlias -> ())'], 
+                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()), TypeAlias -> ())'], 
                 strict=False
             )
         produced_messages = out.getvalue().strip().split("\n")
@@ -971,9 +981,9 @@ Thing:TypeAlias = 'Mapping'
         expected_warnings = [
             "W: unbound identifier 'field'",
             "W: unbound identifier 'D'",
-        ]
+        ] * 2
 
-        assert len(produced_messages) == len(expected_warnings), len(produced_messages)
+        assert len(produced_messages) == len(expected_warnings), produced_messages
         assert all(any(w in pw for pw in produced_messages) for w in expected_warnings)
 
         # locals of C

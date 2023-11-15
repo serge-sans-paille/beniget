@@ -705,6 +705,8 @@ class DefUseChains(ast.NodeVisitor):
     def visit_skip_annotation(self, node):
         if loose_isinstance(node, 'Name'):
             self.visit_Name(node, skip_annotation=True)
+        elif loose_isinstance(node, 'arg'):
+            self.visit_arg(node, skip_annotation=True)
         else:
             self.visit(node)
 
@@ -1283,12 +1285,12 @@ class DefUseChains(ast.NodeVisitor):
             raise NotImplementedError()
         return dnode
 
-    def visit_arg(self, node):
+    def visit_arg(self, node, skip_annotation=False):
         dnode = self.chains.setdefault(node, Def(node))
         self.set_definition(node.arg, dnode)
         if dnode not in self.locals[self._scopes[-1]]:
             self.locals[self._scopes[-1]].append(dnode)
-        if node.annotation is not None:
+        if node.annotation is not None and not skip_annotation:
             self.visit(node.annotation)
         return dnode
 
