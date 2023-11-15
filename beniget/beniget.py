@@ -771,12 +771,6 @@ class DefUseChains(ast.NodeVisitor):
         else:
             self.visit(node.target).add_user(dvalue)
 
-    def visit_Print(self, node):
-        if node.dest:
-            self.visit(node.dest)
-        for value in node.values:
-            self.visit(value)
-
     def visit_For(self, node):
         self.visit(node.iter)
 
@@ -942,32 +936,6 @@ class DefUseChains(ast.NodeVisitor):
             else:
                 self.set_definition(alias.asname or alias.name, dalias)
             self.add_to_locals(alias.asname or alias.name, dalias)
-
-    def visit_Exec(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
-        self.visit(node.body)
-
-        if node.globals:
-            self.visit(node.globals)
-        else:
-            # any global may be used by this exec!
-            for defs in self._definitions[0].values():
-                for d in defs:
-                    d.add_user(dnode)
-
-        if node.locals:
-            self.visit(node.locals)
-        else:
-            # any local may be used by this exec!
-            visible_locals = set()
-            for _definitions in reversed(self._definitions[1:]):
-                for dname, defs in _definitions.items():
-                    if dname not in visible_locals:
-                        visible_locals.add(dname)
-                        for d in defs:
-                            d.add_user(dnode)
-
-        self.extend_definition("*", dnode)
 
     def visit_Global(self, node):
         for name in node.names:
