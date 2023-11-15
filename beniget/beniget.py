@@ -1195,7 +1195,7 @@ class DefUseChains(ast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         return dnode
 
-    visit_NamedConstant = visit_Num = visit_Str = visit_Bytes = visit_Ellipsis = visit_Constant
+    visit_NameConstant = visit_Num = visit_Str = visit_Bytes = visit_Ellipsis = visit_Constant
 
     def visit_FormattedValue(self, node):
         dnode = self.chains.setdefault(node, Def(node))
