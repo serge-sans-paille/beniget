@@ -225,6 +225,9 @@ class _CollectFutureImports(ast.NodeVisitor):
 
     def visit_Expr(self, node):
         self.visit(node.value)
+    
+    def visit_Str(self, node):
+        pass
 
     def visit_Constant(self, node):
         if not isinstance(node.value, str):
@@ -1320,6 +1323,8 @@ class DefUseChains(ast.NodeVisitor):
         # only the parent List/Tuple is marked as Store
         elif loose_isinstance(node.ctx, 'Store'):
             return self.visit_Destructured(node)
+        else:
+            raise NotImplementedError()
 
     visit_Tuple = visit_List
 
@@ -1373,9 +1378,7 @@ class DefUseChains(ast.NodeVisitor):
         self.process_body(node.body)
         return dnode
 
-    def visit_arguments(self, node):
-        for arg in _iter_arguments(node):
-            self.visit(arg)
+    # visit_arguments is not implemented on purpose
 
     def visit_withitem(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -1519,7 +1522,7 @@ class UseDefChains(object):
     def __init__(self, defuses):
         self.chains = {}
         for chain in defuses.chains.values():
-            if loose_isinstance(chain.node, 'Name'):
+            if loose_isinstance(chain.node, ('Name', 'arg')):
                 self.chains.setdefault(chain.node, [])
             for use in chain.users():
                 self.chains.setdefault(use.node, []).append(chain)
