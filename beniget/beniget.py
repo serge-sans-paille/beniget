@@ -370,7 +370,7 @@ class DefUseChains(ast.NodeVisitor):
         for d in self.locals[node]:
             if not only_live or d.islive:
                 groupped[d.name()].append(d)
-        return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', -1)) for d in defs])) \
+        return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', None)) for d in defs])) \
             for name,defs in groupped.items()]
 
     def dump_definitions(self, node, ignore_builtins=True):
@@ -394,7 +394,7 @@ class DefUseChains(ast.NodeVisitor):
             )
             return " at {}{}:{}".format(filename,
                                             node.lineno,
-                                            node.col_offset)
+                                            getattr(node, 'col_offset', None),)
         else:
             return ""
 
@@ -1409,7 +1409,7 @@ def _iter_arguments(args):
     """
     for arg in args.args:
         yield arg
-    for arg in args.posonlyargs:
+    for arg in getattr(args, 'posonlyargs', ()):
         yield arg
     if args.vararg:
         yield args.vararg
