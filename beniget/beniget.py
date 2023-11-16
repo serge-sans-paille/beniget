@@ -777,15 +777,13 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node):
         if node.value:
-            dvalue = self.visit(node.value)
+            self.visit(node.value)
         if not self.future_annotations:
             self.visit(node.annotation)
         else:
             self._defered_annotations[-1].append(
                 (node.annotation, list(self._scopes), None))
-        dtarget = self.visit(node.target)
-        if node.value:
-            dvalue.add_user(dtarget)
+        self.visit(node.target)
 
     def visit_AugAssign(self, node):
         dvalue = self.visit(node.value)
