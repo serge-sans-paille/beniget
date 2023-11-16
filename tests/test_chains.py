@@ -1,13 +1,25 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
 import unittest
-import gast as ast
 import beniget
 import io
 import sys
+import ast as _ast
+import gast as _gast
 
 # Show full diff in unittest
 unittest.util._MAX_LENGTH=2000
+
+def replace_deprecated_names(out):
+    return out.replace(
+        'Num', 'Constant'
+    ).replace(
+        'Ellipsis', 'Constant'
+    ).replace(
+        'Str', 'Constant'
+    ).replace(
+        'Bytes', 'Constant'
+    )
 
 @contextmanager
 def captured_output():
@@ -21,6 +33,8 @@ def captured_output():
 
 
 class TestDefUseChains(TestCase):
+    ast = _gast
+    
     def checkChains(self, code, ref, strict=True):
         class StrictDefUseChains(beniget.DefUseChains):
             def warn(self, msg, node):
@@ -29,14 +43,15 @@ class TestDefUseChains(TestCase):
                         msg, node.lineno, node.col_offset
                     )
                 )
-
-        node = ast.parse(code)
+        
+        node = self.ast.parse(code)
         if strict:
             c = StrictDefUseChains()
         else:
             c = beniget.DefUseChains()
+        
         c.visit(node)
-        self.assertEqual(c.dump_chains(node), ref)
+        self.assertEqual(c.dump_chains(node), ref)        
         return node, c
 
     def test_simple_expression(self):
@@ -399,7 +414,7 @@ while done:
     def test_def_used_in_self_default(self):
         code = "def foo(x:foo): return foo"
         c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ["foo -> (foo -> ())"])
 
@@ -412,35 +427,35 @@ def middle():
     return x
         '''
         c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['x -> (x -> ())', 'mytype -> ()'])
 
     def test_unbound_class_variable2(self):
         code = '''class A:\n  a = 10\n  def f(self):\n    return a # a is not defined'''
         c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable3(self):
         code = '''class A:\n  a = 10\n  class I:\n    b = a + 1 # a is not defined'''
         c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'I -> ()'])
 
     def test_unbound_class_variable4(self):
         code = '''class A:\n  a = 10\n  f = lambda: a # a is not defined'''
         c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable5(self):
         code = '''class A:\n  a = 10\n  b = [a for _ in range(10)]  # a is not defined'''
         c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'b -> ()'])
         
@@ -464,12 +479,12 @@ def outer():
                     ...
         '''
         c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0].body[0]), ['mytype -> (mytype -> (Call -> ()))'])
 
     def check_message(self, code, expected_messages, filename=None):
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains(filename)
         with captured_output() as (out, err):
             c.visit(node)
@@ -524,7 +539,7 @@ class Visitor:
     def visit_Name(self, node):pass
     visit_Attribute = visit_Name
 '''
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ['visit_Name -> ()',
@@ -540,7 +555,7 @@ class Attr(object):pass
 class Visitor:
     class Attr(Attr):pass
     '''
-            node = ast.parse(code)
+            node = self.ast.parse(code)
             c = beniget.DefUseChains()
             c.visit(node)
             self.assertEqual(c.dump_chains(node),
@@ -593,7 +608,7 @@ class Visitor:
     def f(): return f()
     def visit_Name(self, node:Thing, fn:f):...
 '''
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
@@ -611,7 +626,7 @@ def visit_Attribute(self, node):pass
 class Visitor:
     visit_Attribute = visit_Attribute
 '''
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
@@ -919,7 +934,7 @@ Thing:TypeAlias = 'Mapping'
             "W: unbound identifier 'D'",
         ]
 
-        assert len(produced_messages) == len(expected_warnings), len(produced_messages)
+        assert len(produced_messages) == len(expected_warnings), produced_messages
         assert all(any(w in pw for pw in produced_messages) for w in expected_warnings)
 
         # locals of C
@@ -1064,7 +1079,7 @@ def outer():
 fn = outer()
         '''
 
-        mod = ast.parse(code)
+        mod = self.ast.parse(code)
         chains = beniget.DefUseChains('test')
         with captured_output() as (out, err):
             chains.visit(mod)
@@ -1111,7 +1126,7 @@ fn = outer()
 
     def test_lookup_scopes(self):
         from beniget.beniget import _get_lookup_scopes
-        mod, fn, cls, lambd, gen, comp = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp()
+        mod, fn, cls, lambd, gen, comp = self.ast.Module(), self.ast.FunctionDef(), self.ast.ClassDef(), self.ast.Lambda(), self.ast.GeneratorExp(), self.ast.DictComp()
         assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
         assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
         assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
@@ -1236,8 +1251,14 @@ A = bytes
                  'A -> (A -> (), A -> ())'], # good
                 strict=False
             )
-        
+
+if sys.version_info >= (3,6):
+
+    class TestDefUseChainsStdlib(TestDefUseChains):
+        ast = _ast
+
 class TestUseDefChains(TestCase):
+    ast = _gast
     def checkChains(self, code, ref):
         class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
@@ -1247,12 +1268,18 @@ class TestUseDefChains(TestCase):
                     )
                 )
 
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = StrictDefUseChains()
         c.visit(node)
         cc = beniget.UseDefChains(c)
+        actual = str(cc)
 
-        self.assertEqual(str(cc), ref)
+        # work arround little change from python 3.6
+        if sys.version_info.minor == 6:
+            # 3.6
+            actual = replace_deprecated_names(actual)
+
+        self.assertEqual(actual, ref)
 
     def test_simple_expression(self):
         code = "a = 1; a"
@@ -1261,3 +1288,9 @@ class TestUseDefChains(TestCase):
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
+
+if sys.version_info >= (3,6):
+
+    class TestDefUseChainsStdlib(TestDefUseChains):
+        ast = _ast
+        
