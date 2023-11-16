@@ -909,7 +909,7 @@ Thing:TypeAlias = 'Mapping'
                     'Type -> (Type -> (Subscript -> ()))',
                     'C -> (C -> (Attribute -> ()), C -> (Attribute -> ()), C -> (Attribute -> '
                     '(Attribute -> ())))',
-                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()), TypeAlias -> ())'], 
+                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()))'], 
                 strict=False
             )
         produced_messages = out.getvalue().strip().split("\n")
@@ -928,12 +928,12 @@ Thing:TypeAlias = 'Mapping'
                             'method -> ()',
                             'method -> ()',
                             'method -> ()',
-                            'field -> (field -> (), field -> (), TypeAlias -> ())',
+                            'field -> (field -> (), field -> ())',
                             'D -> (D -> ())'])
         
         # locals of D
         self.assertEqual(c.dump_chains(node.body[-2].body[-1]), 
-                         ['field2 -> (TypeAlias -> (), field2 -> (), field2 -> ())',
+                         ['field2 -> (field2 -> (), field2 -> ())',
                             'method -> ()',
                             'method -> ()',
                             'method -> ()',
@@ -982,13 +982,13 @@ primes: List[int] # should resolve to the star
 
         self.checkChains(
                 code, 
-                ['* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                ['* -> (List -> (Subscript -> ()))', 'primes -> ()'],
                 strict=False
             )
         # same with 'from __future__ import annotations'
         self.checkChains(
                 'from __future__ import annotations\n' + code, 
-                ['annotations -> ()', '* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                ['annotations -> ()', '* -> (List -> (Subscript -> ()))', 'primes -> ()'],
                 strict=False
             )
     
@@ -1007,7 +1007,7 @@ List = list
                 code, 
                 ['annotations -> ()',
                 '* -> ()',
-                'primes -> (Subscript -> ())',
+                'primes -> ()',
                 'List -> (List -> (Subscript -> ()))'],
                 strict=False
             )
@@ -1236,6 +1236,12 @@ A = bytes
                  'A -> (A -> (), A -> ())'], # good
                 strict=False
             )
+    
+    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+    def test_annotation_def_is_not_assign_target(self):
+        code = 'from typing import Optional; var:Optional'
+        self.checkChains(code, ['Optional -> (Optional -> ())', 
+                                'var -> ()'])
         
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
