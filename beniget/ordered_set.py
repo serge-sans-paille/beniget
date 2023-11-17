@@ -30,9 +30,6 @@ Copied from https://github.com/bustawin/ordered-set-37
 
 import sys
 
-if sys.version_info < (3,6):
-    raise ImportError('ordered_set requires python 3.6 or later')
-
 from collections import OrderedDict
 import itertools
 from typing import TYPE_CHECKING, MutableSet

@@ -11,10 +11,7 @@ unittest.util._MAX_LENGTH=2000
 
 @contextmanager
 def captured_output():
-    if sys.version_info.major >= 3:
-        new_out, new_err = io.StringIO(), io.StringIO()
-    else:
-        new_out, new_err = io.BytesIO(), io.BytesIO()
+    new_out, new_err = io.StringIO(), io.StringIO()
     old_out, old_err = sys.stdout, sys.stderr
     try:
         sys.stdout, sys.stderr = new_out, new_err
@@ -77,10 +74,9 @@ class TestDefUseChains(TestCase):
         code = "for a, b in ((1,2), (3,4)): a"
         self.checkChains(code, ["a -> (a -> ())", "b -> ()"])
 
-    if sys.version_info.major >= 3:
-        def test_type_destructuring_starred(self):
-            code = "a, *b = range(2); b"
-            self.checkChains(code, ['a -> ()', 'b -> (b -> ())'])
+    def test_type_destructuring_starred(self):
+        code = "a, *b = range(2); b"
+        self.checkChains(code, ['a -> ()', 'b -> (b -> ())'])
 
     def test_assign_in_loop(self):
         code = "a = 2\nwhile 1: a = 1\na"
@@ -113,6 +109,9 @@ class TestDefUseChains(TestCase):
         self.checkChains(code, ['a -> (a -> ())',
                                 'foo -> ()'])
 
+    def test_augassign_undefined_global(self):
+        code = "def foo():\n def bar():\n  global x\n  x+=1; x"
+        self.checkChains(code, ['foo -> ()', 'x -> (x -> ())'], strict=False)
 
     def test_expanded_augassign(self):
         code = "a = 1; a = a + 2"
@@ -146,10 +145,7 @@ for _ in [1]:
 
     def test_simple_print(self):
         code = "a = 1; print(a)"
-        if sys.version_info.major >= 3:
-            self.checkChains(code, ["a -> (a -> (Call -> ()))"])
-        else:
-            self.checkChains(code, ["a -> (a -> ())"])
+        self.checkChains(code, ["a -> (a -> (Call -> ()))"])
 
     def test_simple_redefinition(self):
         code = "a = 1; a + 2; a = 3; +a"
@@ -226,22 +222,14 @@ for _ in [1]:
 
     def test_straight_raise(self):
         code = "raise next([e for e in [1]])"
-        if sys.version_info.major >= 3:
-            self.checkChains(code, [])
-        else:
-            self.checkChains(code, ['e -> (e -> (ListComp -> (Call -> ())))'])
+        self.checkChains(code, [])
 
     def test_redefinition_in_comp(self):
         code = "[name for name in 'hello']\nfor name in 'hello':name"
-        if sys.version_info.major >= 3:
-            self.checkChains(
+        self.checkChains(
                 code,
                 ['name -> (name -> ())'])
-        else:
-            self.checkChains(
-                code,
-                ['name -> (name -> (ListComp -> ()))', 'name -> (name -> ())'])
-
+        
     def test_nested_while(self):
         code = '''
 done = 1
@@ -356,6 +344,14 @@ while done:
             'x -> (x -> (Tuple -> (Lambda -> ())))',
         ])
 
+    def test_lambda_varargs(self):
+        node, c = self.checkChains( "lambda *args: args", [])
+        self.assertEqual(c.dump_chains(node.body[0].value), ['args -> (args -> (Lambda -> ()))'])
+    
+    def test_lambda_kwargs(self):
+        node, c = self.checkChains( "lambda **kwargs: kwargs", [])
+        self.assertEqual(c.dump_chains(node.body[0].value), ['kwargs -> (kwargs -> (Lambda -> ()))'])
+
     def test_multiple_import_as(self):
         code = "import x as y, z; y"
         self.checkChains(code, ["y -> (y -> ())", "z -> ()"])
@@ -402,7 +398,6 @@ while done:
         code = "class A:pass\nclass B(A):pass"
         self.checkChains(code, ["A -> (A -> (B -> ()))", "B -> ()"])
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_def_used_in_self_default(self):
         code = "def foo(x:foo): return foo"
         c = beniget.DefUseChains()
@@ -449,24 +444,17 @@ def middle():
         c = beniget.DefUseChains()
         node = ast.parse(code)
         c.visit(node)
-        if sys.version_info.major >= 3:
-            self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'b -> ()'])
-        else:
-            self.assertEqual(c.dump_chains(node.body[0]),
-                             ['a -> (a -> (ListComp -> ()))', '_ -> ()', 'b -> ()'])
-
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+        self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'b -> ()'])
+        
     def test_functiondef_returns(self):
         code = "x = 1\ndef foo() -> x: pass"
         self.checkChains(code, ['x -> (x -> ())', 'foo -> ()'])
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_arg_annotation(self):
         code = "type_ = int\ndef foo(bar: type_): pass"
         self.checkChains(code, ["type_ -> (type_ -> ())", "foo -> ()"])
 
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_inner_class(self):
 
         code = '''
@@ -522,12 +510,10 @@ def outer():
         self.check_message(code,
                            ["unbound identifier 'x' at <unknown>:3"])
 
-    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_unbound_local_identifier_in_method(self):
         code = "class A:pass\nclass B:\n def A(self) -> A:pass"
         self.check_message(code, [])
 
-    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_unbound_local_identifier_nonlocal(self):
         code = "def A():\n x = 1\n class B: nonlocal x; x = x"
         self.check_message(code, [])
@@ -564,7 +550,6 @@ class Visitor:
                               'Visitor -> ()'])
             self.assertEqual(c.dump_chains(node.body[-1]), ['Attr -> ()'])
     
-    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_star_assignment(self):
         code = '''
 curr, *parts = [1,2,3]
@@ -578,7 +563,6 @@ while curr:
         self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))', 
                                 'parts -> (parts -> (), parts -> ())']*2)
     
-    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_star_assignment_nested(self):
         code = '''
 (curr, *parts),i = [1,2,3],0
@@ -602,7 +586,6 @@ while curr:
         code = "NameError().name = 't'"
         self.checkChains(code, [])
 
-    @skipIf(sys.version_info < (3, 0), 'Python 3 syntax')
     def test_annotation_uses_class_level_name(self):
         code = '''
 Thing = object
@@ -658,7 +641,6 @@ cos = pop()'''
             'cos -> (cos -> (Call -> ()))'
         ])
     
-    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
     def test_class_scope_comprehension(self):
         code = '''
 class Cls:
@@ -676,7 +658,6 @@ class Cls:
                           'foo -> (comprehension -> (GeneratorExp -> ())), '
                           'foo -> (comprehension -> (DictComp -> ())))'])
     
-    @skipIf(sys.version_info < (3, 0), 'Python 3 semantics')
     def test_class_scope_comprehension_invalid(self):
         code = '''
 class Foo:
@@ -769,7 +750,6 @@ class Example:
                                   'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:15:0',
                                   'W: assignment expression within a comprehension cannot be used in a class body at <unknown>:19:6'])
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound(self):
         code = '''
 def f(x:f) -> f: # 'f' annotations are unbound
@@ -778,7 +758,6 @@ def f(x:f) -> f: # 'f' annotations are unbound
             code, ['f -> ()'], strict=False
         )
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_method_annotation_unbound(self):
         code = '''
 class S:
@@ -790,7 +769,6 @@ class S:
         self.assertEqual(chains.dump_chains(mod.body[0]), 
                          ['f -> ()'])
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_unbound_pep563(self):
         code = '''
 from __future__ import annotations
@@ -800,7 +778,6 @@ def f(x:f) -> f: # 'f' annotations are NOT unbound because pep563
             code, ['annotations -> ()', 'f -> (f -> (), f -> ())']
         )
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_method_annotation_unbound_pep563(self):
         code = '''
 from __future__ import annotations
@@ -833,7 +810,6 @@ class S:
             code, ['name2 -> (name2 -> ())', '* -> ()']
         )
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_use_upper_scope_variables(self):
         code = '''
 from typing import Union
@@ -853,7 +829,6 @@ class System:
                     'System -> ()',]
         )
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_future_annotation_class_var(self):
         code = '''
 from __future__ import annotations
@@ -874,7 +849,6 @@ class System:
             'Attribute -> ()'
         ])
         
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_pep0563_annotations(self):
 
         # code taken from https://peps.python.org/pep-0563/
@@ -937,7 +911,7 @@ Thing:TypeAlias = 'Mapping'
                     'Type -> (Type -> (Subscript -> ()))',
                     'C -> (C -> (Attribute -> ()), C -> (Attribute -> ()), C -> (Attribute -> '
                     '(Attribute -> ())))',
-                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()), TypeAlias -> ())'], 
+                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()))'], 
                 strict=False
             )
         produced_messages = out.getvalue().strip().split("\n")
@@ -956,19 +930,18 @@ Thing:TypeAlias = 'Mapping'
                             'method -> ()',
                             'method -> ()',
                             'method -> ()',
-                            'field -> (field -> (), field -> (), TypeAlias -> ())',
+                            'field -> (field -> (), field -> ())',
                             'D -> (D -> ())'])
         
         # locals of D
         self.assertEqual(c.dump_chains(node.body[-2].body[-1]), 
-                         ['field2 -> (TypeAlias -> (), field2 -> (), field2 -> ())',
+                         ['field2 -> (field2 -> (), field2 -> ())',
                             'method -> ()',
                             'method -> ()',
                             'method -> ()',
                             'method -> ()',
                             'Thing -> ()'])
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_pep563_self_referential_annotation(self):
         code = '''
 """
@@ -1003,7 +976,6 @@ class B:
                 strict=False
             )
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_wilcard_import_annotation(self):
         code = '''
 from typing import *
@@ -1012,17 +984,16 @@ primes: List[int] # should resolve to the star
 
         self.checkChains(
                 code, 
-                ['* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                ['* -> (List -> (Subscript -> ()))', 'primes -> ()'],
                 strict=False
             )
         # same with 'from __future__ import annotations'
         self.checkChains(
                 'from __future__ import annotations\n' + code, 
-                ['annotations -> ()', '* -> (List -> (Subscript -> ()))', 'primes -> (Subscript -> ())'],
+                ['annotations -> ()', '* -> (List -> (Subscript -> ()))', 'primes -> ()'],
                 strict=False
             )
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_wilcard_import_annotation_and_global_scope(self):
         # we might argue that it should resolve to both the wildcard 
         # defined name and the type alias, but we're currently ignoring these
@@ -1038,12 +1009,11 @@ List = list
                 code, 
                 ['annotations -> ()',
                 '* -> ()',
-                'primes -> (Subscript -> ())',
+                'primes -> ()',
                 'List -> (List -> (Subscript -> ()))'],
                 strict=False
             )
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_in_functions_locals(self):
         
         code = '''
@@ -1080,7 +1050,6 @@ X = generate()
                          ['A -> ()', 
                           'C -> (C -> ())'])
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_in_inner_functions_locals(self):
 
         code = '''
@@ -1158,7 +1127,6 @@ fn = outer()
         with self.assertRaises(ValueError, msg='invalid heads: must include at least one element'):
             _get_lookup_scopes(())
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_inner_inner_fn(self):
         code = '''
 def outer():
@@ -1185,7 +1153,6 @@ def outer():
                           'mytype -> (mytype -> ())'])
     
 
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_annotation_very_nested(self):
         
         # this code does not produce any pyright warnings
@@ -1254,7 +1221,6 @@ fn = outer()
                                      'mytype -> (), '
                                      'mytype -> ())'])
     
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
     def test_pep563_type_alias_override_class(self):
         code = '''
 from __future__ import annotations
@@ -1273,6 +1239,11 @@ A = bytes
                 strict=False
             )
     
+    def test_annotation_def_is_not_assign_target(self):
+        code = 'from typing import Optional; var:Optional'
+        self.checkChains(code, ['Optional -> (Optional -> ())', 
+                                'var -> ()'])
+        
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
     def test_match_value(self):
         code = '''
