@@ -1278,19 +1278,19 @@ LiteralValue: TypeAlias = list[LiteralValue]|object
         self.checkChains(
                 code, 
                 ['TypeAlias -> (TypeAlias -> ())',
-                 'LiteralValue -> (LiteralValue -> (Subscript -> (BinOp -> ((#0)))), TypeAlias -> ())'],
+                 'LiteralValue -> (LiteralValue -> (Subscript -> (BinOp -> ())))'],
                 is_stub=True
             )
         self.checkChains(
                 code.replace('typing', 'typing_extensions'), 
                 ['TypeAlias -> (TypeAlias -> ())',
-                 'LiteralValue -> (LiteralValue -> (Subscript -> (BinOp -> ((#0)))), TypeAlias -> ())'],
+                 'LiteralValue -> (LiteralValue -> (Subscript -> (BinOp -> ())))'],
                 is_stub=True
             )
         self.checkChains(
                 code, 
                 ['TypeAlias -> (TypeAlias -> ())',
-                 'LiteralValue -> (TypeAlias -> ())'],
+                 'LiteralValue -> ()'],
                 strict=False,
             )
     
@@ -1370,8 +1370,8 @@ LiteralValue: TypeAlias = list[LiteralValue]|object
 '''
         self.checkChains(
                 code, 
-                ['TypeAlias -> (object -> (), TypeAlias -> ())',
-                 'LiteralValue -> (LiteralValue -> (Subscript -> (BinOp -> ((#0)))), TypeAlias -> ())'],
+                ['TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (LiteralValue -> (Subscript -> (BinOp -> ())))'],
                 is_stub=True,
                 filename='typing.pyi',
             )
