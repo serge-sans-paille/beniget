@@ -362,15 +362,6 @@ def posixpath_splitparts(path):
         r.pop()
     return tuple(r)
 
-if sys.version_info < (3,0):
-    import tokenize, re
-    identifier_regex = re.compile(tokenize.Name + r'\Z')
-
-    def isidentifier(string):
-        return identifier_regex.match(string) is not None
-else:
-    isidentifier = str.isidentifier
-
 def potential_module_names(filename):
     """
     Returns a tuple of potential module 
@@ -394,7 +385,7 @@ def potential_module_names(filename):
     len_parts = len(parts)
     for i in range(len_parts):
         p = parts[i:]
-        if not p or any(not all(isidentifier(sb) 
+        if not p or any(not all(sb.isidentifier() 
                         for sb in s.split('.')) for s in p):
             # the path cannot be converted to a module name
             # because there are unallowed caracters.
