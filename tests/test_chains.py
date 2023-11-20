@@ -1110,8 +1110,8 @@ fn = outer()
         # to the inner classes. 
 
     def test_lookup_scopes(self):
-        from beniget.beniget import _get_lookup_scopes
-        mod, fn, cls, lambd, gen, comp = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp()
+        from beniget.beniget import _get_lookup_scopes, def695
+        mod, fn, cls, lambd, gen, comp, typeparams = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp(), def695(body=[], d=ast.FunctionDef())
         assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
         assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
         assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
@@ -1121,6 +1121,11 @@ fn = outer()
         assert _get_lookup_scopes((mod, fn)) == [mod, fn]
         assert _get_lookup_scopes((mod, cls)) == [mod, cls]
         assert _get_lookup_scopes((mod,)) == [mod]
+        assert _get_lookup_scopes((mod, typeparams)) == [mod, typeparams]
+        assert _get_lookup_scopes((mod, typeparams, typeparams)) == [mod, typeparams, typeparams]
+        assert _get_lookup_scopes((mod, cls, typeparams)) == [mod, cls, typeparams]
+        assert _get_lookup_scopes((mod, cls, cls, typeparams)) == [mod, cls, typeparams]
+        assert _get_lookup_scopes((mod, cls, cls, typeparams, fn)) == [mod, typeparams, fn]
 
         with self.assertRaises(ValueError, msg='invalid heads: must include at least one element'):
             _get_lookup_scopes(())
@@ -1253,58 +1258,59 @@ A = bytes
     def test_pep695_typeparams_name_collision_01(self):
         # syntax error at runtime
         code = """def func[**A, A](): ..."""
-        self.checkChains(code, [])
+        self.checkChains(code, ['func -> ()'])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_02(self):
         code = """def func[A](A): return A"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['func -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_03(self):
         code = """def func[A](*A): return A"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['func -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_04(self):
         # Mangled names should not cause a conflict.
         code = """class ClassA:\n def func[__A](self, __A): return __A"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_05(self):
         code = """class ClassA:\n def func[_ClassA__A](self, __A): return __A"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_06(self):
         code = """class ClassA[X]:\n def func(self, X): return X"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_07(self):
         code = """class ClassA[X]:\n def func(self):\n  X = 1;return X"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['ClassA -> ()'])
         
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_08(self):
         code = """class ClassA[X]:\n def func(self): return [X for X in [1, 2]]"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_09(self):
         code = """class ClassA[X]:\n def func[X](self):..."""
-        self.checkChains(code, [])
+        self.checkChains(code, ['ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_10(self):
         code = """class ClassA[X]:\n X: int"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_name_non_collision_13(self):
         code = """X = 1\ndef outer():\n def inner[X]():\n  global X;X=2\n return inner"""
-        self.checkChains(code, [])
+        node, chains = self.checkChains(code, ['X -> ()', 'outer -> ()'])
+        self.assertEqual(chains.dump_chains(node.body[-1]), ['inner -> (inner -> ())'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_typeparams_disallowed_expressions(self):
@@ -1322,42 +1328,44 @@ A = bytes
 
         for code in cases:
             with self.subTest(code):
-                self.checkChains(code, [])
+                self.check_message(code, ['invalid'])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_name_collision_01(self):
-        # syntax error at runtime
-        code = """type TA1[A, **A] = None""", "duplicate type parameter 'A'"
-        self.checkChains(code, [])
+        # syntax error at runtime "duplicate type parameter 'A'"
+        code = """type TA1[A, **A] = None"""
+        self.checkChains(code, ['TA1 -> ()'])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_name_non_collision_02(self):
         code = """type TA1[A] = lambda A: A"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['TA1 -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_name_non_collision_03(self):
         code = """class Outer[A]:\n type TA1[A] = None"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['Outer -> ()'])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_access_01(self):
         code = "type TA1[A, B] = dict[A, B]"
-        self.checkChains(code, [])
+        self.checkChains(code, ['TA1 -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_access_02(self):
         code = """type TA1[A, B] = TA1[A, B] | int"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['TA1 -> (TA1 -> (Subscript -> (BinOp -> ())))'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_access_03(self):
         code = """class Outer[A]:\n def inner[B](self):\n  type TA1[C] = TA1[A, B] | int; return TA1"""
-        self.checkChains(code, [])
+        self.checkChains(code, ['Outer -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes01(self):
         code = """\
+from typing import Sequence
+
 # The following generates no compiler error, but a type checker
 # should generate an error because an upper bound type must be concrete,
 # and ``Sequence[S]`` is generic. Future extensions to the type system may
@@ -1368,11 +1376,16 @@ class ClassA[S, T: Sequence[S]]: ...
 # is lazily evaluated. However, type checkers should generate an error.
 class ClassB[S: Sequence[T], T]: ...
 """
-        self.checkChains(code, [])
+        node, chains = self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> ()), Sequence -> (Subscript -> ()))',
+                                'ClassA -> ()',
+                                'ClassB -> ()'])
+        ...
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes02(self):
         code = """\
+from x import BaseClass, dec
+
 class ClassA[T](BaseClass[T], param = Foo[T]): ...  # OK
 
 print(T)  # Runtime error: 'T' is not defined
@@ -1380,11 +1393,14 @@ print(T)  # Runtime error: 'T' is not defined
 @dec(Foo[T])  # Runtime error: 'T' is not defined
 class ClassA[T]: ...
 """
-        self.checkChains(code, [])
+        self.check_message(code, ["W: unbound identifier 'Foo' at <unknown>:3:38", 
+                                  "W: unbound identifier 'T' at <unknown>:5:6", 
+                                  "W: unbound identifier 'Foo' at <unknown>:7:5"])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes03(self):
         code = """\
+from x import dec
 def func1[T](a: T) -> T: ...  # OK
 
 print(T)  # Runtime error: 'T' is not defined
@@ -1394,7 +1410,7 @@ def func2[T](a = list[T]): ...  # Runtime error: 'T' is not defined
 @dec(list[T])  # Runtime error: 'T' is not defined
 def func3[T](): ...
 """
-        self.checkChains(code, [])
+        self.check_message(code, ["W: unbound identifier 'T' at <unknown>:4:6",])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes04(self):
@@ -1410,16 +1426,23 @@ def outer1[S]():
 
         def inner1():
             nonlocal S  # OK because it binds variable S from outer1
+            print(S)
             nonlocal T  # Syntax error: nonlocal binding not allowed for type parameter
+            print(T)
 
         def inner2():
             global S  # OK because it binds variable S from global scope
+            print(S)
 """
-        self.checkChains(code, [])
+        self.check_message(code, []) # should trigger warning about the nonlocal usage.
+        self.checkChains(code, ['S -> (S -> (Call -> ()))', 'outer1 -> ()'])
+        
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes05(self):
         code = """\
+from typing import Sequence
+
 class Outer:
     class Private:
         pass
@@ -1433,11 +1456,16 @@ class Outer:
     def method1[T](self, a: Inner[T]) -> Inner[T]:
         return a
 """
-        self.checkChains(code, [])
+        node, chains = self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> (Inner -> (Inner -> (Subscript -> ()), Inner -> (Subscript -> ())))))', 
+                                'Outer -> ()'])
+        ...
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes06(self):
         code = """\
+from typing import Sequence
+from x import decorator
+
 T = 0
 
 @decorator(T)  # Argument expression `T` evaluates to 0
@@ -1458,7 +1486,10 @@ class ClassA[T](Sequence[T]):
         ...
 
 """
-        self.checkChains(code, [])
+        self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> (ClassA -> ())))',
+                                'decorator -> (decorator -> (Call -> (ClassA -> ())))',
+                                'T -> ()',
+                                'ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes07(self):
@@ -1496,7 +1527,8 @@ class Outer[T]:
             # T refers to the variable captured from 'outer_method'
             print(T)  # Prints 3
 """
-        self.checkChains(code, [])
+        node, chains = self.checkChains(code,  ['T -> (T -> (Call -> ()))', 'Outer -> ()'])
+        ...
         
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
@@ -1522,3 +1554,60 @@ class TestUseDefChains(TestCase):
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
+    
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_13(self):
+        code = """X = 1\ndef outer():\n def inner[X]():\n  global X;X=2\n return inner"""
+        self.checkChains(code, 'X <- {}, X <- {}, inner <- {X}, inner <- {inner}')
+    
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_collision_01(self):
+        # syntax error at runtime
+        code = """def func[**A, A](): ..."""
+        self.checkChains(code, 'func <- {A, A}')
+    
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_02(self):
+        code = """def func[A](A): return A"""
+        self.checkChains(code, 'A <- {A}, A <- {}, func <- {A}')
+
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_03(self):
+        code = """def func[A](*A): return A"""
+        self.checkChains(code, 'A <- {A}, A <- {}, func <- {A}')
+
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_04(self):
+        # Mangled names should not cause a conflict.
+        code = """class ClassA:\n def func[__A](self, __A): return __A"""
+        self.checkChains(code, '__A <- {__A}, __A <- {}, func <- {__A}, self <- {}')
+
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_05(self):
+        code = """class ClassA:\n def func[_ClassA__A](self, __A): return __A"""
+        self.checkChains(code, '__A <- {__A}, __A <- {}, func <- {_ClassA__A}, self <- {}')
+
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_06(self):
+        code = """class ClassA[X]:\n def func(self, X): return X"""
+        self.checkChains(code, 'ClassA <- {X}, X <- {X}, X <- {}, self <- {}')
+
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_07(self):
+        code = """class ClassA[X]:\n def func(self):\n  X = 1;return X"""
+        self.checkChains(code, 'ClassA <- {X}, X <- {X}, X <- {}, self <- {}')
+        
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_08(self):
+        code = """class ClassA[X]:\n def func(self): return [X for X in [1, 2]]"""
+        self.checkChains(code, 'ClassA <- {X}, List <- {Constant, Constant}, ListComp <- {X, comprehension}, X <- {X}, X <- {}, comprehension <- {List}, self <- {}')
+
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_09(self):
+        code = """class ClassA[X]:\n def func[X](self):..."""
+        self.checkChains(code, 'ClassA <- {X}, func <- {X}, self <- {}')
+
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_typeparams_name_non_collision_10(self):
+        code = """class ClassA[X]:\n X: int"""
+        self.checkChains(code, 'ClassA <- {X}, X <- {}, int <- {type}')
