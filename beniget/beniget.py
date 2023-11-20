@@ -318,9 +318,6 @@ class DefUseChains(ast.NodeVisitor):
 
         # dead code levels, it's non null for code that cannot be executed
         self._deadcode = 0
-        
-        # set of def695 wrapped nodes that have been taken into consideration.
-        self._def695_functions = set()
 
         # attributes set in visit_Module
         self.module = None
@@ -679,13 +676,12 @@ class DefUseChains(ast.NodeVisitor):
         else:
             self.visit(node)
 
-    def visit_FunctionDef(self, node, step=DeclarationStep):
+    def visit_FunctionDef(self, node, step=DeclarationStep, in_def695=False):
         if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
-            is_def695_function = node in self._def695_functions
-            if any(getattr(node, 'type_params', [])) and not is_def695_function:
+            if not in_def695 and any(getattr(node, 'type_params', [])):
                 self.visit_def695(def695(body=node.type_params, d=node))
                 return
 
@@ -715,15 +711,15 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(node.returns)
 
             self.set_definition(node.name, dnode)
-            if is_def695_function:
-                # emulate this (note how f is defined in both scopes): 
+            if in_def695:
+                # emulate this (f is defined in both scopes but it's simly in order to return it right away): 
                 # def695 __generic_parameters_of_f():
                 #     T = TypeVar(name='T')
                 #     def f(x: T) -> T:
                 #         return x
                 #     return f
                 # f = __generic_parameters_of_f()
-                self.set_definition(node.name, dnode, index=-2)
+                self.set_definition(node.name, dnode, -2)
 
             self._defered.append((node,
                                   list(self._definitions),
@@ -741,12 +737,11 @@ class DefUseChains(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def visit_ClassDef(self, node):
+    def visit_ClassDef(self, node, in_def695=False):
         dnode = self.chains.setdefault(node, Def(node))
         self.add_to_locals(node.name, dnode)
         
-        is_def695_function = node in self._def695_functions
-        if any(getattr(node, 'type_params', [])) and not is_def695_function:
+        if not in_def695 and any(getattr(node, 'type_params', [])):
             self.visit_def695(def695(body=node.type_params, d=node))
             return
 
@@ -762,7 +757,7 @@ class DefUseChains(ast.NodeVisitor):
             self.process_body(node.body)
 
         self.set_definition(node.name, dnode)
-        if is_def695_function:
+        if in_def695:
             # see comment in visit_FunctionDef
             self.set_definition(node.name, dnode, index=-2)
 
@@ -820,7 +815,7 @@ class DefUseChains(ast.NodeVisitor):
         else:
             self.visit(node.target).add_user(dvalue)
     
-    def visit_TypeAlias(self, node):
+    def visit_TypeAlias(self, node, in_def695=False):
         # Generic type aliases:
         # type Alias[T: int] = list[T]
 
@@ -838,8 +833,7 @@ class DefUseChains(ast.NodeVisitor):
             dname = self.chains.setdefault(node.name, Def(node.name))
             self.add_to_locals(node.name.id, dname)
 
-            is_def695_function = node in self._def695_functions
-            if any(getattr(node, 'type_params', [])) and not is_def695_function:
+            if not in_def695 and any(getattr(node, 'type_params', [])):
                 self.visit_def695(def695(body=node.type_params, d=node))
                 return
 
@@ -848,7 +842,7 @@ class DefUseChains(ast.NodeVisitor):
                     (node.value, list(self._scopes), None))
 
             self.set_definition(node.name.id, dname)
-            if is_def695_function:
+            if in_def695:
                 # see comment in visit_FunctionDef
                 self.set_definition(node.name.id, dname, index=-2)
             
@@ -1312,7 +1306,6 @@ class DefUseChains(ast.NodeVisitor):
         # 6.the constraints of type variables
         
         # introduce the new scope
-        self._def695_functions.add(node.d)
         dnode = self.chains.setdefault(node.d, Def(node.d))
         
         with self.ScopeContext(node):
@@ -1321,7 +1314,8 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(p).add_user(dnode)
             # then visit the actual node while 
             # being in the def695 scope.
-            self.visit(node.d)
+            visitor = getattr(self, "visit_{}".format(type(node.d).__name__))
+            visitor(node.d, in_def695=True)
 
     if sys.version_info >= (3, 12):
 
