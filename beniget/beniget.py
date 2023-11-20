@@ -76,7 +76,7 @@ class Def(object):
         """
 
     def add_user(self, node):
-        assert isinstance(node, Def)
+        assert isinstance(node, Def), node
         self._users.add(node)
 
     def name(self):
@@ -86,7 +86,10 @@ class Def(object):
         """
         if isinstance(self.node, (ast.ClassDef,
                                   ast.FunctionDef,
-                                  ast.AsyncFunctionDef)):
+                                  ast.AsyncFunctionDef,
+                                  ast.TypeVar, 
+                                  ast.TypeVarTuple, 
+                                  ast.ParamSpec)):
             return self.node.name
         elif isinstance(self.node, ast.Name):
             return self.node.id
@@ -198,6 +201,8 @@ class CollectLocals(ast.NodeVisitor):
 
     visit_ClassDef = visit_FunctionDef
 
+    visit_TypeVar = visit_ParamSpec = visit_TypeVarTuple = visit_FunctionDef
+
     def visit_Nonlocal(self, node):
         self.NonLocals.update(name for name in node.names)
 
@@ -234,6 +239,14 @@ def collect_locals(node):
     visitor.generic_visit(node)
     return visitor.Locals
 
+class def695(ast.stmt):
+    """
+    Special statement to represent the PEP-695 lexical scopes.
+    """
+    _fields = ('body', 'd')
+    def __init__(self, body, d):
+        self.body = body # list[stmt]
+        self.d = d
 
 class DefUseChains(ast.NodeVisitor):
     """
@@ -289,7 +302,9 @@ class DefUseChains(ast.NodeVisitor):
         # be defined in another path of the control flow (esp. in loop)
         self._undefs = []
 
-        # stack of nodes starting a scope: class, module, function, generator expression, comprehension...
+        # stack of nodes starting a scope: 
+        # class, module, function, generator expression, 
+        # comprehension, def695. 
         self._scopes = []
 
         self._breaks = []
@@ -303,6 +318,9 @@ class DefUseChains(ast.NodeVisitor):
 
         # dead code levels, it's non null for code that cannot be executed
         self._deadcode = 0
+        
+        # set of def695 wrapped nodes that have been taken into consideration.
+        self._def695_functions = set()
 
         # attributes set in visit_Module
         self.module = None
@@ -375,7 +393,8 @@ class DefUseChains(ast.NodeVisitor):
         # >>> foo() # fails, a is a local referenced before being assigned
         # >>> class bar: a = a
         # >>> bar() # ok, and `bar.a is a`
-        if isinstance(scope, ast.ClassDef):
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # classes or def695 scopes.
             top_level_definitions = self._definitions[0:-self._scope_depths[0]]
             isglobal = any((name in top_lvl_def or '*' in top_lvl_def)
                            for top_lvl_def in top_level_definitions)
@@ -421,20 +440,25 @@ class DefUseChains(ast.NodeVisitor):
             precomputed_locals = next(precomputed_locals_iter)
             base_scope = next(scopes_iter)
             defs = self._definitions[depth:]
+            is_def695 = isinstance(base_scope, def695)
             if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
                 looked_up_definitions.extend(reversed(defs))
 
                 # Iterate over scopes, filtering out class scopes.
                 for scope, depth, precomputed_locals in zip(scopes_iter,
-                                                            depths_iter,
-                                                            precomputed_locals_iter):
-                    if not isinstance(scope, ast.ClassDef):
+                                                                depths_iter,
+                                                                precomputed_locals_iter):
+                    # If a def695 scope is immediately within a class scope, or within another def695 scope that is immediately within a class scope, 
+                    # then names defined in that class scope can be accessed within the def695 scope. 
+                    # (Regular functions, by contrast, cannot access names defined within an enclosing class scope.)
+                    if not isinstance(scope, ast.ClassDef) or is_def695:
                         defs = self._definitions[lvl + depth: lvl]
                         if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
                             looked_up_definitions.append(StopIteration)
                             break
                         looked_up_definitions.extend(reversed(defs))
                     lvl += depth
+                    is_def695 = is_def695 and isinstance(scope, def695)
 
         for defs in looked_up_definitions:
             if defs is StopIteration:
@@ -660,6 +684,11 @@ class DefUseChains(ast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
+            is_def695_function = node in self._def695_functions
+            if any(getattr(node, 'type_params', [])) and not is_def695_function:
+                self.visit_def695(def695(body=node.type_params, d=node))
+                return
+
             if not self.future_annotations:
                 for arg in _iter_arguments(node.args):
                     self.visit_annotation(arg)
@@ -686,12 +715,22 @@ class DefUseChains(ast.NodeVisitor):
                 self.visit(node.returns)
 
             self.set_definition(node.name, dnode)
+            if is_def695_function:
+                # emulate this (note how f is defined in both scopes): 
+                # def695 __generic_parameters_of_f():
+                #     T = TypeVar(name='T')
+                #     def f(x: T) -> T:
+                #         return x
+                #     return f
+                # f = __generic_parameters_of_f()
+                self.set_definition(node.name, dnode, index=-2)
 
             self._defered.append((node,
                                   list(self._definitions),
                                   list(self._scopes),
                                   list(self._scope_depths),
                                   list(self._precomputed_locals)))
+        
         elif step is DefinitionStep:
             with self.ScopeContext(node):
                 for arg in _iter_arguments(node.args):
@@ -705,6 +744,11 @@ class DefUseChains(ast.NodeVisitor):
     def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.add_to_locals(node.name, dnode)
+        
+        is_def695_function = node in self._def695_functions
+        if any(getattr(node, 'type_params', [])) and not is_def695_function:
+            self.visit_def695(def695(body=node.type_params, d=node))
+            return
 
         for base in node.bases:
             self.visit(base).add_user(dnode)
@@ -718,7 +762,9 @@ class DefUseChains(ast.NodeVisitor):
             self.process_body(node.body)
 
         self.set_definition(node.name, dnode)
-
+        if is_def695_function:
+            # see comment in visit_FunctionDef
+            self.set_definition(node.name, dnode, index=-2)
 
     def visit_Return(self, node):
         if node.value:
@@ -773,6 +819,42 @@ class DefUseChains(ast.NodeVisitor):
                     self.locals[self._scopes[-1]].append(dtarget)
         else:
             self.visit(node.target).add_user(dvalue)
+    
+    def visit_TypeAlias(self, node):
+        # Generic type aliases:
+        # type Alias[T: int] = list[T]
+
+        # Equivalent to:
+        # def695 __generic_parameters_of_Alias():
+        #     def695 __evaluate_T_bound():
+        #         return int
+        #     T = __make_typevar_with_bound(name='T', evaluate_bound=__evaluate_T_bound)
+        #     def695 __evaluate_Alias():
+        #         return list[T]
+        #     return __make_typealias(name='Alias', type_params=(T,), evaluate_value=__evaluate_Alias)
+        # Alias = __generic_parameters_of_Alias()
+
+        if isinstance(node.name, ast.Name):
+            dname = self.chains.setdefault(node.name, Def(node.name))
+            self.add_to_locals(node.name.id, dname)
+
+            is_def695_function = node in self._def695_functions
+            if any(getattr(node, 'type_params', [])) and not is_def695_function:
+                self.visit_def695(def695(body=node.type_params, d=node))
+                return
+
+            dnode = self.chains.setdefault(node, Def(node))
+            self._defered_annotations[-1].append(
+                    (node.value, list(self._scopes), None))
+
+            self.set_definition(node.name.id, dname)
+            if is_def695_function:
+                # see comment in visit_FunctionDef
+                self.set_definition(node.name.id, dname, index=-2)
+            
+            return dnode
+        else:
+            raise NotImplementedError()
 
     def visit_For(self, node):
         self.visit(node.iter)
@@ -918,11 +1000,11 @@ class DefUseChains(ast.NodeVisitor):
         if node.msg:
             self.visit(node.msg)
 
-    def add_to_locals(self, name, dnode):
+    def add_to_locals(self, name, dnode, index=-1):
         if any(name in _globals for _globals in self._globals):
             self.set_or_extend_global(name, dnode)
-        else:
-            self.locals[self._scopes[-1]].append(dnode)
+        elif dnode not in self.locals[self._scopes[index]]:
+            self.locals[self._scopes[index]].append(dnode)
 
     def visit_Import(self, node):
         for alias in node.names:
@@ -1126,10 +1208,6 @@ class DefUseChains(ast.NodeVisitor):
             self.visit_Name(node.target, named_expr=True)
         return dnode
 
-    def is_in_current_scope(self, name):
-        return any(name in defs
-                   for defs in self._definitions[self._scope_depths[-1]:])
-
     def _first_non_comprehension_scope(self):
         index = -1
         enclosing_scope = self._scopes[index]
@@ -1219,6 +1297,46 @@ class DefUseChains(ast.NodeVisitor):
         if node.step:
             self.visit(node.step).add_user(dnode)
         return dnode
+    
+    # type params
+
+    def visit_def695(self, node):
+        # We don't use two steps here because the declaration 
+        # step is the same as definition step for def695's
+        # 1.type parameters of generic type aliases, 
+        # 2.type parameters and annotations of generic functions and
+        # 3.type parameters and base class expressions of generic classes
+        # the rest is evaluated as defered annotations:
+        # 4.the value of generic type aliases
+        # 5.the bounds of type variables
+        # 6.the constraints of type variables
+        
+        # introduce the new scope
+        self._def695_functions.add(node.d)
+        dnode = self.chains.setdefault(node.d, Def(node.d))
+        
+        with self.ScopeContext(node):
+            # visit the type params
+            for p in node.body:
+                self.visit(p).add_user(dnode)
+            # then visit the actual node while 
+            # being in the def695 scope.
+            self.visit(node.d)
+
+    if sys.version_info >= (3, 12):
+
+        def visit_TypeVar(self, node):
+            dnode = self.chains.setdefault(node, Def(node))
+            self.set_definition(node.name, dnode)
+            self.add_to_locals(node.name, dnode)
+
+            if isinstance(node, ast.TypeVar) and node.bound:
+                self._defered_annotations[-1].append(
+                    (node.bound, list(self._scopes), None))
+            
+            return dnode
+
+        visit_ParamSpec = TypeVarTuple = visit_TypeVar
 
     # misc
 
@@ -1345,7 +1463,15 @@ def lookup_annotation_name_defs(name, heads, locals_map):
     try:
         return _lookup(name, scopes, locals_map)
     except LookupError:
-        raise LookupError("'{}' not found in {}, might be a builtin".format(name, heads[-1]))
+        if name in BuiltinsSrc:
+            raise LookupError(f'{name} is a builtin')
+        try:
+            _lookup(name, scopes, locals_map, only_live=False)
+        except LookupError:
+            defined_names = [d.name() for s in scopes for d in locals_map[s]]
+            raise LookupError("'{}' not found in scopes: {} (heads={}) (available names={})".format(name, scopes, heads, defined_names))
+        else:
+            raise LookupError("'{}' is killed".format(name))
 
 def _get_lookup_scopes(heads):
     # heads[-1] is the direct enclosing scope and heads[0] is the module.
@@ -1355,33 +1481,36 @@ def _get_lookup_scopes(heads):
 
     heads = list(heads) # avoid modifying the list (important)
     try:
-        direct_scope = heads.pop(-1) # this scope is the only one that can be a class
+        direct_scope = [heads.pop(-1)] # this scope is the only one that can be a class, expect in case of the presence of def695
     except IndexError:
         raise ValueError('invalid heads: must include at least one element')
     try:
         global_scope = heads.pop(0)
     except IndexError:
         # we got only a global scope
-        return [direct_scope]
+        return direct_scope
+    else:
+        if heads and isinstance(direct_scope[-1], def695) and isinstance(heads[-1], ast.ClassDef):
+            direct_scope.insert(0, heads.pop(-1))
     # more of less modeling what's described here.
     # https://github.com/gvanrossum/gvanrossum.github.io/blob/main/formal/scopesblog.md
     other_scopes = [s for s in heads if isinstance(s, (
                   ast.FunctionDef, ast.AsyncFunctionDef,
                   ast.Lambda, ast.DictComp, ast.ListComp,
-                  ast.SetComp, ast.GeneratorExp))]
-    return [global_scope] + other_scopes + [direct_scope]
+                  ast.SetComp, ast.GeneratorExp, def695))]
+    return [global_scope] + other_scopes + direct_scope
 
-def _lookup(name, scopes, locals_map):
-    context = scopes.pop()
+def _lookup(name, scopes, locals_map, only_live=True):
+    context = scopes[-1]
     defs = []
     for loc in locals_map.get(context, ()):
-        if loc.name() == name and loc.islive:
+        if loc.name() == name and (loc.islive if only_live else True):
             defs.append(loc)
     if defs:
         return defs
-    elif len(scopes)==0:
+    elif len(scopes)==1:
         raise LookupError()
-    return _lookup(name, scopes, locals_map)
+    return _lookup(name, scopes[:-1], locals_map)
 
 class UseDefChains(object):
     """
