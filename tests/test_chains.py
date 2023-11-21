@@ -1384,7 +1384,7 @@ class ClassB[S: Sequence[T], T]: ...
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes02(self):
         code = """\
-from x import BaseClass, dec
+from x import BaseClass, dec, Foo
 
 class ClassA[T](BaseClass[T], param = Foo[T]): ...  # OK
 
@@ -1393,9 +1393,8 @@ print(T)  # Runtime error: 'T' is not defined
 @dec(Foo[T])  # Runtime error: 'T' is not defined
 class ClassA[T]: ...
 """
-        self.check_message(code, ["W: unbound identifier 'Foo' at <unknown>:3:38", 
-                                  "W: unbound identifier 'T' at <unknown>:5:6", 
-                                  "W: unbound identifier 'Foo' at <unknown>:7:5"])
+        self.check_message(code, ["W: unbound identifier 'T' at <unknown>:5:6", 
+                                  "W: unbound identifier 'T' at <unknown>:7:8"])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes03(self):
@@ -1410,7 +1409,9 @@ def func2[T](a = list[T]): ...  # Runtime error: 'T' is not defined
 @dec(list[T])  # Runtime error: 'T' is not defined
 def func3[T](): ...
 """
-        self.check_message(code, ["W: unbound identifier 'T' at <unknown>:4:6",])
+        self.check_message(code, ["W: unbound identifier 'T' at <unknown>:4:6", 
+                                  "W: unbound identifier 'T' at <unknown>:6:22", 
+                                  "W: unbound identifier 'T' at <unknown>:8:10"])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes04(self):
@@ -1488,7 +1489,7 @@ class ClassA[T](Sequence[T]):
 """
         self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> (ClassA -> ())))',
                                 'decorator -> (decorator -> (Call -> (ClassA -> ())))',
-                                'T -> ()',
+                                'T -> (T -> (Call -> (ClassA -> ())))',
                                 'ClassA -> ()'])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
@@ -1529,6 +1530,35 @@ class Outer[T]:
 """
         node, chains = self.checkChains(code,  ['T -> (T -> (Call -> ()))', 'Outer -> ()'])
         ...
+    
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_scopes08(self):
+        code = '''\
+from x import decorator
+T = 1
+@decorator
+def f[decorator, T: int, U: (int, str), *Ts, **P](
+    y: U,
+    x: T = T, # default values are evaluated outside the def695 scope
+    *args: *Ts,
+    **kwargs: P.kwargs,
+) -> T:
+    return x
+'''
+        self.checkChains(code,  ['decorator -> (decorator -> ())', 
+                                 'T -> (T -> (f -> ()))', 
+                                 'f -> ()'])
+    
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
+    def test_pep695_scopes09(self):
+        code = '''\
+from x import decorator
+@decorator
+class B[decorator](object):
+    print(decorator)
+'''
+        self.checkChains(code,  ['decorator -> (decorator -> (B -> ()))', 
+                                 'B -> ()'])
         
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):

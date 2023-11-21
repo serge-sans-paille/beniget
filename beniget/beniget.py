@@ -245,8 +245,8 @@ class def695(ast.stmt):
     """
     _fields = ('body', 'd')
     def __init__(self, body, d):
-        self.body = body # list[stmt]
-        self.d = d
+        self.body = body # list of type params
+        self.d = d # the wrapped definition node
 
 class DefUseChains(ast.NodeVisitor):
     """
@@ -681,9 +681,18 @@ class DefUseChains(ast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
-            if not in_def695 and any(getattr(node, 'type_params', [])):
-                self.visit_def695(def695(body=node.type_params, d=node))
-                return
+            if not in_def695:
+
+                for kw_default in filter(None, node.args.kw_defaults):
+                    self.visit(kw_default).add_user(dnode)
+                for default in node.args.defaults:
+                    self.visit(default).add_user(dnode)
+                for decorator in node.decorator_list:
+                    self.visit(decorator)
+
+                if any(getattr(node, 'type_params', [])):
+                    self.visit_def695(def695(body=node.type_params, d=node))
+                    return
 
             if not self.future_annotations:
                 for arg in _iter_arguments(node.args):
@@ -700,19 +709,12 @@ class DefUseChains(ast.NodeVisitor):
                         self._defered_annotations[-1].append(
                             (arg.annotation, currentscopes, None))
 
-            for kw_default in filter(None, node.args.kw_defaults):
-                self.visit(kw_default).add_user(dnode)
-            for default in node.args.defaults:
-                self.visit(default).add_user(dnode)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
-
             if not self.future_annotations and node.returns:
                 self.visit(node.returns)
 
             self.set_definition(node.name, dnode)
             if in_def695:
-                # emulate this (f is defined in both scopes but it's simly in order to return it right away): 
+                # emulate this (f is defined in both scopes): 
                 # def695 __generic_parameters_of_f():
                 #     T = TypeVar(name='T')
                 #     def f(x: T) -> T:
@@ -741,16 +743,18 @@ class DefUseChains(ast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         self.add_to_locals(node.name, dnode)
         
-        if not in_def695 and any(getattr(node, 'type_params', [])):
-            self.visit_def695(def695(body=node.type_params, d=node))
-            return
+        if not in_def695:
+            for decorator in node.decorator_list:
+                self.visit(decorator).add_user(dnode)
+
+            if any(getattr(node, 'type_params', [])):
+                self.visit_def695(def695(body=node.type_params, d=node))
+                return
 
         for base in node.bases:
             self.visit(base).add_user(dnode)
         for keyword in node.keywords:
             self.visit(keyword.value).add_user(dnode)
-        for decorator in node.decorator_list:
-            self.visit(decorator).add_user(dnode)
 
         with self.ScopeContext(node):
             self.set_definition("__class__", Def("__class__"))
@@ -1317,20 +1321,18 @@ class DefUseChains(ast.NodeVisitor):
             visitor = getattr(self, "visit_{}".format(type(node.d).__name__))
             visitor(node.d, in_def695=True)
 
-    if sys.version_info >= (3, 12):
+    def visit_TypeVar(self, node):
+        dnode = self.chains.setdefault(node, Def(node))
+        self.set_definition(node.name, dnode)
+        self.add_to_locals(node.name, dnode)
 
-        def visit_TypeVar(self, node):
-            dnode = self.chains.setdefault(node, Def(node))
-            self.set_definition(node.name, dnode)
-            self.add_to_locals(node.name, dnode)
+        if isinstance(node, ast.TypeVar) and node.bound:
+            self._defered_annotations[-1].append(
+                (node.bound, list(self._scopes), None))
+        
+        return dnode
 
-            if isinstance(node, ast.TypeVar) and node.bound:
-                self._defered_annotations[-1].append(
-                    (node.bound, list(self._scopes), None))
-            
-            return dnode
-
-        visit_ParamSpec = TypeVarTuple = visit_TypeVar
+    visit_ParamSpec = visit_TypeVarTuple = visit_TypeVar
 
     # misc
 
