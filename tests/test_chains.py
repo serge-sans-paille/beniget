@@ -38,6 +38,25 @@ class TestDefUseChains(TestCase):
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
         return node, c
+    
+    def checkUseDefChains(self, code, ref, strict=True):
+        class StrictDefUseChains(beniget.DefUseChains):
+            def unbound_identifier(self, name, node):
+                raise RuntimeError(
+                    "W: unbound identifier '{}' at {}:{}".format(
+                        name, node.lineno, node.col_offset
+                    )
+                )
+
+        node = ast.parse(code)
+        if strict:
+            c = StrictDefUseChains()
+        else:
+            c = beniget.DefUseChains()
+        c.visit(node)
+        cc = beniget.UseDefChains(c)
+
+        self.assertEqual(str(cc), ref)
 
     def test_simple_expression(self):
         code = "a = 1; a + 2"
@@ -1376,10 +1395,12 @@ class ClassA[S, T: Sequence[S]]: ...
 # is lazily evaluated. However, type checkers should generate an error.
 class ClassB[S: Sequence[T], T]: ...
 """
-        node, chains = self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> ()), Sequence -> (Subscript -> ()))',
+        self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> ()), Sequence -> (Subscript -> ()))',
                                 'ClassA -> ()',
                                 'ClassB -> ()'])
-        ...
+        self.checkUseDefChains(code, 'ClassA <- {S, T}, ClassB <- {S, T}, S <- {S}, '
+                                     'Sequence <- {Sequence}, Sequence <- {Sequence}, '
+                                     'Subscript <- {S, Sequence}, Subscript <- {Sequence, T}, T <- {T}')
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes02(self):
@@ -1394,7 +1415,7 @@ print(T)  # Runtime error: 'T' is not defined
 class ClassA[T]: ...
 """
         self.check_message(code, ["W: unbound identifier 'T' at <unknown>:5:6", 
-                                  "W: unbound identifier 'T' at <unknown>:7:8"])
+                                  "W: unbound identifier 'T' at <unknown>:7:9"])
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes03(self):
@@ -1437,6 +1458,9 @@ def outer1[S]():
 """
         self.check_message(code, []) # should trigger warning about the nonlocal usage.
         self.checkChains(code, ['S -> (S -> (Call -> ()))', 'outer1 -> ()'])
+        self.checkUseDefChains(code, 'Call <- {S, print}, Call <- {S, print}, Call <- {T, print}, S <- {S}, S <- {S}, S <- {}, S <- {}, '
+                               'T <- {T}, T <- {}, outer1 <- {S}, outer2 <- {T}, print <- {builtin_function_or_method}, '
+                               'print <- {builtin_function_or_method}, print <- {builtin_function_or_method}')
         
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
@@ -1457,9 +1481,12 @@ class Outer:
     def method1[T](self, a: Inner[T]) -> Inner[T]:
         return a
 """
-        node, chains = self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> (Inner -> (Inner -> (Subscript -> ()), Inner -> (Subscript -> ())))))', 
+        self.checkChains(code, ['Sequence -> (Sequence -> (Subscript -> (Inner -> (Inner -> (Subscript -> ()), Inner -> (Subscript -> ())))))', 
                                 'Outer -> ()'])
-        ...
+        self.checkUseDefChains(code, 'Inner <- {Inner}, Inner <- {Inner}, Inner <- {Private, Subscript, T}, Private <- {Private}, '
+                               'Sequence <- {Sequence}, Subscript <- {Inner, T}, Subscript <- {Inner, T}, Subscript <- {Sequence, T}, '
+                               'T <- {T}, T <- {T}, T <- {T}, a <- {a}, a <- {}, method1 <- {T}, self <- {}')
+       
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes06(self):
@@ -1491,6 +1518,10 @@ class ClassA[T](Sequence[T]):
                                 'decorator -> (decorator -> (Call -> (ClassA -> ())))',
                                 'T -> (T -> (Call -> (ClassA -> ())))',
                                 'ClassA -> ()'])
+        self.checkUseDefChains(code, 'Call <- {T, decorator}, ClassA <- {Call, Subscript, T}, '
+                               'Sequence <- {Sequence}, Subscript <- {Sequence, T}, T <- {T}, T <- {T}, '
+                               'T <- {T}, T <- {T}, T <- {}, T <- {}, decorator <- {decorator}, method1 <- {T}, '
+                               'method2 <- {T, T}, method3 <- {T}, self <- {}, self <- {}, self <- {}, x <- {}, x <- {}')
 
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes07(self):
@@ -1528,8 +1559,14 @@ class Outer[T]:
             # T refers to the variable captured from 'outer_method'
             print(T)  # Prints 3
 """
-        node, chains = self.checkChains(code,  ['T -> (T -> (Call -> ()))', 'Outer -> ()'])
-        ...
+        self.checkChains(code,  ['T -> (T -> (Call -> ()))', 'Outer -> ()'])
+        self.checkUseDefChains(code, 'Call <- {T, print}, Call <- {T, print}, Call <- {T, print}, Call <- {T, print}, '
+                               'Call <- {T, print}, Call <- {T, print}, Outer <- {T}, T <- {T}, T <- {T}, T <- {T}, '
+                               'T <- {T}, T <- {T}, T <- {T}, T <- {}, T <- {}, T <- {}, T <- {}, print <- {builtin_function_or_method}, '
+                               'print <- {builtin_function_or_method}, print <- {builtin_function_or_method}, '
+                               'print <- {builtin_function_or_method}, print <- {builtin_function_or_method}, '
+                               'print <- {builtin_function_or_method}, self <- {}, self <- {}')
+
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes08(self):
@@ -1548,6 +1585,10 @@ def f[decorator, T: int, U: (int, str), *Ts, **P](
         self.checkChains(code,  ['decorator -> (decorator -> ())', 
                                  'T -> (T -> (f -> ()))', 
                                  'f -> ()'])
+        self.checkUseDefChains(code, 'Attribute <- {P}, P <- {P}, Starred <- {Ts}, T <- {T}, T <- {T}, T <- {T}, T <- {}, '
+                               'Ts <- {Ts}, Tuple <- {int, str}, U <- {U}, args <- {}, decorator <- {decorator}, '
+                               'f <- {P, T, T, Ts, U, decorator}, int <- {type}, int <- {type}, kwargs <- {}, '
+                               'str <- {type}, x <- {x}, x <- {}, y <- {}')
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_scopes09(self):
@@ -1561,21 +1602,8 @@ class B[decorator](object):
                                  'B -> ()'])
         
 class TestUseDefChains(TestCase):
-    def checkChains(self, code, ref):
-        class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
-                raise RuntimeError(
-                    "W: unbound identifier '{}' at {}:{}".format(
-                        name, node.lineno, node.col_offset
-                    )
-                )
 
-        node = ast.parse(code)
-        c = StrictDefUseChains()
-        c.visit(node)
-        cc = beniget.UseDefChains(c)
-
-        self.assertEqual(str(cc), ref)
+    checkChains = TestDefUseChains.checkUseDefChains
 
     def test_simple_expression(self):
         code = "a = 1; a"
