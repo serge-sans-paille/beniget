@@ -1342,12 +1342,17 @@ A = bytes
         "class X[T: (yield from x)]: pass",
         "class X[T: (await 42)]: pass",
         "class X[T: (y := 3)]: pass",
-        "class X[T](y := Sequence[T]): pass",
-        "def f[T](y: (x := Sequence[T])): pass",]
+        "class X[T](y := list[T]): pass",
+        "def f[T](y: (x := list[T])): pass",]
 
         for code in cases:
             with self.subTest(code):
-                self.check_message(code, ['invalid'])
+                self.check_message(code, ['cannot be used in annotation-like scopes'])
+        
+        for code in cases:
+            code = f'from __future__ import annotations\n' + code
+            with self.subTest(code):
+                self.check_message(code, ['cannot be used in annotation-like scope'])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_name_collision_01(self):

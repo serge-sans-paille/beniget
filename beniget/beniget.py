@@ -696,21 +696,47 @@ class DefUseChains(ast.NodeVisitor):
 
             if not self.future_annotations:
                 for arg in _iter_arguments(node.args):
-                    self.visit_annotation(arg)
+                    annotation = getattr(arg, 'annotation', None)
+                    if annotation:
+                        if in_def695:
+                            try:
+                                _validate_annotation_body(annotation)
+                            except SyntaxError as e :
+                                self.warn(str(e), annotation)
+                                continue
+                        self.visit(annotation)
 
             else:
                 # annotations are to be analyzed later as well
                 currentscopes = list(self._scopes)
                 if node.returns:
-                    self._defered_annotations[-1].append(
-                        (node.returns, currentscopes, None))
+                    try:
+                        _validate_annotation_body(node.returns)
+                    except SyntaxError as e :
+                        self.warn(str(e), node.returns)
+                    else:
+                        self._defered_annotations[-1].append(
+                            (node.returns, currentscopes, None))
                 for arg in _iter_arguments(node.args):
                     if arg.annotation:
+                        try:
+                            _validate_annotation_body(arg.annotation)
+                        except SyntaxError as e :
+                            self.warn(str(e), arg.annotation)
+                            continue
                         self._defered_annotations[-1].append(
                             (arg.annotation, currentscopes, None))
 
             if not self.future_annotations and node.returns:
-                self.visit(node.returns)
+                if in_def695:
+                    try:
+                        _validate_annotation_body(node.returns)
+                    except SyntaxError as e:
+                        self.warn(str(e), node.returns)
+                    else:
+                        self.visit(node.returns)
+                else:
+                    self.visit(node.returns)
 
             self.set_definition(node.name, dnode)
             if in_def695:
@@ -752,8 +778,20 @@ class DefUseChains(ast.NodeVisitor):
                 return
 
         for base in node.bases:
+            if in_def695:
+                try:
+                    _validate_annotation_body(base)
+                except SyntaxError as e:
+                    self.warn(str(e), base)
+                    continue
             self.visit(base).add_user(dnode)
         for keyword in node.keywords:
+            if in_def695:
+                try:
+                    _validate_annotation_body(keyword)
+                except SyntaxError as e:
+                    self.warn(str(e), keyword)
+                    continue
             self.visit(keyword.value).add_user(dnode)
 
         with self.ScopeContext(node):
@@ -795,8 +833,13 @@ class DefUseChains(ast.NodeVisitor):
         if not self.future_annotations:
             self.visit(node.annotation)
         else:
-            self._defered_annotations[-1].append(
-                (node.annotation, list(self._scopes), None))
+            try:
+                _validate_annotation_body(node.annotation)
+            except SyntaxError as e:
+                self.warn(str(e), node.annotation)
+            else:
+                self._defered_annotations[-1].append(
+                    (node.annotation, list(self._scopes), None))
         self.visit(node.target)
 
     def visit_AugAssign(self, node):
@@ -842,7 +885,12 @@ class DefUseChains(ast.NodeVisitor):
                 return
 
             dnode = self.chains.setdefault(node, Def(node))
-            self._defered_annotations[-1].append(
+            try:
+                _validate_annotation_body(node.value)
+            except SyntaxError as e:
+                self.warn(str(e), node.value)
+            else:
+                self._defered_annotations[-1].append(
                     (node.value, list(self._scopes), None))
 
             self.set_definition(node.name.id, dname)
@@ -1315,7 +1363,12 @@ class DefUseChains(ast.NodeVisitor):
         with self.ScopeContext(node):
             # visit the type params
             for p in node.body:
-                self.visit(p).add_user(dnode)
+                try:
+                    _validate_annotation_body(p)
+                except SyntaxError as e:
+                    self.warn(str(e), p)
+                else:
+                    self.visit(p).add_user(dnode)
             # then visit the actual node while 
             # being in the def695 scope.
             visitor = getattr(self, "visit_{}".format(type(node.d).__name__))
@@ -1391,6 +1444,24 @@ def _validate_comprehension(node):
         if bound in iter_names:
             raise SyntaxError('assignment expression cannot rebind '
                               "comprehension iteration variable '{}'".format(bound))
+
+_node_type_to_human_name = {
+    'NamedExpr': 'assignment expression',
+    'Yield': 'yield keyword',
+    'YieldFrom': 'yield keyword',
+    'Await': 'await keyword'
+}
+
+def _validate_annotation_body(node):
+    """
+    Raises SyntaxError if:
+    - the warlus operator is used
+    - the yield/ yield from statement is used
+    - the await keyword is used
+    """
+    for illegal in (n for n in ast.walk(node) if isinstance(n, (ast.NamedExpr, ast.Yield, ast.YieldFrom, ast.Await))):
+        name = _node_type_to_human_name.get(type(illegal).__name__, 'current syntax')
+        raise SyntaxError(f'{name} cannot be used in annotation-like scopes')
 
 def _iter_arguments(args):
     """
