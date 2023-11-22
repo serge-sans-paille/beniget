@@ -1266,10 +1266,27 @@ A = bytes
         self.checkChains(code, ['Optional -> (Optional -> ())', 
                                 'var -> ()'])
     
-    def test_annotation_def_is_not_assign_target(self):
-        code = 'from typing import Optional; var:Optional'
-        self.checkChains(code, ['Optional -> (Optional -> ())', 
-                                'var -> ()'])
+    def test_pep695_disallowed_expressions(self):
+        cases = [
+            "def func(a: (yield)) -> ...: ...",
+            "def func(a: ...) -> (yield from []): ...",
+            "def func(*a: (y := 3)) -> ...: ...",
+            "def func(**a: (await 42)) -> ...: ...",
+
+            "x: (yield) = True",
+            "x: (yield from []) = True",
+            "x: (y := 3) = True",
+            "x: (await 42) = True",]
+
+        for code in cases:
+            code = f'from __future__ import annotations\n' + code
+            with self.subTest(code):
+                self.check_message(code, ['cannot be used in annotation-like scopes'])
+        
+        for code in cases:
+            with self.subTest(code):
+                # From python 3.13, this should generate the same error.
+                self.check_message(code, [])
     
     # PEP-695 test cases from taken from https://github.com/python/cpython/pull/103764/files
 
@@ -1339,7 +1356,7 @@ A = bytes
         "async def f(): type X = (yield)",
         "type X = (y := 3)",
         "class X[T: (yield)]: pass",
-        "class X[T: (yield from x)]: pass",
+        "class X[T: (yield from [])]: pass",
         "class X[T: (await 42)]: pass",
         "class X[T: (y := 3)]: pass",
         "class X[T](y := list[T]): pass",
@@ -1352,7 +1369,7 @@ A = bytes
         for code in cases:
             code = f'from __future__ import annotations\n' + code
             with self.subTest(code):
-                self.check_message(code, ['cannot be used in annotation-like scope'])
+                self.check_message(code, ['cannot be used in annotation-like scopes'])
     
     @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")
     def test_pep695_type_alias_name_collision_01(self):
