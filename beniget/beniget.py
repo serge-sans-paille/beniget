@@ -1086,6 +1086,7 @@ class DefUseChains(ast.NodeVisitor):
                     if isinstance(self._scopes[-i-1], def695):
                         # see https://docs.python.org/3.12/reference/executionmodel.html#annotation-scopes
                         self.warn("names defined in annotation scopes cannot be rebound with nonlocal statements", node)
+                        break
                     # this rightfully creates aliasing
                     self.set_definition(name, d[name])
                     break
