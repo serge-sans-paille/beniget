@@ -738,16 +738,17 @@ class DefUseChains(ast.NodeVisitor):
                 else:
                     self.visit(node.returns)
 
-            self.set_definition(node.name, dnode)
             if in_def695:
-                # emulate this (f is defined in both scopes): 
+                # emulate this (except f is not actually defined in both scopes): 
                 # def695 __generic_parameters_of_f():
                 #     T = TypeVar(name='T')
                 #     def f(x: T) -> T:
                 #         return x
                 #     return f
                 # f = __generic_parameters_of_f()
-                self.set_definition(node.name, dnode, -2)
+                self.set_definition(node.name, dnode, index=-2)
+            else:
+                self.set_definition(node.name, dnode)
 
             self._defered.append((node,
                                   list(self._definitions),
@@ -798,10 +799,11 @@ class DefUseChains(ast.NodeVisitor):
             self.set_definition("__class__", Def("__class__"))
             self.process_body(node.body)
 
-        self.set_definition(node.name, dnode)
         if in_def695:
             # see comment in visit_FunctionDef
             self.set_definition(node.name, dnode, index=-2)
+        else:
+            self.set_definition(node.name, dnode)
 
     def visit_Return(self, node):
         if node.value:
@@ -893,10 +895,11 @@ class DefUseChains(ast.NodeVisitor):
                 self._defered_annotations[-1].append(
                     (node.value, list(self._scopes), None))
 
-            self.set_definition(node.name.id, dname)
             if in_def695:
                 # see comment in visit_FunctionDef
                 self.set_definition(node.name.id, dname, index=-2)
+            else:
+                self.set_definition(node.name.id, dname)
             
             return dnode
         else:
@@ -1459,7 +1462,8 @@ def _validate_annotation_body(node):
     - the yield/ yield from statement is used
     - the await keyword is used
     """
-    for illegal in (n for n in ast.walk(node) if isinstance(n, (ast.NamedExpr, ast.Yield, ast.YieldFrom, ast.Await))):
+    for illegal in (n for n in ast.walk(node) if isinstance(n, 
+                    (ast.NamedExpr, ast.Yield, ast.YieldFrom, ast.Await))):
         name = _node_type_to_human_name.get(type(illegal).__name__, 'current syntax')
         raise SyntaxError(f'{name} cannot be used in annotation-like scopes')
 
