@@ -201,8 +201,6 @@ class CollectLocals(ast.NodeVisitor):
 
     visit_ClassDef = visit_FunctionDef
 
-    visit_TypeVar = visit_ParamSpec = visit_TypeVarTuple = visit_FunctionDef
-
     def visit_Nonlocal(self, node):
         self.NonLocals.update(name for name in node.names)
 
@@ -229,13 +227,21 @@ class CollectLocals(ast.NodeVisitor):
         for alias in node.names:
             self.Locals.add(alias.asname or alias.name)
 
+class CollectLocalsdef695(CollectLocals):
+    
+    visit_TypeVar = visit_ParamSpec = visit_TypeVarTuple = CollectLocals.visit_FunctionDef
+
 def collect_locals(node):
     '''
     Compute the set of identifiers local to a given node.
 
     This is meant to emulate a call to locals()
     '''
-    visitor = CollectLocals()
+    if isinstance(node, def695):
+        # workaround for the new implicit scope created by type params and co.
+        visitor = CollectLocalsdef695()
+    else:
+        visitor = CollectLocals()
     visitor.generic_visit(node)
     return visitor.Locals
 
@@ -390,8 +396,7 @@ class DefUseChains(ast.NodeVisitor):
         # >>> foo() # fails, a is a local referenced before being assigned
         # >>> class bar: a = a
         # >>> bar() # ok, and `bar.a is a`
-        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # classes or def695 scopes.
+        if isinstance(scope, (ast.ClassDef, def695)):
             top_level_definitions = self._definitions[0:-self._scope_depths[0]]
             isglobal = any((name in top_lvl_def or '*' in top_lvl_def)
                            for top_lvl_def in top_level_definitions)
@@ -447,7 +452,6 @@ class DefUseChains(ast.NodeVisitor):
                                                                 precomputed_locals_iter):
                     # If a def695 scope is immediately within a class scope, or within another def695 scope that is immediately within a class scope, 
                     # then names defined in that class scope can be accessed within the def695 scope. 
-                    # (Regular functions, by contrast, cannot access names defined within an enclosing class scope.)
                     if not isinstance(scope, ast.ClassDef) or is_def695:
                         defs = self._definitions[lvl + depth: lvl]
                         if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
@@ -455,7 +459,6 @@ class DefUseChains(ast.NodeVisitor):
                             break
                         looked_up_definitions.extend(reversed(defs))
                     lvl += depth
-                    is_def695 = is_def695 and isinstance(scope, def695)
 
         for defs in looked_up_definitions:
             if defs is StopIteration:
