@@ -396,7 +396,7 @@ class DefUseChains(ast.NodeVisitor):
         # >>> foo() # fails, a is a local referenced before being assigned
         # >>> class bar: a = a
         # >>> bar() # ok, and `bar.a is a`
-        if isinstance(scope, (ast.ClassDef, def695)):
+        if isinstance(scope, (ast.ClassDef, def695)): # TODO: test the def695 part of this
             top_level_definitions = self._definitions[0:-self._scope_depths[0]]
             isglobal = any((name in top_lvl_def or '*' in top_lvl_def)
                            for top_lvl_def in top_level_definitions)
