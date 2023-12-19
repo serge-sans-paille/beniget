@@ -34,8 +34,7 @@ It can also compute def-use chains from each definition.""",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: BSD License",
         "Natural Language :: English",
-        "Programming Language :: Python :: 3",
-    ],
+        "Programming Language :: Python :: 3"],
     python_requires=">=3.6",
     **kw
 )
