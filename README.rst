@@ -10,7 +10,7 @@ version abstraction of the AST, effectively working across all Python 3 versions
 API
 ---
 
-Basically Beniget provides three analyse:
+Basically Beniget provides three analyses:
 
 - ``beniget.Ancestors`` that maps each node to the list of enclosing nodes;
 - ``beniget.DefUseChains`` that maps each node to the list of definition points in that node;
