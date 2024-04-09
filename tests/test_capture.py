@@ -48,6 +48,5 @@ class TestCapture(TestCase):
                     return x"""
         self.checkCapture(code, lambda n: n.body[0].body[0], set())
 
-if sys.version_info >= (3,6):
-    class TestCaptureStdlib(TestCapture):
-        ast = _ast
+class TestCaptureStdlib(TestCapture):
+    ast = _ast

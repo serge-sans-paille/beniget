@@ -18,7 +18,7 @@ setup(
     packages=["beniget"],
     description="Extract semantic information about static Python code",
     long_description="""
-A static analyzer for Python2 and Python3 code.
+A static analyzer for Python code.
 
 Beniget provides a static over-approximation of the global and
 local definitions inside Python Module/Class/Function.
@@ -34,13 +34,8 @@ It can also compute def-use chains from each definition.""",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: BSD License",
         "Natural Language :: English",
-        "Programming Language :: Python :: 2",
-        "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.4",
-        "Programming Language :: Python :: 3.5",
-        "Programming Language :: Python :: 3.6",
     ],
-    python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*",
+    python_requires=">=3.6",
     **kw
 )

@@ -102,6 +102,5 @@ class TestAttributes(TestCase):
                     return self.pop"""
         self.checkAttribute(code, lambda n: n.body[0], set())
 
-if sys.version_info >= (3,6):
-    class TestAttributesStdlib(TestAttributes):
-        ast = _ast
+class TestAttributesStdlib(TestAttributes):
+    ast = _ast

@@ -39,11 +39,9 @@ class TestGlobals(TestCase):
         code = "def foo():\n def bar(): return"
         self.checkGlobals(code, ["foo"])
 
-    if sys.version_info.major >= 3:
-
-        def testAsyncFunctionDef(self):
-            code = "async def foo(): pass"
-            self.checkGlobals(code, ["foo"])
+    def testAsyncFunctionDef(self):
+        code = "async def foo(): pass"
+        self.checkGlobals(code, ["foo"])
 
     def testClassDef(self):
         code = "class C:pass"
@@ -77,11 +75,9 @@ class TestGlobals(TestCase):
         code = "x = 1"
         self.checkGlobals(code, ["x"])
 
-    if sys.version_info.major >= 3:
-
-        def testGlobalAnnotatedDef(self):
-            code = "x : 1"
-            self.checkGlobals(code, ["x"])
+    def testGlobalAnnotatedDef(self):
+        code = "x : 1"
+        self.checkGlobals(code, ["x"])
 
     def testMultipleGlobalDef(self):
         code = "x = 1; x = 2"
@@ -91,10 +87,9 @@ class TestGlobals(TestCase):
         code = "x, y = 1, 2"
         self.checkGlobals(code, ["x", "y"])
 
-    if sys.version_info.major >= 3:
-        def testGlobalStarredDestructuring(self):
-            code = "x, *y = 1, [2]"
-            self.checkGlobals(code, ["x", "y"])
+    def testGlobalStarredDestructuring(self):
+        code = "x, *y = 1, [2]"
+        self.checkGlobals(code, ["x", "y"])
 
     def testGlobalAugAssign(self):
         code = "x = 1; x += 2"
@@ -205,15 +200,13 @@ class TestGlobals(TestCase):
         code = "x = 1\ndef foo(): global x, y"
         self.checkGlobals(code, ["foo", "x"])
 
-    if sys.version_info.major >= 3:
+    def testGlobalAfterKeyword(self):
+        code = "def foo(): global x\nx : 1"
+        self.checkGlobals(code, ["foo", "x"])
 
-        def testGlobalAfterKeyword(self):
-            code = "def foo(): global x\nx : 1"
-            self.checkGlobals(code, ["foo", "x"])
-
-        def testGlobalsAfterKeyword(self):
-            code = "def foo(): global x, y\ny : 1"
-            self.checkGlobals(code, ["foo", "y"])
+    def testGlobalsAfterKeyword(self):
+        code = "def foo(): global x, y\ny : 1"
+        self.checkGlobals(code, ["foo", "y"])
 
     def testGlobalKeyworaInClassd(self):
         code = "class F: global x; x = 1"
@@ -269,39 +262,26 @@ class TestGlobals(TestCase):
 
     def testGlobalListComp(self):
         code = "from some import y; [1 for x in y]"
-        if sys.version_info.major == 2:
-            self.checkGlobals(code, ["x", "y"])
-        else:
-            self.checkGlobals(code, ["y"])
+        self.checkGlobals(code, ["y"])
 
     def testGlobalSetComp(self):
         code = "from some import y; {1 for x in y}"
-        if sys.version_info.major == 2:
-            self.checkGlobals(code, ["x", "y"])
-        else:
-            self.checkGlobals(code, ["y"])
+        self.checkGlobals(code, ["y"])
 
     def testGlobalDictComp(self):
         code = "from some import y; {1:1 for x in y}"
-        if sys.version_info.major == 2:
-            self.checkGlobals(code, ["x", "y"])
-        else:
-            self.checkGlobals(code, ["y"])
+        self.checkGlobals(code, ["y"])
 
     def testGlobalGeneratorExpr(self):
         code = "from some import y; (1 for x in y)"
-        if sys.version_info.major == 2:
-            self.checkGlobals(code, ["x", "y"])
-        else:
-            self.checkGlobals(code, ["y"])
+        self.checkGlobals(code, ["y"])
 
     def testGlobalLambda(self):
         code = "lambda x: x"
         self.checkGlobals(code, [])
 
-if sys.version_info >= (3,6):
-    class TestGlobalsStdlib(TestGlobals):
-        ast = _ast
+class TestGlobalsStdlib(TestGlobals):
+    ast = _ast
 
 class TestClasses(TestCase):
     ast = _gast
@@ -318,9 +298,8 @@ class TestClasses(TestCase):
         code = "class C:\n def foo(self):pass\n bar = foo"
         self.checkClasses(code, ["bar", "foo"])
 
-if sys.version_info >= (3,6):
-    class TestClassesStdlib(TestClasses):
-        ast = _ast
+class TestClassesStdlib(TestClasses):
+    ast = _ast
 
 class TestLocals(TestCase):
     ast = _gast
@@ -357,17 +336,9 @@ class TestLocals(TestCase):
         code = "def foo(a, **b): pass"
         self.checkLocals(code, ["a", "b"])
 
-    if sys.version_info.major >= 3:
-
-        def testLocalFunctionDefKwOnly(self):
-            code = "def foo(a, *, b=1): pass"
-            self.checkLocals(code, ["a", "b"])
-
-    if sys.version_info.major == 2:
-
-        def testLocalFunctionDefDestructureArg(self):
-            code = "def foo((a, b)): pass"
-            self.checkLocals(code, ["a", "b"])
+    def testLocalFunctionDefKwOnly(self):
+        code = "def foo(a, *, b=1): pass"
+        self.checkLocals(code, ["a", "b"])
 
     def test_LocalAssign(self):
         code = "def foo(): a = 1"
@@ -392,21 +363,19 @@ class TestLocals(TestCase):
         code = "def foo(a):\n def bar(): return a\n return bar"
         self.checkLocals(code, ["a", "bar"])
 
-    if sys.version_info.major >= 3:
+    def test_LocalNonLocalBefore(self):
+        code = "def foo(a):\n def bar():\n  nonlocal a; a = 1\n bar(); return a"
+        self.checkLocals(code, ["a", "bar"])
 
-        def test_LocalNonLocalBefore(self):
-            code = "def foo(a):\n def bar():\n  nonlocal a; a = 1\n bar(); return a"
-            self.checkLocals(code, ["a", "bar"])
+    def test_LocalNonLocalAfter(self):
+        code = (
+            "def foo():\n def bar():\n  nonlocal a; a = 1\n a = 2; bar(); return a"
+        )
+        self.checkLocals(code, ["a", "bar"])
 
-        def test_LocalNonLocalAfter(self):
-            code = (
-                "def foo():\n def bar():\n  nonlocal a; a = 1\n a = 2; bar(); return a"
-            )
-            self.checkLocals(code, ["a", "bar"])
-
-        def test_LocalDestructuring(self):
-            code = "def foo(x): y, *z = x"
-            self.checkLocals(code, ["x", "y", "z"])
+    def test_LocalDestructuring(self):
+        code = "def foo(x): y, *z = x"
+        self.checkLocals(code, ["x", "y", "z"])
 
     def test_LocalMadeGlobal(self):
         code = "def foo(): global a; a = 1"
@@ -414,10 +383,7 @@ class TestLocals(TestCase):
 
     def test_ListCompInLoop(self):
         code = "def foo(i):\n for j in i:\n  [k for k in j]"
-        if sys.version_info.major == 2:
-            self.checkLocals(code, ["i", "j", "k"])
-        else:
-            self.checkLocals(code, ["i", "j"])
+        self.checkLocals(code, ["i", "j"])
 
     def test_AugAssignInLoop(self):
         code = """
@@ -436,9 +402,8 @@ def foo(a):
         else: b = a"""
         self.checkLocals(code, ["a", "b"])
 
-if sys.version_info >= (3,6):
-    class TestLocalsStdlib(TestLocals):
-        ast = _ast
+class TestLocalsStdlib(TestLocals):
+    ast = _ast
 
 class TestDefIsLive(TestCase):
 
@@ -552,12 +517,8 @@ class TestDefIsLive(TestCase):
         x = True
         [x for x in (1,2)]
         '''
-        if sys.version_info > (3,):
-            node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
-            self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
-        else:
-            self.checkLiveLocals(code, ['x:3'], ['x:2,3'])
-
+        node, c = self.checkLiveLocals(code, ['x:2'], ['x:2'])
+        self.checkLocals(c, node.body[-1].value, ['x:3'], only_live=True)
 
     def test_var_redef_in_method_scope(self):
         code = '''\
@@ -604,6 +565,5 @@ class TestDefIsLive(TestCase):
         self.checkLiveLocals(code, ['b:2,6', 'v:9,10,4', 'k:10,13'],  
                                 ['b:2,6', 'v:9,10,4', 'k:10,13'])
 
-if sys.version_info >= (3,6):
-    class TestDefIsLiveStdlib(TestDefIsLive):
-        ast = _ast
+class TestDefIsLiveStdlib(TestDefIsLive):
+    ast = _ast

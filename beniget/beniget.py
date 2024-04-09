@@ -1,40 +1,11 @@
-from collections import defaultdict, OrderedDict
+from collections import defaultdict
 from contextlib import contextmanager
 import sys
 
 import ast
 import gast
 
-# TODO: remove me when python 2 is not supported anymore
-class _ordered_set(object):
-    def __init__(self, elements=None):
-        self.values = OrderedDict.fromkeys(elements or [])
-
-    def add(self, value):
-        self.values[value] = None
-
-    def update(self, values):
-        self.values.update((k, None) for k in values)
-
-    def __iter__(self):
-        return iter(self.values.keys())
-
-    def __contains__(self, value):
-        return value in self.values
-
-    def __add__(self, other):
-        out = self.values.copy()
-        out.update(other.values)
-        return out
-
-    def __len__(self):
-        return len(self.values)
-
-if sys.version_info >= (3,6):
-    from .ordered_set import ordered_set
-else:
-    # python < 3,6 we fall back on older version of the ordered_set
-    ordered_set = _ordered_set
+from .ordered_set import ordered_set
 
 def lisinstance(o, cls):
     """
@@ -177,11 +148,8 @@ class Def(object):
             )
 
 
-if sys.version_info.major == 2:
-    BuiltinsSrc = __builtins__
-else:
-    import builtins
-    BuiltinsSrc = builtins.__dict__
+import builtins
+BuiltinsSrc = builtins.__dict__
 
 Builtins = {k: v for k, v in BuiltinsSrc.items()}
 
@@ -262,9 +230,8 @@ class CollectLocals(ast.NodeVisitor):
     def skip(self, _):
         pass
 
-    if sys.version_info.major >= 3:
-        visit_SetComp = visit_DictComp = visit_ListComp = skip
-        visit_GeneratorExp = skip
+    visit_SetComp = visit_DictComp = visit_ListComp = skip
+    visit_GeneratorExp = skip
 
     visit_Lambda = skip
 
@@ -549,13 +516,7 @@ class DefUseChains(ast.NodeVisitor):
         self._scope_depths.pop()
         self._scopes.pop()
 
-    if sys.version_info.major >= 3:
-        CompScopeContext = ScopeContext
-    else:
-        @contextmanager
-        def CompScopeContext(self, node):
-            yield
-
+    CompScopeContext = ScopeContext
 
     @contextmanager
     def DefinitionContext(self, definitions):
@@ -807,18 +768,13 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_AnnAssign(self, node):
         if node.value:
-            dvalue = self.visit(node.value)
+            self.visit(node.value)
         if not self.future_annotations:
-            dannotation = self.visit(node.annotation)
+            self.visit(node.annotation)
         else:
             self._defered_annotations[-1].append(
-                (node.annotation, list(self._scopes),
-                lambda d:dtarget.add_user(d)))
-        dtarget = self.visit(node.target)
-        if not self.future_annotations:
-            dtarget.add_user(dannotation)
-        if node.value:
-            dvalue.add_user(dtarget)
+                (node.annotation, list(self._scopes), None))
+        self.visit(node.target)
 
     def visit_AugAssign(self, node):
         dvalue = self.visit(node.value)
@@ -839,12 +795,6 @@ class DefUseChains(ast.NodeVisitor):
                     self.locals[self._scopes[-1]].append(dtarget)
         else:
             self.visit(node.target).add_user(dvalue)
-
-    def visit_Print(self, node):
-        if node.dest:
-            self.visit(node.dest)
-        for value in node.values:
-            self.visit(value)
 
     def visit_For(self, node):
         self.visit(node.iter)
@@ -1022,32 +972,6 @@ class DefUseChains(ast.NodeVisitor):
             else:
                 self.set_definition(alias.asname or alias.name, dalias)
             self.add_to_locals(alias.asname or alias.name, dalias)
-
-    def visit_Exec(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
-        self.visit(node.body)
-
-        if node.globals:
-            self.visit(node.globals)
-        else:
-            # any global may be used by this exec!
-            for defs in self._definitions[0].values():
-                for d in defs:
-                    d.add_user(dnode)
-
-        if node.locals:
-            self.visit(node.locals)
-        else:
-            # any local may be used by this exec!
-            visible_locals = set()
-            for _definitions in reversed(self._definitions[1:]):
-                for dname, defs in _definitions.items():
-                    if dname not in visible_locals:
-                        visible_locals.add(dname)
-                        for d in defs:
-                            d.add_user(dnode)
-
-        self.extend_definition("*", dnode)
 
     def visit_Global(self, node):
         for name in node.names:
@@ -1355,7 +1279,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_comprehension(self, node, is_nested):
         dnode = self.chains.setdefault(node, Def(node))
-        if not is_nested and sys.version_info.major >= 3:
+        if not is_nested:
             # There's one part of a comprehension or generator expression that executes in the surrounding scope, 
             # it's the expression for the outermost iterable.
             with self.SwitchScopeContext(self._definitions[:-1], self._scopes[:-1], 
