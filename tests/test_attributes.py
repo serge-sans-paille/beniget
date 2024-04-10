@@ -1,22 +1,21 @@
 from unittest import TestCase
 from textwrap import dedent
-import sys
 import ast as _ast
 import gast as _gast
-import beniget
-from beniget.beniget import lisinstance
+# import beniget.standard
 
+from .test_chains import getDefUseChainsType
 
 class Attributes(_ast.NodeVisitor):
     def __init__(self, module_node):
-        self.chains = beniget.DefUseChains()
+        self.chains = getDefUseChainsType(module_node)()
         self.chains.visit(module_node)
         self.attributes = set()
         self.users = set()
 
     def visit_ClassDef(self, node):
         for stmt in node.body:
-            if lisinstance(stmt, 'FunctionDef'):
+            if isinstance(stmt, (_ast.FunctionDef, _gast.FunctionDef)):
                 self_def = self.chains.chains[stmt.args.args[0]]
                 self.users.update(use.node for use in self_def.users())
         self.generic_visit(node)
