@@ -2,9 +2,8 @@
 This module offers the same three analyses, but designed to be run on standard library nodes.
 """
 
-import gast, ast
-from beniget import beniget
-from beniget.ancestors import Ancestors
+import ast
+from beniget import beniget, Ancestors
 
 __all__ = ('Ancestors', 'Def', 'DefUseChains', 'UseDefChains')
             
