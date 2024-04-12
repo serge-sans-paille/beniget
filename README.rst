@@ -16,6 +16,12 @@ Basically Beniget provides three analyse:
 - ``beniget.DefUseChains`` that maps each node to the list of definition points in that node;
 - ``beniget.UseDefChains`` that maps each node to the list of possible definition of that node.
 
+Alternatives working with standard library AST: 
+
+- ``beniget.standard.Ancestors`` that maps each node to the list of enclosing nodes;
+- ``beniget.standard.DefUseChains`` that maps each node to the list of definition points in that node;
+- ``beniget.standard.UseDefChains`` that maps each node to the list of possible definition of that node.
+
 See sample usages and/or run ``pydoc beniget`` for more information :-).
 
 
