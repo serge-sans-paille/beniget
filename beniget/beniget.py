@@ -28,19 +28,21 @@ class Ancestors(ast.NodeVisitor):
     <class 'gast.gast.Module'>
     <class 'gast.gast.FunctionDef'>
     <class 'gast.gast.Return'>
+    
     Also works with standard library nodes
-    >>> import ast
+    
+    >>> import ast as _ast
     >>> code = 'def foo(x): return x + 1'
-    >>> module = ast.parse(code)
+    >>> module = _ast.parse(code)
     >>> from beniget import Ancestors
     >>> ancestors = Ancestors()
     >>> ancestors.visit(module)
     >>> binop = module.body[0].body[0].value
     >>> for n in ancestors.parents(binop):
     ...    print(type(n))
-    <class 'gast.gast.Module'>
-    <class 'gast.gast.FunctionDef'>
-    <class 'gast.gast.Return'>
+    <class 'ast.Module'>
+    <class 'ast.FunctionDef'>
+    <class 'ast.Return'>
     """
 
     def __init__(self):
