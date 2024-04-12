@@ -39,7 +39,7 @@ class Ancestors(ast.NodeVisitor):
     >>> ancestors.visit(module)
     >>> binop = module.body[0].body[0].value
     >>> for n in ancestors.parents(binop):
-    ...    print(type(n))
+    ...    print(str(type(n)).replace('_ast', 'ast'))
     <class 'ast.Module'>
     <class 'ast.FunctionDef'>
     <class 'ast.Return'>
