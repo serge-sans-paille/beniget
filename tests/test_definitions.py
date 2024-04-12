@@ -2,24 +2,16 @@ from textwrap import dedent
 from unittest import TestCase
 import gast as _gast
 import ast as _ast
-import beniget
 import sys
+# import beniget.standard
 
-
-class StrictDefUseChains(beniget.DefUseChains):
-    def unbound_identifier(self, name, node):
-        raise RuntimeError(
-            "W: unbound identifier '{}' at {}:{}".format(
-                name, node.lineno, node.col_offset
-            )
-        )
-
+from .test_chains import getStrictDefUseChains
 
 class TestGlobals(TestCase):
     ast = _gast
     def checkGlobals(self, code, ref):
         node = self.ast.parse(code)
-        c = StrictDefUseChains()
+        c = getStrictDefUseChains(node)()
         c.visit(node)
         self.assertEqual(c.dump_definitions(node), ref)
 
@@ -287,7 +279,7 @@ class TestClasses(TestCase):
     ast = _gast
     def checkClasses(self, code, ref):
         node = self.ast.parse(code)
-        c = StrictDefUseChains()
+        c = getStrictDefUseChains(node)()
         c.visit(node)
         classes = [n for n in node.body if isinstance(n, self.ast.ClassDef)]
         assert len(classes) == 1, "only one top-level function per test case"
@@ -305,7 +297,7 @@ class TestLocals(TestCase):
     ast = _gast
     def checkLocals(self, code, ref):
         node = self.ast.parse(dedent(code))
-        c = StrictDefUseChains()
+        c = getStrictDefUseChains(node)()
         c.visit(node)
         functions = [n for n in node.body if isinstance(n, self.ast.FunctionDef)]
         assert len(functions) == 1, "only one top-level function per test case"
@@ -415,7 +407,7 @@ class TestDefIsLive(TestCase):
     
     def checkLiveLocals(self, code, livelocals, locals):
         node = self.ast.parse(dedent(code))
-        c = StrictDefUseChains()
+        c = getStrictDefUseChains(node)()
         c.visit(node)
         self.checkLocals(c, node, locals)
         self.checkLocals(c, node, livelocals, only_live=True)

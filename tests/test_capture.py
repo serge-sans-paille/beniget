@@ -1,15 +1,15 @@
 from unittest import TestCase
 from textwrap import dedent
-import sys
 import ast as _ast
 import gast as _gast
-import beniget
-from beniget.beniget import lisinstance
+# import beniget.standard
+
+from .test_chains import getDefUseChainsType
 
 
 class Capture(_ast.NodeVisitor):
     def __init__(self, module_node):
-        self.chains = beniget.DefUseChains()
+        self.chains = getDefUseChainsType(module_node)()
         self.chains.visit(module_node)
         self.users = set()
         self.captured = set()
@@ -20,7 +20,7 @@ class Capture(_ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Name(self, node):
-        if lisinstance(node.ctx, 'Load'):
+        if isinstance(node.ctx, (_ast.Load, _gast.Load)):
             if node not in self.users:
                 # FIXME: IRL, should be the definition of this use
                 self.captured.add(node.id)
