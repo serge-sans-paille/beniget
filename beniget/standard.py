@@ -22,21 +22,23 @@ class Def(beniget.Def):
 class DefUseChains(beniget.DefUseChains):
 
     def __init__(self, *args, **kw):
-        # defer the __init__ after patching Def
         self._init_args = (args, kw)
 
     def visit_Module(self, node):
-        args, kw = self._init_args
-        super().__init__(*args, **kw)
-
+        # Patch beniget
         (_oldCollec, 
          beniget._CollectFutureImports) = (beniget._CollectFutureImports, 
                                            _CollectFutureImports)
         (_oldDef, beniget.Def) = (beniget.Def, Def)
         
+        # defer the __init__ after patching Def
+        args, kw = self._init_args
+        super().__init__(*args, **kw)
+
         try:
             return super().visit_Module(node)
         finally:
+            # Unpatch
             beniget.Def = _oldDef
             beniget._CollectFutureImports = _oldCollec
     
