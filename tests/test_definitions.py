@@ -1,23 +1,16 @@
 from textwrap import dedent
 from unittest import TestCase
-import gast as ast
-import beniget
+import gast as _gast
+import ast as _ast
 import sys
 
-
-class StrictDefUseChains(beniget.DefUseChains):
-    def unbound_identifier(self, name, node):
-        raise RuntimeError(
-            "W: unbound identifier '{}' at {}:{}".format(
-                name, node.lineno, node.col_offset
-            )
-        )
-
+from .test_chains import getStrictDefUseChains
 
 class TestGlobals(TestCase):
+    ast = _gast
     def checkGlobals(self, code, ref):
-        node = ast.parse(code)
-        c = StrictDefUseChains()
+        node = self.ast.parse(code)
+        c = getStrictDefUseChains(node)()
         c.visit(node)
         self.assertEqual(c.dump_definitions(node), ref)
 
@@ -278,13 +271,16 @@ class TestGlobals(TestCase):
         code = "lambda x: x"
         self.checkGlobals(code, [])
 
+class TestGlobalsStdlib(TestGlobals):
+    ast = _ast
 
 class TestClasses(TestCase):
+    ast = _gast
     def checkClasses(self, code, ref):
-        node = ast.parse(code)
-        c = StrictDefUseChains()
+        node = self.ast.parse(code)
+        c = getStrictDefUseChains(node)()
         c.visit(node)
-        classes = [n for n in node.body if isinstance(n, ast.ClassDef)]
+        classes = [n for n in node.body if isinstance(n, self.ast.ClassDef)]
         assert len(classes) == 1, "only one top-level function per test case"
         cls = classes[0]
         self.assertEqual(c.dump_definitions(cls), ref)
@@ -293,13 +289,16 @@ class TestClasses(TestCase):
         code = "class C:\n def foo(self):pass\n bar = foo"
         self.checkClasses(code, ["bar", "foo"])
 
+class TestClassesStdlib(TestClasses):
+    ast = _ast
 
 class TestLocals(TestCase):
+    ast = _gast
     def checkLocals(self, code, ref):
-        node = ast.parse(dedent(code))
-        c = StrictDefUseChains()
+        node = self.ast.parse(dedent(code))
+        c = getStrictDefUseChains(node)()
         c.visit(node)
-        functions = [n for n in node.body if isinstance(n, ast.FunctionDef)]
+        functions = [n for n in node.body if isinstance(n, self.ast.FunctionDef)]
         assert len(functions) == 1, "only one top-level function per test case"
         f = functions[0]
         self.assertEqual(c.dump_definitions(f), ref)
@@ -394,15 +393,20 @@ def foo(a):
         else: b = a"""
         self.checkLocals(code, ["a", "b"])
 
+class TestLocalsStdlib(TestLocals):
+    ast = _ast
+
 class TestDefIsLive(TestCase):
+
+    ast = _gast
 
     def checkLocals(self, c, node, ref, only_live=False):
         self.assertEqual(sorted(c._dump_locals(node, only_live=only_live)), 
                          sorted(ref))
     
     def checkLiveLocals(self, code, livelocals, locals):
-        node = ast.parse(dedent(code))
-        c = StrictDefUseChains()
+        node = self.ast.parse(dedent(code))
+        c = getStrictDefUseChains(node)()
         c.visit(node)
         self.checkLocals(c, node, locals)
         self.checkLocals(c, node, livelocals, only_live=True)
@@ -552,3 +556,5 @@ class TestDefIsLive(TestCase):
         self.checkLiveLocals(code, ['b:2,6', 'v:9,10,4', 'k:10,13'],  
                                 ['b:2,6', 'v:9,10,4', 'k:10,13'])
 
+class TestDefIsLiveStdlib(TestDefIsLive):
+    ast = _ast

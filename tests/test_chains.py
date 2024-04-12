@@ -1,13 +1,26 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
 import unittest
-import gast as ast
-import beniget
+import beniget.standard
 import io
 import sys
+import ast as _ast
+import gast as _gast
+import gast.gast as _gast_module
 
 # Show full diff in unittest
 unittest.util._MAX_LENGTH=2000
+
+def replace_deprecated_names(out):
+    return out.replace(
+        'Num', 'Constant'
+    ).replace(
+        'Ellipsis', 'Constant'
+    ).replace(
+        'Str', 'Constant'
+    ).replace(
+        'Bytes', 'Constant'
+    )
 
 @contextmanager
 def captured_output():
@@ -19,23 +32,40 @@ def captured_output():
     finally:
         sys.stdout, sys.stderr = old_out, old_err
 
-class StrictDefUseChains(beniget.DefUseChains):
-    def warn(self, msg, node):
-        raise RuntimeError(
-            "W: {} at {}:{}".format(
-                msg, node.lineno, node.col_offset
-            )
-        )
+gast_nodes = tuple(getattr(_gast, t[0]) for t in _gast_module._nodes)
+
+def getDefUseChainsType(node):
+    if isinstance(node, gast_nodes):
+        return beniget.DefUseChains
+    return beniget.standard.DefUseChains
+
+def getStrictDefUseChains(node):
+    class StrictDefUseChains(getDefUseChainsType(node)):
+            def warn(self, msg, node):
+                raise RuntimeError(
+                    "W: {} at {}:{}".format(
+                        msg, node.lineno, node.col_offset
+                    )
+                )
+    return StrictDefUseChains
+
+def getUseDefChainsType(node):
+    if isinstance(node, gast_nodes):
+        return beniget.UseDefChains
+    return beniget.standard.UseDefChains
 
 class TestDefUseChains(TestCase):
+    ast = _gast
+    maxDiff = None
     def checkChains(self, code, ref, strict=True):
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         if strict:
-            c = StrictDefUseChains()
+            c = getStrictDefUseChains(node)()
         else:
-            c = beniget.DefUseChains()
+            c = getDefUseChainsType(node)()
+        
         c.visit(node)
-        self.assertEqual(c.dump_chains(node), ref)
+        self.assertEqual(c.dump_chains(node), ref)        
         return node, c
     
     def checkUseDefChains(self, code, ref, strict=True):
@@ -408,8 +438,8 @@ while done:
 
     def test_def_used_in_self_default(self):
         code = "def foo(x:foo): return foo"
-        c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ["foo -> (foo -> ())"])
 
@@ -421,36 +451,36 @@ def middle():
         x = x+1 # <- this triggers NameError: name 'x' is not defined
     return x
         '''
-        c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['x -> (x -> ())', 'mytype -> ()'])
 
     def test_unbound_class_variable2(self):
         code = '''class A:\n  a = 10\n  def f(self):\n    return a # a is not defined'''
-        c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable3(self):
         code = '''class A:\n  a = 10\n  class I:\n    b = a + 1 # a is not defined'''
-        c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'I -> ()'])
 
     def test_unbound_class_variable4(self):
         code = '''class A:\n  a = 10\n  f = lambda: a # a is not defined'''
-        c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable5(self):
         code = '''class A:\n  a = 10\n  b = [a for _ in range(10)]  # a is not defined'''
-        c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'b -> ()'])
         
@@ -473,14 +503,14 @@ def outer():
                 def c(x) -> mytype(): # this one shouldn't
                     ...
         '''
-        c = beniget.DefUseChains()
-        node = ast.parse(code)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0].body[0]), ['mytype -> (mytype -> (Call -> ()))'])
 
     def check_message(self, code, expected_messages, filename=None):
-        node = ast.parse(code)
-        c = beniget.DefUseChains(filename)
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)(filename)
         with captured_output() as (out, err):
             c.visit(node)
 
@@ -534,8 +564,8 @@ class Visitor:
     def visit_Name(self, node):pass
     visit_Attribute = visit_Name
 '''
-        node = ast.parse(code)
-        c = beniget.DefUseChains()
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ['visit_Name -> ()',
                                                'Visitor -> ()'])
@@ -550,8 +580,8 @@ class Attr(object):pass
 class Visitor:
     class Attr(Attr):pass
     '''
-            node = ast.parse(code)
-            c = beniget.DefUseChains()
+            node = self.ast.parse(code)
+            c = getDefUseChainsType(node)()
             c.visit(node)
             self.assertEqual(c.dump_chains(node),
                              ['Attr -> (Attr -> (Attr -> ()))',
@@ -603,8 +633,8 @@ class Visitor:
     def f(): return f()
     def visit_Name(self, node:Thing, fn:f):...
 '''
-        node = ast.parse(code)
-        c = beniget.DefUseChains()
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
                          ['Thing -> ()',
@@ -621,8 +651,8 @@ def visit_Attribute(self, node):pass
 class Visitor:
     visit_Attribute = visit_Attribute
 '''
-        node = ast.parse(code)
-        c = beniget.DefUseChains()
+        node = self.ast.parse(code)
+        c = getDefUseChainsType(node)()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
             ['visit_Attribute -> (visit_Attribute -> ())',
@@ -929,7 +959,7 @@ Thing:TypeAlias = 'Mapping'
             "W: unbound identifier 'D'",
         ]
 
-        assert len(produced_messages) == len(expected_warnings), len(produced_messages)
+        assert len(produced_messages) == len(expected_warnings), produced_messages
         assert all(any(w in pw for pw in produced_messages) for w in expected_warnings)
 
         # locals of C
@@ -1074,8 +1104,8 @@ def outer():
 fn = outer()
         '''
 
-        mod = ast.parse(code)
-        chains = beniget.DefUseChains('test')
+        mod = self.ast.parse(code)
+        chains = getDefUseChainsType(mod)('test')
         with captured_output() as (out, err):
             chains.visit(mod)
         
@@ -1121,7 +1151,7 @@ fn = outer()
 
     def test_lookup_scopes(self):
         from beniget.beniget import _get_lookup_scopes, def695
-        mod, fn, cls, lambd, gen, comp, typeparams = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp(), def695(body=[], d=ast.FunctionDef())
+        mod, fn, cls, lambd, gen, comp = self.ast.Module(), self.ast.FunctionDef(), self.ast.ClassDef(), self.ast.Lambda(), self.ast.GeneratorExp(), self.ast.DictComp(), def695(body=[], d=ast.FunctionDef())
         assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
         assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
         assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
@@ -1276,7 +1306,7 @@ A = bytes
         
         for code in cases:
             with self.subTest(code):
-                # From python 3.13, this should generate the same error.
+                # TODO: From python 3.13, this should generate the same error.
                 self.check_message(code, [])
     
     # PEP-695 test cases taken from https://github.com/python/cpython/pull/103764/files
@@ -1640,9 +1670,110 @@ class B[decorator](object):
 '''
         self.checkChains(code,  ['decorator -> (decorator -> (B -> ()))', 
                                  'B -> ()'])
-        
-class TestUseDefChains(TestCase):
 
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_value(self):
+        code = '''
+command = 123
+match command:
+    case 123 as b:
+        b+=1
+        '''
+        self.checkChains(code, ['command -> (command -> ())', 
+                                'b -> (b -> ())'])
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_list(self):
+        code = '''
+command = 'go there'
+match command.split():
+    case ["go", direction]:
+        print(direction)
+    case _:
+        raise ValueError("Sorry")
+        '''
+        self.checkChains(code, ['command -> (command -> (Attribute -> (Call -> ())))',
+                                'direction -> (MatchSequence -> (), direction -> (Call -> ()))'])
+    
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_list_star(self):
+        code = '''
+command = 'drop'
+match command.split():
+    case ["go", direction]: ...
+    case ["drop", *objects]:
+        print(objects)
+        '''
+        self.checkChains(code, ['command -> (command -> (Attribute -> (Call -> ())))',
+                                'direction -> (MatchSequence -> ())',
+                                'objects -> (MatchSequence -> (), objects -> (Call -> ()))'])
+    
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_dict(self):
+        code = '''
+ui = object()
+action = dict(text='')
+match action:
+    case {"text": str(message), "color": str(c), **rest}:
+        ui.set_text_color(c)
+        ui.display(message)
+        print(rest)
+    case {"sleep": float(duration)}:
+        ui.wait(duration)
+    case {"sound": str(url), "format": "ogg"}:
+        ui.play(url)
+    case {"sound": _, "format": _}:
+        raise ValueError("Unsupported audio format")
+print(c)
+        '''
+        self.checkChains(code, ['ui -> (ui -> (Attribute -> (Call -> ())), ui -> (Attribute -> (Call -> ())), ui -> (Attribute -> (Call -> ())), ui -> (Attribute -> (Call -> ())))',
+                                'action -> (action -> ())',
+                                'message -> (MatchClass -> (rest -> (rest -> (Call -> ()))), message -> (Call -> ()))',
+                                'c -> (MatchClass -> (rest -> (rest -> (Call -> ()))), c -> (Call -> ()), c -> (Call -> ()))',
+                                'rest -> (rest -> (Call -> ()))',
+                                'duration -> (MatchClass -> (MatchMapping -> ()), duration -> (Call -> ()))',
+                                'url -> (MatchClass -> (MatchMapping -> ()), url -> (Call -> ()))'])    
+    
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_class_rebinds_attrs(self):
+        
+        code = '''
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+point = Point(-2,1)
+match point:
+    case Point(x=0, y=0):
+        print("Origin")
+    case Point(x=0, y=y):
+        print(f"Y={y}")
+    case Point(x=x, y=0):
+        print(f"X={x}")
+    case Point(x=x, y=y):
+        print("Somewhere else")
+    case _:
+        print("Not a point")
+print(x, y)
+        '''
+        self.checkChains(
+                code, ['dataclass -> (dataclass -> (Point -> (Point -> (Call -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()))))',
+                       'Point -> (Point -> (Call -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()))',
+                       'point -> (point -> ())',
+                       'y -> (MatchClass -> (), y -> (FormattedValue -> (JoinedStr -> (Call -> ()))), y -> (Call -> ()))',
+                       'x -> (MatchClass -> (), x -> (FormattedValue -> (JoinedStr -> (Call -> ()))), x -> (Call -> ()))',
+                       'x -> (MatchClass -> (), x -> (Call -> ()))',
+                       'y -> (MatchClass -> (), y -> (Call -> ()))'])
+
+
+class TestDefUseChainsStdlib(TestDefUseChains):
+    ast = _ast
+    
+class TestUseDefChains(TestCase):
+    ast = _gast
     checkChains = TestDefUseChains.checkUseDefChains
 
     def test_simple_expression(self):
@@ -1653,3 +1784,7 @@ class TestUseDefChains(TestCase):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
 
+
+class TestUseDefChainsStdlib(TestDefUseChains):
+    ast = _ast
+        
