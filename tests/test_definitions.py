@@ -3,7 +3,6 @@ from unittest import TestCase
 import gast as _gast
 import ast as _ast
 import sys
-# import beniget.standard
 
 from .test_chains import getStrictDefUseChains
 

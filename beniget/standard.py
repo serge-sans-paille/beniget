@@ -43,7 +43,6 @@ class DefUseChains(beniget.DefUseChains):
     def visit_skip_annotation(self, node):
         if isinstance(node, ast.arg):
             return self.visit_arg(node, skip_annotation=True)
-        print(f'Not an arg instance: {node}')
         return super().visit_skip_annotation(node)
 
     def visit_ExceptHandler(self, node):

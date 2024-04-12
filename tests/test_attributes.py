@@ -2,7 +2,6 @@ from unittest import TestCase
 from textwrap import dedent
 import ast as _ast
 import gast as _gast
-# import beniget.standard
 
 from .test_chains import getDefUseChainsType
 
