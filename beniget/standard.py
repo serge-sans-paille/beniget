@@ -8,25 +8,6 @@ from beniget.ancestors import Ancestors
 
 __all__ = ('Ancestors', 'Def', 'DefUseChains', 'UseDefChains')
             
-def _patched_isinstance(obj, class_or_tuple):
-    """
-    This `isinstance` function blurs the line in between `gast` nodes and `ast` nodes.
-    It works both ways.
-
-    >>> assert _patched_isinstance(ast.ClassDef(), (gast.AST, gast.FunctionDef))
-    >>> assert _patched_isinstance(ast.ClassDef(), gast.ClassDef)
-    >>> assert _patched_isinstance(gast.ClassDef(), ast.ClassDef)
-    >>> assert _patched_isinstance(ast.arg(), gast.Name)
-
-    """
-    aliases = {'arg': 'Name'}
-    if isinstance(class_or_tuple, (tuple, list)):
-        return any(_patched_isinstance(obj, c) for c in class_or_tuple)
-    if isinstance(obj, ast.AST) and issubclass(class_or_tuple, ast.AST):
-        typename = aliases.get(class_or_tuple.__name__, class_or_tuple.__name__)
-        return any(aliases.get(e.__name__, e.__name__) == typename for e in obj.__class__.__mro__)
-    return isinstance(obj, class_or_tuple)
-
 class _CollectFutureImports(beniget._CollectFutureImports):
     def visit_Str(self, node):
         pass
@@ -39,11 +20,26 @@ class Def(beniget.Def):
             return self.node.name
         return super().name()
 
-# beniget.isinstance = _patched_isinstance
-# beniget._CollectFutureImports = _CollectFutureImports
-# beniget.Def = Def
-
 class DefUseChains(beniget.DefUseChains):
+
+    def __init__(self, *args, **kw):
+        # defer the __init__ after patching Def
+        self._init_args = (args, kw)
+
+    def visit_Module(self, node):
+        args, kw = self._init_args
+        super().__init__(*args, **kw)
+
+        (_oldCollec, 
+         beniget._CollectFutureImports) = (beniget._CollectFutureImports, 
+                                           _CollectFutureImports)
+        (_oldDef, beniget.Def) = (beniget.Def, Def)
+        
+        try:
+            return super().visit_Module(node)
+        finally:
+            beniget.Def = _oldDef
+            beniget._CollectFutureImports = _oldCollec
     
     def visit_skip_annotation(self, node):
         if isinstance(node, ast.arg):
@@ -81,7 +77,8 @@ class DefUseChains(beniget.DefUseChains):
         # pretend Index does not exist
         return self.visit(node.value)
     
-    visit_NameConstant = visit_Num = visit_Str = visit_Bytes = visit_Ellipsis = visit_Constant = beniget.DefUseChains.visit_Constant
+    visit_NameConstant = visit_Num = visit_Str = \
+        visit_Bytes = visit_Ellipsis = visit_Constant = beniget.DefUseChains.visit_Constant
 
 class UseDefChains(object):
     def __init__(self, defuses):

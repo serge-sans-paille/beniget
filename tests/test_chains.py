@@ -1,11 +1,12 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
 import unittest
-import beniget
+import beniget.standard
 import io
 import sys
 import ast as _ast
 import gast as _gast
+import gast.gast as _gast_module
 
 # Show full diff in unittest
 unittest.util._MAX_LENGTH=2000
@@ -31,8 +32,10 @@ def captured_output():
     finally:
         sys.stdout, sys.stderr = old_out, old_err
 
+gast_nodes = tuple(getattr(_gast, t[0]) for t in _gast_module._nodes)
+
 def getDefUseChainsType(node):
-    if isinstance(node, _gast.AST):
+    if isinstance(node, gast_nodes):
         return beniget.DefUseChains
     return beniget.standard.DefUseChains
 
@@ -47,7 +50,7 @@ def getStrictDefUseChains(node):
     return StrictDefUseChains
 
 def getUseDefChainsType(node):
-    if isinstance(node, _gast.AST):
+    if isinstance(node, gast_nodes):
         return beniget.UseDefChains
     return beniget.standard.UseDefChains
 
@@ -639,6 +642,7 @@ class Visitor:
 '''
         node = self.ast.parse(code)
         c = getDefUseChainsType(node)()
+        c.visit(node)
         self.assertEqual(c.dump_chains(node),
             ['visit_Attribute -> (visit_Attribute -> ())',
              'Visitor -> ()'])
