@@ -1,3 +1,6 @@
+"""
+Each TestCase subclass should have it's standard library counterpart.
+"""
 import tests.test_definitions
 import tests.test_chains
 import tests.test_capture
