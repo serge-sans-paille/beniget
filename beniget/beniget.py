@@ -478,7 +478,8 @@ class DefUseChains(gast.NodeVisitor):
         for d in self.locals[node]:
             if not only_live or d.islive:
                 groupped[d.name()].append(d)
-        return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', -1)) for d in defs])) \
+                                               # Compatthe linenumber is None on gast when unset in ast, so use None when unset.
+        return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', None)) for d in defs])) \
             for name,defs in groupped.items()]
 
     def dump_definitions(self, node, ignore_builtins=True):
