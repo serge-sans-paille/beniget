@@ -1,6 +1,7 @@
 from collections import defaultdict
 from contextlib import contextmanager
 import builtins
+import sys
 import gast
 
 from .ordered_set import ordered_set
@@ -335,25 +336,30 @@ class DefUseChains(gast.NodeVisitor):
         visitor.generic_visit(node)
         return visitor.Locals
 
-    @classmethod
-    def _validate_comprehension(cls, node):
-        """
-        Raises SyntaxError if:
-        - a named expression is used in a comprehension iterable expression
-        - a named expression rebinds a comprehension iteration variable
-        """
-        iter_names = set() # comprehension iteration variables
-        for gen in node.generators:
-            for namedexpr in (n for n in cls.ast.walk(gen.iter) if isinstance(n, cls.ast.NamedExpr)):
-                raise SyntaxError('assignment expression cannot be used '
-                                    'in a comprehension iterable expression')
-            iter_names.update(n.id for n in cls.ast.walk(gen.target) 
-                if isinstance(n, cls.ast.Name) and isinstance(n.ctx, cls.ast.Store))
-        for namedexpr in (n for n in cls.ast.walk(node) if  isinstance(n, cls.ast.NamedExpr)):
-            bound = getattr(namedexpr.target, 'id', None)
-            if bound in iter_names:
-                raise SyntaxError('assignment expression cannot rebind '
-                                "comprehension iteration variable '{}'".format(bound))
+    if sys.version_info >= (3, 8):
+        @classmethod
+        def _validate_comprehension(cls, node):
+            """
+            Raises SyntaxError if:
+            - a named expression is used in a comprehension iterable expression
+            - a named expression rebinds a comprehension iteration variable
+            """
+            iter_names = set() # comprehension iteration variables
+            for gen in node.generators:
+                for namedexpr in (n for n in cls.ast.walk(gen.iter) if isinstance(n, cls.ast.NamedExpr)):
+                    raise SyntaxError('assignment expression cannot be used '
+                                        'in a comprehension iterable expression')
+                iter_names.update(n.id for n in cls.ast.walk(gen.target) 
+                    if isinstance(n, cls.ast.Name) and isinstance(n.ctx, cls.ast.Store))
+            for namedexpr in (n for n in cls.ast.walk(node) if  isinstance(n, cls.ast.NamedExpr)):
+                bound = getattr(namedexpr.target, 'id', None)
+                if bound in iter_names:
+                    raise SyntaxError('assignment expression cannot rebind '
+                                    "comprehension iteration variable '{}'".format(bound))
+    else:
+        @classmethod
+        def _validate_comprehension(cls, node):
+            pass
 
     @staticmethod
     def _iter_arguments(args):
