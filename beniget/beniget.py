@@ -484,7 +484,7 @@ class DefUseChains(gast.NodeVisitor):
         for d in self.locals[node]:
             if not only_live or d.islive:
                 groupped[d.name()].append(d)
-                                               # Compatthe linenumber is None on gast when unset in ast, so use None when unset.
+                                               # Compat: the linenumber is None on gast when unset in ast, so use None when unset.
         return ['{}:{}'.format(name, ','.join([str(getattr(d.node, 'lineno', None)) for d in defs])) \
             for name,defs in groupped.items()]
 
