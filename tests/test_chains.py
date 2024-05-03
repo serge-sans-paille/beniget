@@ -6,7 +6,6 @@ import io
 import sys
 import ast as _ast
 import gast as _gast
-import gast.gast as _gast_module
 
 # Show full diff in unittest
 unittest.util._MAX_LENGTH=2000
@@ -32,7 +31,6 @@ def captured_output():
     finally:
         sys.stdout, sys.stderr = old_out, old_err
 
-gast_nodes = tuple(getattr(_gast, t[0]) for t in _gast_module._nodes)
 
 class StrictDefUseChains(beniget.DefUseChains):
         def warn(self, msg, node):
