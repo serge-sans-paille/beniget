@@ -4,13 +4,13 @@ import gast as _gast
 import ast as _ast
 import sys
 
-from .test_chains import getStrictDefUseChains
+from .test_chains import StrictDefUseChains
 
 class TestGlobals(TestCase):
     ast = _gast
     def checkGlobals(self, code, ref):
         node = self.ast.parse(code)
-        c = getStrictDefUseChains(node)()
+        c = StrictDefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_definitions(node), ref)
 
@@ -278,7 +278,7 @@ class TestClasses(TestCase):
     ast = _gast
     def checkClasses(self, code, ref):
         node = self.ast.parse(code)
-        c = getStrictDefUseChains(node)()
+        c = StrictDefUseChains()
         c.visit(node)
         classes = [n for n in node.body if isinstance(n, self.ast.ClassDef)]
         assert len(classes) == 1, "only one top-level function per test case"
@@ -296,7 +296,7 @@ class TestLocals(TestCase):
     ast = _gast
     def checkLocals(self, code, ref):
         node = self.ast.parse(dedent(code))
-        c = getStrictDefUseChains(node)()
+        c = StrictDefUseChains()
         c.visit(node)
         functions = [n for n in node.body if isinstance(n, self.ast.FunctionDef)]
         assert len(functions) == 1, "only one top-level function per test case"
@@ -406,7 +406,7 @@ class TestDefIsLive(TestCase):
     
     def checkLiveLocals(self, code, livelocals, locals):
         node = self.ast.parse(dedent(code))
-        c = getStrictDefUseChains(node)()
+        c = StrictDefUseChains()
         c.visit(node)
         self.checkLocals(c, node, locals)
         self.checkLocals(c, node, livelocals, only_live=True)

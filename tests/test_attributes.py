@@ -3,11 +3,11 @@ from textwrap import dedent
 import ast as _ast
 import gast as _gast
 
-from .test_chains import getDefUseChainsType
+import beniget
 
 class Attributes(_ast.NodeVisitor):
     def __init__(self, module_node):
-        self.chains = getDefUseChainsType(module_node)()
+        self.chains = beniget.DefUseChains()
         self.chains.visit(module_node)
         self.attributes = set()
         self.users = set()

@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
 import unittest
-import beniget.standard
+import beniget
 import io
 import sys
 import ast as _ast
@@ -34,25 +34,13 @@ def captured_output():
 
 gast_nodes = tuple(getattr(_gast, t[0]) for t in _gast_module._nodes)
 
-def getDefUseChainsType(node):
-    if isinstance(node, gast_nodes):
-        return beniget.DefUseChains
-    return beniget.standard.DefUseChains
-
-def getStrictDefUseChains(node):
-    class StrictDefUseChains(getDefUseChainsType(node)):
-            def warn(self, msg, node):
-                raise RuntimeError(
-                    "W: {} at {}:{}".format(
-                        msg, node.lineno, node.col_offset
-                    )
+class StrictDefUseChains(beniget.DefUseChains):
+        def warn(self, msg, node):
+            raise RuntimeError(
+                "W: {} at {}:{}".format(
+                    msg, node.lineno, node.col_offset
                 )
-    return StrictDefUseChains
-
-def getUseDefChainsType(node):
-    if isinstance(node, gast_nodes):
-        return beniget.UseDefChains
-    return beniget.standard.UseDefChains
+            )
 
 class TestDefUseChains(TestCase):
     ast = _gast
@@ -60,9 +48,9 @@ class TestDefUseChains(TestCase):
     def checkChains(self, code, ref, strict=True):
         node = self.ast.parse(code)
         if strict:
-            c = getStrictDefUseChains(node)()
+            c = StrictDefUseChains()
         else:
-            c = getDefUseChainsType(node)()
+            c = beniget.DefUseChains()
         
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)        
@@ -428,7 +416,7 @@ while done:
     def test_def_used_in_self_default(self):
         code = "def foo(x:foo): return foo"
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ["foo -> (foo -> ())"])
 
@@ -441,35 +429,35 @@ def middle():
     return x
         '''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['x -> (x -> ())', 'mytype -> ()'])
 
     def test_unbound_class_variable2(self):
         code = '''class A:\n  a = 10\n  def f(self):\n    return a # a is not defined'''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable3(self):
         code = '''class A:\n  a = 10\n  class I:\n    b = a + 1 # a is not defined'''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'I -> ()'])
 
     def test_unbound_class_variable4(self):
         code = '''class A:\n  a = 10\n  f = lambda: a # a is not defined'''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable5(self):
         code = '''class A:\n  a = 10\n  b = [a for _ in range(10)]  # a is not defined'''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'b -> ()'])
         
@@ -493,13 +481,13 @@ def outer():
                     ...
         '''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0].body[0]), ['mytype -> (mytype -> (Call -> ()))'])
 
     def check_message(self, code, expected_messages, filename=None):
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)(filename)
+        c = beniget.DefUseChains(filename)
         with captured_output() as (out, err):
             c.visit(node)
 
@@ -554,7 +542,7 @@ class Visitor:
     visit_Attribute = visit_Name
 '''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ['visit_Name -> ()',
                                                'Visitor -> ()'])
@@ -570,7 +558,7 @@ class Visitor:
     class Attr(Attr):pass
     '''
             node = self.ast.parse(code)
-            c = getDefUseChainsType(node)()
+            c = beniget.DefUseChains()
             c.visit(node)
             self.assertEqual(c.dump_chains(node),
                              ['Attr -> (Attr -> (Attr -> ()))',
@@ -623,7 +611,7 @@ class Visitor:
     def visit_Name(self, node:Thing, fn:f):...
 '''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
                          ['Thing -> ()',
@@ -641,7 +629,7 @@ class Visitor:
     visit_Attribute = visit_Attribute
 '''
         node = self.ast.parse(code)
-        c = getDefUseChainsType(node)()
+        c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
             ['visit_Attribute -> (visit_Attribute -> ())',
@@ -1094,7 +1082,7 @@ fn = outer()
         '''
 
         mod = self.ast.parse(code)
-        chains = getDefUseChainsType(mod)('test')
+        chains = beniget.DefUseChains('test')
         with captured_output() as (out, err):
             chains.visit(mod)
         
@@ -1139,7 +1127,10 @@ fn = outer()
         # to the inner classes. 
 
     def test_lookup_scopes(self):
-        _get_lookup_scopes = getDefUseChainsType(self.ast.Module(body=[]))._get_lookup_scopes
+        defuse = beniget.DefUseChains()
+        defuse.visit(self.ast.Module(body=[]))
+        assert defuse.ast is self.ast
+        _get_lookup_scopes = defuse._get_lookup_scopes
         mod, fn, cls, lambd, gen, comp = self.ast.Module(), self.ast.FunctionDef(), self.ast.ClassDef(), self.ast.Lambda(), self.ast.GeneratorExp(), self.ast.DictComp()
         assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
         assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
@@ -1279,7 +1270,7 @@ class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         node = self.ast.parse(code)
 
-        class StrictDefUseChains(getDefUseChainsType(node)):
+        class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
                 raise RuntimeError(
                     "W: unbound identifier '{}' at {}:{}".format(
@@ -1289,7 +1280,7 @@ class TestUseDefChains(TestCase):
 
         c = StrictDefUseChains()
         c.visit(node)
-        cc = getUseDefChainsType(node)(c)
+        cc = beniget.UseDefChains(c)
         actual = str(cc)
 
         # work arround little change from python 3.6
