@@ -913,6 +913,8 @@ class DefUseChains(ast.NodeVisitor):
 
         self.process_body(node.finalbody)
 
+    visit_TryStar = visit_Try
+
     def visit_Assert(self, node):
         self.visit(node.test)
         if node.msg:

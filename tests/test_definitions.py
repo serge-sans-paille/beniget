@@ -1,5 +1,5 @@
 from textwrap import dedent
-from unittest import TestCase
+from unittest import TestCase, skipIf
 import gast as ast
 import beniget
 import sys
@@ -156,6 +156,11 @@ class TestGlobals(TestCase):
     def testGlobalTryExceptFinally(self):
         code = "try: w = 1\nexcept Exception as x: y = 1\nfinally: z = 1"
         self.checkGlobals(code, ["w", "x", "y", "z"])
+
+    @skipIf(sys.version_info < (3, 11), 'Python 3.11 syntax')
+    def testGlobalTryStarExcept(self):
+        code = "from some import foo\ntry: foo()\nexcept* Exception as e: pass"
+        self.checkGlobals(code, ["e", "foo"])
 
     def testGlobalThroughKeyword(self):
         code = "def foo(): global x"

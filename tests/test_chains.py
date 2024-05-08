@@ -310,6 +310,11 @@ while done:
         code = "try: pass\nexcept Exception as e: pass\ne"
         self.checkChains(code, ["e -> (e -> ())"])
 
+    @skipIf(sys.version_info < (3, 11), 'Python 3.11 syntax')
+    def test_simple_except_star(self):
+        code = "try: pass\nexcept* Exception as e: pass\ne"
+        self.checkChains(code, ["e -> (e -> ())"])
+
     def test_simple_try_except(self):
         code = 'try: f = open("")\nexcept Exception as e: pass\ne;f'
         self.checkChains(code, ["f -> (f -> ())", "e -> (e -> ())"])
