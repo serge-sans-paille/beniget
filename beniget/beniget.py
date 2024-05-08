@@ -85,7 +85,7 @@ class Ancestors(gast.NodeVisitor):
                                           self.ast.AsyncFunctionDef))
 
     def parentStmt(self, node):
-        return self.parentInstance(node, ast.stmt)
+        return self.parentInstance(node, self.ast.stmt)
 
  
 _novalue = object()
@@ -149,10 +149,11 @@ class Def(object):
         elif isinstance(self.node, (_ast.alias, gast.alias)):
             base = self.node.name.split(".", 1)[0]
             return self.node.asname or base
-        elif isinstance(self.node, (ast.MatchStar, ast.MatchAs)):
+        elif isinstance(self.node, (_ast.MatchStar, _ast.MatchAs, 
+                                    gast.MatchStar, gast.MatchAs)):
             if self.node.name:
                 return self.node.name
-        elif isinstance(self.node, ast.MatchMapping):
+        elif isinstance(self.node, (_ast.MatchMapping, gast.MatchMapping)):
             if self.node.rest:
                 return self.node.rest
         elif isinstance(self.node, tuple):
@@ -1510,7 +1511,7 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_MatchSequence(self, node):
         # mimics a list
-        with _rename_attrs(node, ctx=ast.Load(), elts=node.patterns):
+        with _rename_attrs(node, ctx=self.ast.Load(), elts=node.patterns):
             return self.visit_List(node)
 
     def visit_MatchMapping(self, node):
@@ -1519,7 +1520,7 @@ class DefUseChains(gast.NodeVisitor):
             # mimics a dict
             self.visit_Dict(node)
         if node.rest:
-            with _rename_attrs(node, id=node.rest, ctx=ast.Store(), annotation=None):
+            with _rename_attrs(node, id=node.rest, ctx=self.ast.Store(), annotation=None):
                 self.visit_Name(node)
         return dnode
 
@@ -1537,7 +1538,7 @@ class DefUseChains(gast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         if node.name:
             # mimics store name
-            with _rename_attrs(node, id=node.name, ctx=ast.Store(), annotation=None):
+            with _rename_attrs(node, id=node.name, ctx=self.ast.Store(), annotation=None):
                 self.visit_Name(node)
         return dnode
 
@@ -1546,7 +1547,7 @@ class DefUseChains(gast.NodeVisitor):
         if node.pattern:
             self.visit(node.pattern)
         if node.name:
-            with _rename_attrs(node, id=node.name, ctx=ast.Store(), annotation=None):
+            with _rename_attrs(node, id=node.name, ctx=self.ast.Store(), annotation=None):
                 self.visit_Name(node)
         return dnode
 
