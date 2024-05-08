@@ -105,6 +105,7 @@ def _rename_attrs(obj, **attrs):
         else:
             setattr(obj, k, v)
 
+_PY310PLUS = sys.version_info >= (3, 10)
 
 class Def(object):
     """
@@ -149,11 +150,12 @@ class Def(object):
         elif isinstance(self.node, (_ast.alias, gast.alias)):
             base = self.node.name.split(".", 1)[0]
             return self.node.asname or base
-        elif isinstance(self.node, (_ast.MatchStar, _ast.MatchAs, 
+        elif isinstance(self.node, (*((_ast.MatchStar, _ast.MatchAs) if _PY310PLUS else ()), 
                                     gast.MatchStar, gast.MatchAs)):
             if self.node.name:
                 return self.node.name
-        elif isinstance(self.node, (_ast.MatchMapping, gast.MatchMapping)):
+        elif isinstance(self.node, (*((_ast.MatchMapping,) if _PY310PLUS else ()), 
+                                    gast.MatchMapping)):
             if self.node.rest:
                 return self.node.rest
         elif isinstance(self.node, tuple):
