@@ -36,7 +36,7 @@ class StrictDefUseChains(beniget.DefUseChains):
         def warn(self, msg, node):
             raise RuntimeError(
                 "W: {} at {}:{}".format(
-                    msg, node.lineno, node.col_offset
+                    msg, node.lineno, node.col_offset))
 
 class TestDefUseChains(TestCase):
     maxDiff = None
