@@ -379,7 +379,7 @@ class DefUseChains(ast.NodeVisitor):
 
     def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
         # We may hit the situation where we refer to a local variable which is
-        # not bound yet. This is a runtime error in Python, so we try to detec
+        # not bound yet. This is a runtime error in Python, so we try to detect
         # it statically.
 
         # not a local variable => fine
@@ -970,7 +970,9 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_Nonlocal(self, node):
         for name in node.names:
-            for d in reversed(self._definitions[:-1]):
+            # Exclude global scope
+            global_scope_depth = -self._scope_depths[0]
+            for d in reversed(self._definitions[global_scope_depth: -1]):
                 if name not in d:
                     continue
                 else:

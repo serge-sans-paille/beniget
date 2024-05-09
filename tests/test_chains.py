@@ -523,6 +523,15 @@ def outer():
         code = "def A():\n x = 1\n class B: nonlocal x; x = x"
         self.check_message(code, [])
 
+    def test_unbound_local_identifier_nonlocal_points_to_global(self):
+        code = "def x():\n nonlocal x\n x = 1"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:2:1"])
+
+    def test_unbound_local_identifier_nonlocal_points_to_scoped_global(self):
+        code = "if 1:\n def x():\n  nonlocal x\n  x = 1"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:3:2"])
 
     def test_assign_uses_class_level_name(self):
         code = '''
