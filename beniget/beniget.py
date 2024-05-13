@@ -118,7 +118,7 @@ class Def(object):
         elif isinstance(self.node, tuple):
             return self.node[1]
 
-        return type(self.node).__name__
+        return f'<{type(self.node).__name__.lower()}>'
 
     def users(self):
         """
@@ -274,7 +274,7 @@ class DefUseChains(ast.NodeVisitor):
     d: 0
     >>> alias_def = duc.chains[module.body[0].names[0]]
     >>> print(alias_def)
-    c -> (c -> (Call -> ()))
+    c -> (c -> (<call> -> ()))
 
     One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
     """
@@ -1453,7 +1453,7 @@ def lookup_annotation_name_defs(name, heads, locals_map):
     >>> print(lookup_annotation_name_defs('t', heads, duc.locals)[0])
     t -> ()
     >>> print(lookup_annotation_name_defs('c', heads, duc.locals)[0])
-    c -> (c -> (Attribute -> (Call -> ())))
+    c -> (c -> (<attribute> -> (<call> -> ())))
     >>> print(lookup_annotation_name_defs('C', heads, duc.locals)[0])
     C -> ()
     """
