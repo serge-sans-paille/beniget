@@ -345,8 +345,8 @@ while done:
                                     'y -> ()',
                                     'z -> (z -> (<tuple> -> (<lambda> -> ())))']) 
         self.assertEqual(c.dump_chains(node.body[1].value), [
-            'y -> (y -> (Tuple -> (<lambda> -> ())))',
-            'x -> (x -> (Tuple -> (<lambda> -> ())))',
+            'y -> (y -> (<tuple> -> (<lambda> -> ())))',
+            'x -> (x -> (<tuple> -> (<lambda> -> ())))',
         ])
 
     def test_lambda_varargs(self):
