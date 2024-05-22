@@ -43,11 +43,11 @@ class TestDefUseChains(TestCase):
 
     def test_simple_expression(self):
         code = "a = 1; a + 2"
-        self.checkChains(code, ["a -> (a -> (BinOp -> ()))"])
+        self.checkChains(code, ["a -> (a -> (<BinOp> -> ()))"])
 
     def test_expression_chain(self):
         code = "a = 1; (- a + 2) > 0"
-        self.checkChains(code, ["a -> (a -> (UnaryOp -> (BinOp -> (Compare -> ()))))"])
+        self.checkChains(code, ["a -> (a -> (<UnaryOp> -> (<BinOp> -> (<Compare> -> ()))))"])
 
     def test_ifexp_chain(self):
         code = "a = 1; a + 1 if a else - a"
@@ -55,9 +55,9 @@ class TestDefUseChains(TestCase):
             code,
             [
                 "a -> ("
-                "a -> (IfExp -> ()), "
-                "a -> (BinOp -> (IfExp -> ())), "
-                "a -> (UnaryOp -> (IfExp -> ()))"
+                "a -> (<IfExp> -> ()), "
+                "a -> (<BinOp> -> (<IfExp> -> ())), "
+                "a -> (<UnaryOp> -> (<IfExp> -> ()))"
                 ")"
             ],
         )
@@ -85,7 +85,7 @@ class TestDefUseChains(TestCase):
     def test_reassign_in_loop(self):
         code = "m = 1\nfor i in [1, 2]:\n m = m + 1"
         self.checkChains(
-            code, ["m -> (m -> (BinOp -> ()))", "i -> ()", "m -> (m -> (BinOp -> ()))"]
+            code, ["m -> (m -> (<BinOp> -> ()))", "i -> ()", "m -> (m -> (<BinOp> -> ()))"]
         )
 
     def test_continue_in_loop(self):
@@ -115,7 +115,7 @@ class TestDefUseChains(TestCase):
 
     def test_expanded_augassign(self):
         code = "a = 1; a = a + 2"
-        self.checkChains(code, ["a -> (a -> (BinOp -> ()))", "a -> ()"])
+        self.checkChains(code, ["a -> (a -> (<BinOp> -> ()))", "a -> ()"])
 
     def test_augassign_in_loop(self):
         code = "a = 1\nfor i in [1]:\n a += 2\na"
@@ -145,12 +145,12 @@ for _ in [1]:
 
     def test_simple_print(self):
         code = "a = 1; print(a)"
-        self.checkChains(code, ["a -> (a -> (Call -> ()))"])
+        self.checkChains(code, ["a -> (a -> (<Call> -> ()))"])
 
     def test_simple_redefinition(self):
         code = "a = 1; a + 2; a = 3; +a"
         self.checkChains(
-            code, ["a -> (a -> (BinOp -> ()))", "a -> (a -> (UnaryOp -> ()))"]
+            code, ["a -> (a -> (<BinOp> -> ()))", "a -> (a -> (<UnaryOp> -> ()))"]
         )
 
     def test_simple_for(self):
@@ -190,7 +190,7 @@ for _ in [1]:
             code,
             ['I -> (I -> ())',
              'J -> (J -> ())',
-             'i -> (i -> (Compare -> ()), i -> ())',
+             'i -> (i -> (<Compare> -> ()), i -> ())',
              'I -> (I -> ())',
              'J -> (J -> ())']
         )
@@ -201,9 +201,9 @@ for _ in [1]:
             code,
             [
                 # first assign, out of loop
-                "i -> (i -> (), i -> (BinOp -> ()), i -> ())",
+                "i -> (i -> (), i -> (<BinOp> -> ()), i -> ())",
                 # second assign, in loop
-                "i -> (i -> (), i -> (BinOp -> ()), i -> ())",
+                "i -> (i -> (), i -> (<BinOp> -> ()), i -> ())",
             ],
         )
 
@@ -263,7 +263,7 @@ while done:
             [
                 "I -> (I -> ())",
                 "J -> (J -> ())",
-                "i -> (i -> (), i -> (Compare -> ()), i -> ())",
+                "i -> (i -> (), i -> (<Compare> -> ()), i -> ())",
                 "J -> (J -> ())",
                 "I -> (I -> ())",
             ],
@@ -331,7 +331,7 @@ while done:
 
     def test_simple_import_as(self):
         code = "import x as y; y()"
-        self.checkChains(code, ["y -> (y -> (Call -> ()))"])
+        self.checkChains(code, ["y -> (y -> (<Call> -> ()))"])
     
     def test_simple_lambda(self):
         node, c = self.checkChains( "lambda y: True", [])
@@ -339,23 +339,23 @@ while done:
     
     def test_lambda_defaults(self):
         node, c = self.checkChains( "x=y=1;(lambda y, x=x: (True, x, y, z)); x=y=z=2", 
-                                   ['x -> (x -> (Lambda -> ()))',
+                                   ['x -> (x -> (<Lambda> -> ()))',
                                     'y -> ()', 
                                     'x -> ()', 
                                     'y -> ()',
-                                    'z -> (z -> (Tuple -> (Lambda -> ())))']) 
+                                    'z -> (z -> (<Tuple> -> (<Lambda> -> ())))']) 
         self.assertEqual(c.dump_chains(node.body[1].value), [
-            'y -> (y -> (Tuple -> (Lambda -> ())))',
-            'x -> (x -> (Tuple -> (Lambda -> ())))',
+            'y -> (y -> (<Tuple> -> (<Lambda> -> ())))',
+            'x -> (x -> (<Tuple> -> (<Lambda> -> ())))',
         ])
 
     def test_lambda_varargs(self):
         node, c = self.checkChains( "lambda *args: args", [])
-        self.assertEqual(c.dump_chains(node.body[0].value), ['args -> (args -> (Lambda -> ()))'])
+        self.assertEqual(c.dump_chains(node.body[0].value), ['args -> (args -> (<Lambda> -> ()))'])
     
     def test_lambda_kwargs(self):
         node, c = self.checkChains( "lambda **kwargs: kwargs", [])
-        self.assertEqual(c.dump_chains(node.body[0].value), ['kwargs -> (kwargs -> (Lambda -> ()))'])
+        self.assertEqual(c.dump_chains(node.body[0].value), ['kwargs -> (kwargs -> (<Lambda> -> ()))'])
 
     def test_multiple_import_as(self):
         code = "import x as y, z; y"
@@ -375,7 +375,7 @@ while done:
 
     def test_method_function_conflict(self):
         code = "def foo():pass\nclass C:\n def foo(self): foo()"
-        self.checkChains(code, ["foo -> (foo -> (Call -> ()))", "C -> ()"])
+        self.checkChains(code, ["foo -> (foo -> (<Call> -> ()))", "C -> ()"])
 
     def test_nested_if(self):
         code = "f = 1\nif 1:\n if 1:pass\n else: f=1\nelse: f = 1\nf"
@@ -392,7 +392,7 @@ while done:
     def test_attr(self):
         code = "import numpy as bar\ndef foo():\n return bar.zeros(2)"
         self.checkChains(
-            code, ["bar -> (bar -> (.zeros -> (Call -> ())))", "foo -> ()"]
+            code, ["bar -> (bar -> (.zeros -> (<Call> -> ())))", "foo -> ()"]
         )
 
     def test_class_decorator(self):
@@ -473,7 +473,7 @@ def outer():
         c = beniget.DefUseChains()
         node = ast.parse(code)
         c.visit(node)
-        self.assertEqual(c.dump_chains(node.body[0].body[0]), ['mytype -> (mytype -> (Call -> ()))'])
+        self.assertEqual(c.dump_chains(node.body[0].body[0]), ['mytype -> (mytype -> (<Call> -> ()))'])
 
     def check_message(self, code, expected_messages, filename=None):
         node = ast.parse(code)
@@ -574,7 +574,7 @@ while curr:
     else:
         break
 '''
-        self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))', 
+        self.checkChains(code, ['curr -> (curr -> (), curr -> (<Call> -> ()))', 
                                 'parts -> (parts -> (), parts -> ())']*2)
     
     def test_star_assignment_nested(self):
@@ -587,9 +587,9 @@ while curr:
     else:
         break
 '''
-        self.checkChains(code, ['curr -> (curr -> (), curr -> (Call -> ()))',
-                                'parts -> (parts -> (), parts -> (Tuple -> ()))',
-                                'i -> (i -> (Tuple -> ()))']*2)
+        self.checkChains(code, ['curr -> (curr -> (), curr -> (<Call> -> ()))',
+                                'parts -> (parts -> (), parts -> (<Tuple> -> ()))',
+                                'i -> (i -> (<Tuple> -> ()))']*2)
     
     def test_attribute_assignment(self):
         code = "d=object();d.name,x = 't',1"
@@ -614,7 +614,7 @@ class Visitor:
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
                          ['Thing -> ()',
-                          'f -> (f -> (Call -> ()))',
+                          'f -> (f -> (<Call> -> ()))',
                           'Visitor -> ()'])
         self.assertEqual(c.dump_chains(node.body[-1]),
                          ['Thing -> (Thing -> ())',
@@ -650,9 +650,9 @@ if 1:
         cos()
 cos = pop()'''
         self.checkChains(code, [
-            '* -> (cos -> (Call -> ()))',
-            'pop -> (pop -> (Call -> ()))',
-            'cos -> (cos -> (Call -> ()))'
+            '* -> (cos -> (<Call> -> ()))',
+            'pop -> (pop -> (<Call> -> ()))',
+            'cos -> (cos -> (<Call> -> ()))'
         ])
     
     def test_class_scope_comprehension(self):
@@ -667,10 +667,10 @@ class Cls:
         node, chains = self.checkChains(code, ['Cls -> ()'])
         self.assertEqual(chains.dump_chains(node.body[0]),
                          ['foo -> ('
-                          'foo -> (comprehension -> (ListComp -> ())), '
-                          'foo -> (comprehension -> (SetComp -> ())), '
-                          'foo -> (comprehension -> (GeneratorExp -> ())), '
-                          'foo -> (comprehension -> (DictComp -> ())))'])
+                          'foo -> (<comprehension> -> (<ListComp> -> ())), '
+                          'foo -> (<comprehension> -> (<SetComp> -> ())), '
+                          'foo -> (<comprehension> -> (<GeneratorExp> -> ())), '
+                          'foo -> (<comprehension> -> (<DictComp> -> ())))'])
     
     def test_class_scope_comprehension_invalid(self):
         code = '''
@@ -689,7 +689,7 @@ class Foo:
 if (x := 1):
     y = x + 1'''
         self.checkChains(
-            code, ['x -> (x -> (BinOp -> ()))', 'y -> ()']
+            code, ['x -> (x -> (<BinOp> -> ()))', 'y -> ()']
         )
 
     @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
@@ -698,7 +698,7 @@ if (x := 1):
 if (x := (y := 1) + 1):
     z = x + y'''
         self.checkChains(
-            code, ['y -> (y -> (BinOp -> ()))', 'x -> (x -> (BinOp -> ()))', 'z -> ()']
+            code, ['y -> (y -> (<BinOp> -> ()))', 'x -> (x -> (<BinOp> -> ()))', 'z -> ()']
         )
 
     @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
@@ -708,7 +708,7 @@ a = 1
 if (a := a + a):
     pass'''
         self.checkChains(
-            code, ['a -> (a -> (BinOp -> (NamedExpr -> ())), a -> (BinOp -> (NamedExpr -> ())))', 'a -> ()']
+            code, ['a -> (a -> (<BinOp> -> (<NamedExpr> -> ())), a -> (<BinOp> -> (<NamedExpr> -> ())))', 'a -> ()']
         )
     
     @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
@@ -718,7 +718,7 @@ if (a := a + a):
             'if any((witness := city).startswith("H") for city in cities):'
             'witness')
         self.checkChains(
-            code, ['cities -> (cities -> (comprehension -> (GeneratorExp -> (Call -> ()))))', 
+            code, ['cities -> (cities -> (<comprehension> -> (<GeneratorExp> -> (<Call> -> ()))))', 
                    'witness -> (witness -> ())']
         )
         
@@ -837,8 +837,8 @@ class System:
     def Attr(self) -> Union[Attr, Thing]:...
 '''
         self.checkChains(
-            code, ['Union -> (Union -> (Subscript -> ()))',
-                    'Attr -> (Attr -> (Tuple -> (Subscript -> ())))',
+            code, ['Union -> (Union -> (<Subscript> -> ()))',
+                    'Attr -> (Attr -> (<Tuple> -> (<Subscript> -> ())))',
                     'Thing -> ()',
                     'System -> ()',]
         )
@@ -855,11 +855,11 @@ class System:
         
         mod, chains = self.checkChains(
             code, ['annotations -> ()',
-            'Type -> (Type -> (Subscript -> ()))', 'System -> ()']
+            'Type -> (Type -> (<Subscript> -> ()))', 'System -> ()']
         )
         # locals of System
         self.assertEqual(chains.dump_chains(mod.body[-1]), [
-            'Thing -> (Thing -> (Subscript -> ()))', 
+            'Thing -> (Thing -> (<Subscript> -> ()))', 
             'Attribute -> ()'
         ])
         
@@ -922,10 +922,10 @@ Thing:TypeAlias = 'Mapping'
                     'TypeAlias -> (TypeAlias -> (), TypeAlias -> (), TypeAlias -> ())',
                     'Mapping -> ()',
                     'Dict -> ()',
-                    'Type -> (Type -> (Subscript -> ()))',
+                    'Type -> (Type -> (<Subscript> -> ()))',
                     'C -> (C -> (.field -> ()), C -> (.D -> ()), C -> (.D -> '
                     '(.field2 -> ())))',
-                    'Thing -> (Thing -> (), Thing -> (Subscript -> ()))'],
+                    'Thing -> (Thing -> (), Thing -> (<Subscript> -> ()))'], 
                 strict=False
             )
         produced_messages = out.getvalue().strip().split("\n")
@@ -998,13 +998,13 @@ primes: List[int] # should resolve to the star
 
         self.checkChains(
                 code, 
-                ['* -> (List -> (Subscript -> ()))', 'primes -> ()'],
+                ['* -> (List -> (<Subscript> -> ()))', 'primes -> ()'],
                 strict=False
             )
         # same with 'from __future__ import annotations'
         self.checkChains(
                 'from __future__ import annotations\n' + code, 
-                ['annotations -> ()', '* -> (List -> (Subscript -> ()))', 'primes -> ()'],
+                ['annotations -> ()', '* -> (List -> (<Subscript> -> ()))', 'primes -> ()'],
                 strict=False
             )
     
@@ -1024,7 +1024,7 @@ List = list
                 ['annotations -> ()',
                 '* -> ()',
                 'primes -> ()',
-                'List -> (List -> (Subscript -> ()))'],
+                'List -> (List -> (<Subscript> -> ()))'],
                 strict=False
             )
     
@@ -1045,7 +1045,7 @@ X = generate()
         mod, chains = self.checkChains(
                 code, 
                 ['A -> ()', 
-                 'generate -> (generate -> (Call -> ()))', 
+                 'generate -> (generate -> (<Call> -> ()))', 
                  'X -> ()'],
             )
         self.assertEqual(chains.dump_chains(mod.body[1]), 
@@ -1057,7 +1057,7 @@ X = generate()
                 'from __future__ import annotations\n' + code, 
                 ['annotations -> ()', 
                  'A -> (A -> (), A -> ())',
-                 'generate -> (generate -> (Call -> ()))', 
+                 'generate -> (generate -> (<Call> -> ()))', 
                  'X -> ()'],
             )
         self.assertEqual(chains.dump_chains(mod.body[2]), 
@@ -1093,12 +1093,12 @@ fn = outer()
                 chains.dump_chains(mod), 
                 ['mytype -> ()', 
                  'mytype2 -> ()', 
-                 'outer -> (outer -> (Call -> ()))', 
+                 'outer -> (outer -> (<Call> -> ()))', 
                  'fn -> ()'],
             )
         
         self.assertEqual(chains.dump_chains(mod.body[1]), 
-                         ['middle -> (middle -> (Call -> ()))', 
+                         ['middle -> (middle -> (<Call> -> ()))', 
                           'mytype2 -> (mytype2 -> ())'])
         self.assertEqual(chains.dump_chains(mod.body[1].body[0]), 
                          ['inner -> (inner -> ())', 
@@ -1111,11 +1111,11 @@ fn = outer()
                 ['annotations -> ()', 
                  'mytype -> (mytype -> ())', 
                  'mytype2 -> (mytype2 -> ())', 
-                 'outer -> (outer -> (Call -> ()))', 
+                 'outer -> (outer -> (<Call> -> ()))', 
                  'fn -> ()'],
             )
         self.assertEqual(chains.dump_chains(mod.body[2]), 
-                         ['middle -> (middle -> (Call -> ()))', 
+                         ['middle -> (middle -> (<Call> -> ()))', 
                           'mytype2 -> ()'])
         self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
                          ['inner -> (inner -> ())', 
@@ -1203,33 +1203,33 @@ fn = outer()
                 ['annotations -> ()',
                 'mytype -> (mytype -> (), mytype -> (), mytype -> (), mytype -> ())',
                 'mytype2 -> (mytype2 -> (), mytype2 -> ())',
-                'outer -> (outer -> (Call -> ()))',
+                'outer -> (outer -> (<Call> -> ()))',
                 'fn -> ()'],
             )
         self.assertEqual(chains.dump_chains(mod.body[2]), 
-                         ['middle -> (middle -> (Call -> ()))',
-                          'mytype2 -> (mytype2 -> (Call -> (Call -> ())), '
-                          'mytype2 -> (Call -> (Call -> ())))'])
+                         ['middle -> (middle -> (<Call> -> ()))',
+                          'mytype2 -> (mytype2 -> (<Call> -> (<Call> -> ())), '
+                          'mytype2 -> (<Call> -> (<Call> -> ())))'])
         self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
-                         ['inner -> (inner -> (Call -> ()))',
-                          'mytype -> (mytype -> (Call -> (Call -> ())), mytype -> (Call -> ()))'])
+                         ['inner -> (inner -> (<Call> -> ()))',
+                          'mytype -> (mytype -> (<Call> -> (<Call> -> ())), mytype -> (<Call> -> ()))'])
 
         mod, chains = self.checkChains(
                 code.replace('mytype = mytype2 = object', 'pass'), 
                 ['annotations -> ()',
-                'outer -> (outer -> (Call -> ()))',
+                'outer -> (outer -> (<Call> -> ()))',
                 'fn -> ()'],
             )
         self.assertEqual(chains.dump_chains(mod.body[2]), 
-                         ['middle -> (middle -> (Call -> ()))',
-                          'mytype2 -> (mytype2 -> (Call -> (Call -> ())), '
-                                       'mytype2 -> (Call -> (Call -> ())), '
+                         ['middle -> (middle -> (<Call> -> ()))',
+                          'mytype2 -> (mytype2 -> (<Call> -> (<Call> -> ())), '
+                                       'mytype2 -> (<Call> -> (<Call> -> ())), '
                                        'mytype2 -> (), '
                                        'mytype2 -> ())'])
         self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
-                         ['inner -> (inner -> (Call -> ()))',
-                          'mytype -> (mytype -> (Call -> (Call -> ())), '
-                                     'mytype -> (Call -> ()), '
+                         ['inner -> (inner -> (<Call> -> ()))',
+                          'mytype -> (mytype -> (<Call> -> (<Call> -> ())), '
+                                     'mytype -> (<Call> -> ()), '
                                      'mytype -> (), '
                                      'mytype -> (), '
                                      'mytype -> (), '
@@ -1280,8 +1280,8 @@ match command.split():
     case _:
         raise ValueError("Sorry")
         '''
-        self.checkChains(code, ['command -> (command -> (.split -> (Call -> ())))',
-                                'direction -> (MatchSequence -> (), direction -> (Call -> ()))'])
+        self.checkChains(code, ['command -> (command -> (.split -> (<Call> -> ())))',
+                                'direction -> (<MatchSequence> -> (), direction -> (<Call> -> ()))'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
     def test_match_list_star(self):
@@ -1292,9 +1292,9 @@ match command.split():
     case ["drop", *objects]:
         print(objects)
         '''
-        self.checkChains(code, ['command -> (command -> (.split -> (Call -> ())))',
-                                'direction -> (MatchSequence -> ())',
-                                'objects -> (MatchSequence -> (), objects -> (Call -> ()))'])
+        self.checkChains(code, ['command -> (command -> (.split -> (<Call> -> ())))',
+                                'direction -> (<MatchSequence> -> ())',
+                                'objects -> (<MatchSequence> -> (), objects -> (<Call> -> ()))'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
     def test_match_dict(self):
@@ -1314,19 +1314,19 @@ match action:
         raise ValueError("Unsupported audio format")
 print(c)
         '''
-        self.checkChains(code, ['ui -> (ui -> (.set_text_color -> (Call -> ())), '
-                                'ui -> (.display -> (Call -> ())), '
-                                'ui -> (.wait -> (Call -> ())), '
-                                'ui -> (.play -> (Call -> ())))',
+        self.checkChains(code, ['ui -> (ui -> (.set_text_color -> (<Call> -> ())), '
+                                'ui -> (.display -> (<Call> -> ())), '
+                                'ui -> (.wait -> (<Call> -> ())), '
+                                'ui -> (.play -> (<Call> -> ())))',
                                 'action -> (action -> ())',
-                                'message -> (MatchClass -> (rest -> (rest -> (Call -> ()))), '
-                                'message -> (Call -> ()))',
-                                'c -> (MatchClass -> (rest -> (rest -> (Call -> ()))), '
-                                'c -> (Call -> ()), c -> (Call -> ()))',
-                                'rest -> (rest -> (Call -> ()))',
-                                'duration -> (MatchClass -> (MatchMapping -> ()), '
-                                'duration -> (Call -> ()))',
-                                'url -> (MatchClass -> (MatchMapping -> ()), url -> (Call -> ()))'])
+                                'message -> (<MatchClass> -> (rest -> (rest -> (<Call> -> ()))), '
+                                'message -> (<Call> -> ()))',
+                                'c -> (<MatchClass> -> (rest -> (rest -> (<Call> -> ()))), '
+                                'c -> (<Call> -> ()), c -> (<Call> -> ()))',
+                                'rest -> (rest -> (<Call> -> ()))',
+                                'duration -> (<MatchClass> -> (<MatchMapping> -> ()), '
+                                'duration -> (<Call> -> ()))',
+                                'url -> (<MatchClass> -> (<MatchMapping> -> ()), url -> (<Call> -> ()))'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
     def test_match_class_rebinds_attrs(self):
@@ -1354,13 +1354,13 @@ match point:
 print(x, y)
         '''
         self.checkChains(
-                code, ['dataclass -> (dataclass -> (Point -> (Point -> (Call -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()))))',
-                       'Point -> (Point -> (Call -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()), Point -> (MatchClass -> ()))',
+                code, ['dataclass -> (dataclass -> (Point -> (Point -> (<Call> -> ()), Point -> (<MatchClass> -> ()), Point -> (<MatchClass> -> ()), Point -> (<MatchClass> -> ()), Point -> (<MatchClass> -> ()))))',
+                       'Point -> (Point -> (<Call> -> ()), Point -> (<MatchClass> -> ()), Point -> (<MatchClass> -> ()), Point -> (<MatchClass> -> ()), Point -> (<MatchClass> -> ()))',
                        'point -> (point -> ())',
-                       'y -> (MatchClass -> (), y -> (FormattedValue -> (JoinedStr -> (Call -> ()))), y -> (Call -> ()))',
-                       'x -> (MatchClass -> (), x -> (FormattedValue -> (JoinedStr -> (Call -> ()))), x -> (Call -> ()))',
-                       'x -> (MatchClass -> (), x -> (Call -> ()))',
-                       'y -> (MatchClass -> (), y -> (Call -> ()))'])
+                       'y -> (<MatchClass> -> (), y -> (<FormattedValue> -> (<JoinedStr> -> (<Call> -> ()))), y -> (<Call> -> ()))',
+                       'x -> (<MatchClass> -> (), x -> (<FormattedValue> -> (<JoinedStr> -> (<Call> -> ()))), x -> (<Call> -> ()))',
+                       'x -> (<MatchClass> -> (), x -> (<Call> -> ()))',
+                       'y -> (<MatchClass> -> (), y -> (<Call> -> ()))'])
 
 class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
@@ -1385,4 +1385,4 @@ class TestUseDefChains(TestCase):
 
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
-        self.checkChains(code, "Call <- {Constant, Constant, bar}, bar <- {bar}")
+        self.checkChains(code, "<Call> <- {<Constant>, <Constant>, bar}, bar <- {bar}")
