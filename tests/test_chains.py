@@ -392,7 +392,7 @@ while done:
     def test_attr(self):
         code = "import numpy as bar\ndef foo():\n return bar.zeros(2)"
         self.checkChains(
-            code, ["bar -> (bar -> (<Attribute> -> (<Call> -> ())))", "foo -> ()"]
+            code, ["bar -> (bar -> (.zeros -> (<Call> -> ())))", "foo -> ()"]
         )
 
     def test_class_decorator(self):
@@ -593,7 +593,7 @@ while curr:
     
     def test_attribute_assignment(self):
         code = "d=object();d.name,x = 't',1"
-        self.checkChains(code, ['d -> (d -> (<Attribute> -> ()))',
+        self.checkChains(code, ['d -> (d -> (.name -> ()))',
                                 'x -> ()'])
 
     def test_call_assignment(self):
@@ -807,7 +807,7 @@ class S:
     def test_import_dotted_name_binds_first_name(self):
         code = '''import collections.abc;collections;collections.abc'''
         self.checkChains(
-            code, ['collections -> (collections -> (), collections -> (<Attribute> -> ()))']
+            code, ['collections -> (collections -> (), collections -> (.abc -> ()))']
         )
 
     def test_multiple_wildcards_may_bind(self):
@@ -872,7 +872,7 @@ class System:
 from __future__ import annotations
 from typing import TypeAlias, Mapping, Dict, Type
 class C:
-    
+
     def method(self) -> C.field:  # this is OK
         ...
 
@@ -913,18 +913,18 @@ class C:
             ...
 
 Thing:TypeAlias = 'Mapping'
-''' 
+'''
 
         with captured_output() as (out, err):
             node, c = self.checkChains(
-                code, 
+                code,
                     ['annotations -> ()',
                     'TypeAlias -> (TypeAlias -> (), TypeAlias -> (), TypeAlias -> ())',
                     'Mapping -> ()',
                     'Dict -> ()',
                     'Type -> (Type -> (<Subscript> -> ()))',
-                    'C -> (C -> (<Attribute> -> ()), C -> (<Attribute> -> ()), C -> (<Attribute> -> '
-                    '(<Attribute> -> ())))',
+                    'C -> (C -> (.field -> ()), C -> (.D -> ()), C -> (.D -> '
+                    '(.field2 -> ())))',
                     'Thing -> (Thing -> (), Thing -> (<Subscript> -> ()))'], 
                 strict=False
             )
@@ -1280,7 +1280,7 @@ match command.split():
     case _:
         raise ValueError("Sorry")
         '''
-        self.checkChains(code, ['command -> (command -> (<Attribute> -> (<Call> -> ())))',
+        self.checkChains(code, ['command -> (command -> (.split -> (<Call> -> ())))',
                                 'direction -> (<MatchSequence> -> (), direction -> (<Call> -> ()))'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
@@ -1292,7 +1292,7 @@ match command.split():
     case ["drop", *objects]:
         print(objects)
         '''
-        self.checkChains(code, ['command -> (command -> (<Attribute> -> (<Call> -> ())))',
+        self.checkChains(code, ['command -> (command -> (.split -> (<Call> -> ())))',
                                 'direction -> (<MatchSequence> -> ())',
                                 'objects -> (<MatchSequence> -> (), objects -> (<Call> -> ()))'])
 
@@ -1314,12 +1314,18 @@ match action:
         raise ValueError("Unsupported audio format")
 print(c)
         '''
-        self.checkChains(code, ['ui -> (ui -> (<Attribute> -> (<Call> -> ())), ui -> (<Attribute> -> (<Call> -> ())), ui -> (<Attribute> -> (<Call> -> ())), ui -> (<Attribute> -> (<Call> -> ())))',
+        self.checkChains(code, ['ui -> (ui -> (.set_text_color -> (<Call> -> ())), '
+                                'ui -> (.display -> (<Call> -> ())), '
+                                'ui -> (.wait -> (<Call> -> ())), '
+                                'ui -> (.play -> (<Call> -> ())))',
                                 'action -> (action -> ())',
-                                'message -> (<MatchClass> -> (rest -> (rest -> (<Call> -> ()))), message -> (<Call> -> ()))',
-                                'c -> (<MatchClass> -> (rest -> (rest -> (<Call> -> ()))), c -> (<Call> -> ()), c -> (<Call> -> ()))',
+                                'message -> (<MatchClass> -> (rest -> (rest -> (<Call> -> ()))), '
+                                'message -> (<Call> -> ()))',
+                                'c -> (<MatchClass> -> (rest -> (rest -> (<Call> -> ()))), '
+                                'c -> (<Call> -> ()), c -> (<Call> -> ()))',
                                 'rest -> (rest -> (<Call> -> ()))',
-                                'duration -> (<MatchClass> -> (<MatchMapping> -> ()), duration -> (<Call> -> ()))',
+                                'duration -> (<MatchClass> -> (<MatchMapping> -> ()), '
+                                'duration -> (<Call> -> ()))',
                                 'url -> (<MatchClass> -> (<MatchMapping> -> ()), url -> (<Call> -> ()))'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")

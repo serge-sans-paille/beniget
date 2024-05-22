@@ -115,6 +115,8 @@ class Def(object):
         elif isinstance(self.node, ast.MatchMapping):
             if self.node.rest:
                 return self.node.rest
+        elif isinstance(self.node, ast.Attribute):
+            return "." + self.node.attr
         elif isinstance(self.node, tuple):
             return self.node[1]
 
@@ -1453,7 +1455,7 @@ def lookup_annotation_name_defs(name, heads, locals_map):
     >>> print(lookup_annotation_name_defs('t', heads, duc.locals)[0])
     t -> ()
     >>> print(lookup_annotation_name_defs('c', heads, duc.locals)[0])
-    c -> (c -> (<Attribute> -> (<Call> -> ())))
+    c -> (c -> (.Thing -> (<Call> -> ())))
     >>> print(lookup_annotation_name_defs('C', heads, duc.locals)[0])
     C -> ()
     """
