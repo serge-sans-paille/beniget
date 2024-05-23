@@ -158,10 +158,12 @@ class Def(object):
                                     gast.MatchMapping)):
             if self.node.rest:
                 return self.node.rest
+        elif isinstance(self.node, ast.Attribute):
+            return "." + self.node.attr
         elif isinstance(self.node, tuple):
             return self.node[1]
 
-        return type(self.node).__name__
+        return f'<{type(self.node).__name__}>'
 
     def users(self):
         """
@@ -295,7 +297,7 @@ class DefUseChains(gast.NodeVisitor):
     d: 0
     >>> alias_def = duc.chains[module.body[0].names[0]]
     >>> print(alias_def)
-    c -> (c -> (Call -> ()))
+    c -> (c -> (<Call> -> ()))
 
     One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
     """
@@ -555,7 +557,7 @@ class DefUseChains(gast.NodeVisitor):
 
     def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
         # We may hit the situation where we refer to a local variable which is
-        # not bound yet. This is a runtime error in Python, so we try to detec
+        # not bound yet. This is a runtime error in Python, so we try to detect
         # it statically.
 
         # not a local variable => fine
@@ -1150,7 +1152,9 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_Nonlocal(self, node):
         for name in node.names:
-            for d in reversed(self._definitions[:-1]):
+            # Exclude global scope
+            global_scope_depth = -self._scope_depths[0]
+            for d in reversed(self._definitions[global_scope_depth: -1]):
                 if name not in d:
                     continue
                 else:
@@ -1616,6 +1620,7 @@ class DefUseChains(gast.NodeVisitor):
         
         self.visit_NameConstant = self.visit_Num = self.visit_Str = \
             self.visit_Bytes = self.visit_Ellipsis = self.visit_Constant
+        
 
 class UseDefChains(object):
     """
