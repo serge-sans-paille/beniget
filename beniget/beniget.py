@@ -158,7 +158,7 @@ class Def(object):
                                     gast.MatchMapping)):
             if self.node.rest:
                 return self.node.rest
-        elif isinstance(self.node, ast.Attribute):
+        elif isinstance(self.node, (gast.Attribute, _ast.Attribute)):
             return "." + self.node.attr
         elif isinstance(self.node, tuple):
             return self.node[1]
