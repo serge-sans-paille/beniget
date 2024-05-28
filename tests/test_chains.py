@@ -1,13 +1,27 @@
 from contextlib import contextmanager
 from unittest import TestCase, skipIf
 import unittest
-import gast as ast
 import beniget
 import io
 import sys
+import ast as _ast
+import gast as _gast
+
+from beniget.beniget import _get_lookup_scopes
 
 # Show full diff in unittest
 unittest.util._MAX_LENGTH=2000
+
+def replace_deprecated_names(out):
+    return out.replace(
+        'Num', 'Constant'
+    ).replace(
+        'Ellipsis', 'Constant'
+    ).replace(
+        'Str', 'Constant'
+    ).replace(
+        'Bytes', 'Constant'
+    )
 
 @contextmanager
 def captured_output():
@@ -20,23 +34,23 @@ def captured_output():
         sys.stdout, sys.stderr = old_out, old_err
 
 
+class StrictDefUseChains(beniget.DefUseChains):
+        def warn(self, msg, node):
+            raise RuntimeError(
+                "W: {} at {}:{}".format(
+                    msg, node.lineno, node.col_offset))
+
 class TestDefUseChains(TestCase):
     maxDiff = None
+    ast = _gast
 
     def checkChains(self, code, ref, strict=True):
-        class StrictDefUseChains(beniget.DefUseChains):
-            def warn(self, msg, node):
-                raise RuntimeError(
-                    "W: {} at {}:{}".format(
-                        msg, node.lineno, node.col_offset
-                    )
-                )
-
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         if strict:
             c = StrictDefUseChains()
         else:
             c = beniget.DefUseChains()
+
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
         return node, c
@@ -229,7 +243,7 @@ for _ in [1]:
         self.checkChains(
                 code,
                 ['name -> (name -> ())'])
-        
+
     def test_nested_while(self):
         code = '''
 done = 1
@@ -332,18 +346,18 @@ while done:
     def test_simple_import_as(self):
         code = "import x as y; y()"
         self.checkChains(code, ["y -> (y -> (<Call> -> ()))"])
-    
+
     def test_simple_lambda(self):
         node, c = self.checkChains( "lambda y: True", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['y -> ()'])
-    
+
     def test_lambda_defaults(self):
-        node, c = self.checkChains( "x=y=1;(lambda y, x=x: (True, x, y, z)); x=y=z=2", 
+        node, c = self.checkChains( "x=y=1;(lambda y, x=x: (True, x, y, z)); x=y=z=2",
                                    ['x -> (x -> (<Lambda> -> ()))',
-                                    'y -> ()', 
-                                    'x -> ()', 
                                     'y -> ()',
-                                    'z -> (z -> (<Tuple> -> (<Lambda> -> ())))']) 
+                                    'x -> ()',
+                                    'y -> ()',
+                                    'z -> (z -> (<Tuple> -> (<Lambda> -> ())))'])
         self.assertEqual(c.dump_chains(node.body[1].value), [
             'y -> (y -> (<Tuple> -> (<Lambda> -> ())))',
             'x -> (x -> (<Tuple> -> (<Lambda> -> ())))',
@@ -352,7 +366,7 @@ while done:
     def test_lambda_varargs(self):
         node, c = self.checkChains( "lambda *args: args", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['args -> (args -> (<Lambda> -> ()))'])
-    
+
     def test_lambda_kwargs(self):
         node, c = self.checkChains( "lambda **kwargs: kwargs", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['kwargs -> (kwargs -> (<Lambda> -> ()))'])
@@ -405,8 +419,8 @@ while done:
 
     def test_def_used_in_self_default(self):
         code = "def foo(x:foo): return foo"
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
-        node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ["foo -> (foo -> ())"])
 
@@ -418,39 +432,39 @@ def middle():
         x = x+1 # <- this triggers NameError: name 'x' is not defined
     return x
         '''
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
-        node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['x -> (x -> ())', 'mytype -> ()'])
 
     def test_unbound_class_variable2(self):
         code = '''class A:\n  a = 10\n  def f(self):\n    return a # a is not defined'''
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
-        node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable3(self):
         code = '''class A:\n  a = 10\n  class I:\n    b = a + 1 # a is not defined'''
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
-        node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'I -> ()'])
 
     def test_unbound_class_variable4(self):
         code = '''class A:\n  a = 10\n  f = lambda: a # a is not defined'''
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
-        node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'f -> ()'])
 
     def test_unbound_class_variable5(self):
         code = '''class A:\n  a = 10\n  b = [a for _ in range(10)]  # a is not defined'''
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
-        node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0]), ['a -> ()', 'b -> ()'])
-        
+
     def test_functiondef_returns(self):
         code = "x = 1\ndef foo() -> x: pass"
         self.checkChains(code, ['x -> (x -> ())', 'foo -> ()'])
@@ -470,13 +484,13 @@ def outer():
                 def c(x) -> mytype(): # this one shouldn't
                     ...
         '''
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
-        node = ast.parse(code)
         c.visit(node)
         self.assertEqual(c.dump_chains(node.body[0].body[0]), ['mytype -> (mytype -> (<Call> -> ()))'])
 
     def check_message(self, code, expected_messages, filename=None):
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains(filename)
         with captured_output() as (out, err):
             c.visit(node)
@@ -540,7 +554,7 @@ class Visitor:
     def visit_Name(self, node):pass
     visit_Attribute = visit_Name
 '''
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ['visit_Name -> ()',
@@ -556,14 +570,14 @@ class Attr(object):pass
 class Visitor:
     class Attr(Attr):pass
     '''
-            node = ast.parse(code)
+            node = self.ast.parse(code)
             c = beniget.DefUseChains()
             c.visit(node)
             self.assertEqual(c.dump_chains(node),
                              ['Attr -> (Attr -> (Attr -> ()))',
                               'Visitor -> ()'])
             self.assertEqual(c.dump_chains(node.body[-1]), ['Attr -> ()'])
-    
+
     def test_star_assignment(self):
         code = '''
 curr, *parts = [1,2,3]
@@ -574,9 +588,9 @@ while curr:
     else:
         break
 '''
-        self.checkChains(code, ['curr -> (curr -> (), curr -> (<Call> -> ()))', 
+        self.checkChains(code, ['curr -> (curr -> (), curr -> (<Call> -> ()))',
                                 'parts -> (parts -> (), parts -> ())']*2)
-    
+
     def test_star_assignment_nested(self):
         code = '''
 (curr, *parts),i = [1,2,3],0
@@ -590,7 +604,7 @@ while curr:
         self.checkChains(code, ['curr -> (curr -> (), curr -> (<Call> -> ()))',
                                 'parts -> (parts -> (), parts -> (<Tuple> -> ()))',
                                 'i -> (i -> (<Tuple> -> ()))']*2)
-    
+
     def test_attribute_assignment(self):
         code = "d=object();d.name,x = 't',1"
         self.checkChains(code, ['d -> (d -> (.name -> ()))',
@@ -609,7 +623,7 @@ class Visitor:
     def f(): return f()
     def visit_Name(self, node:Thing, fn:f):...
 '''
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
@@ -627,7 +641,7 @@ def visit_Attribute(self, node):pass
 class Visitor:
     visit_Attribute = visit_Attribute
 '''
-        node = ast.parse(code)
+        node = self.ast.parse(code)
         c = beniget.DefUseChains()
         c.visit(node)
         self.assertEqual(c.dump_chains(node),
@@ -654,7 +668,7 @@ cos = pop()'''
             'pop -> (pop -> (<Call> -> ()))',
             'cos -> (cos -> (<Call> -> ()))'
         ])
-    
+
     def test_class_scope_comprehension(self):
         code = '''
 class Cls:
@@ -671,7 +685,7 @@ class Cls:
                           'foo -> (<comprehension> -> (<SetComp> -> ())), '
                           'foo -> (<comprehension> -> (<GeneratorExp> -> ())), '
                           'foo -> (<comprehension> -> (<DictComp> -> ())))'])
-    
+
     def test_class_scope_comprehension_invalid(self):
         code = '''
 class Foo:
@@ -679,7 +693,7 @@ class Foo:
     y = [x for i in range(1)]
     z = [i for i in range(1) for j in range(x)]
 '''
-        self.check_message(code, ["W: unbound identifier 'x' at test:4:9", 
+        self.check_message(code, ["W: unbound identifier 'x' at test:4:9",
                                   "W: unbound identifier 'x' at test:5:44"], 'test')
 
 
@@ -710,7 +724,7 @@ if (a := a + a):
         self.checkChains(
             code, ['a -> (a -> (<BinOp> -> (<NamedExpr> -> ())), a -> (<BinOp> -> (<NamedExpr> -> ())))', 'a -> ()']
         )
-    
+
     @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
     def test_named_expr_comprehension(self):
         # Warlus target should be stored in first non comprehension scope
@@ -718,16 +732,16 @@ if (a := a + a):
             'if any((witness := city).startswith("H") for city in cities):'
             'witness')
         self.checkChains(
-            code, ['cities -> (cities -> (<comprehension> -> (<GeneratorExp> -> (<Call> -> ()))))', 
+            code, ['cities -> (cities -> (<comprehension> -> (<GeneratorExp> -> (<Call> -> ()))))',
                    'witness -> (witness -> ())']
         )
-        
+
     @skipIf(sys.version_info < (3, 8), 'Python 3.8 syntax')
     def test_named_expr_comprehension_invalid(self):
-        # an assignment expression target name cannot be the same as a 
+        # an assignment expression target name cannot be the same as a
         # for-target name appearing in any comprehension containing the assignment expression.
-        # A further exception applies when an assignment expression occurs in a comprehension whose 
-        # containing scope is a class scope. If the rules above were to result in the target 
+        # A further exception applies when an assignment expression occurs in a comprehension whose
+        # containing scope is a class scope. If the rules above were to result in the target
         # being assigned in that class's scope, the assignment expression is expressly invalid.
         code = '''
 stuff = []
@@ -750,20 +764,20 @@ class Example:
     [(j := i) for i in range(5)] # INVALID
 '''
         # None of the invalid assigned name shows up.
-        node, chains = self.checkChains(code, ['stuff -> ()', 'Example -> ()'], strict=False)        
+        node, chains = self.checkChains(code, ['stuff -> ()', 'Example -> ()'], strict=False)
         self.assertEqual(chains.dump_chains(node.body[-1]), [])
         # It triggers useful warnings
-        self.check_message(code, ["W: assignment expression cannot rebind comprehension iteration variable 'a' at <unknown>:5:0", 
-                                  "W: assignment expression cannot rebind comprehension iteration variable 'b' at <unknown>:6:0", 
-                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:7:0', 
-                                  "W: assignment expression cannot rebind comprehension iteration variable 'd' at <unknown>:8:0", 
-                                  "W: assignment expression cannot rebind comprehension iteration variable 'e' at <unknown>:9:0", 
-                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:12:0', 
-                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:13:0', 
-                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:14:0', 
+        self.check_message(code, ["W: assignment expression cannot rebind comprehension iteration variable 'a' at <unknown>:5:0",
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'b' at <unknown>:6:0",
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:7:0',
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'd' at <unknown>:8:0",
+                                  "W: assignment expression cannot rebind comprehension iteration variable 'e' at <unknown>:9:0",
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:12:0',
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:13:0',
+                                  'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:14:0',
                                   'W: assignment expression cannot be used in a comprehension iterable expression at <unknown>:15:0',
                                   'W: assignment expression within a comprehension cannot be used in a class body at <unknown>:19:6'])
-    
+
     def test_annotation_unbound(self):
         code = '''
 def f(x:f) -> f: # 'f' annotations are unbound
@@ -771,7 +785,7 @@ def f(x:f) -> f: # 'f' annotations are unbound
         self.checkChains(
             code, ['f -> ()'], strict=False
         )
-    
+
     def test_method_annotation_unbound(self):
         code = '''
 class S:
@@ -780,9 +794,9 @@ class S:
         mod, chains = self.checkChains(
             code, ['S -> ()'], strict=False
         )
-        self.assertEqual(chains.dump_chains(mod.body[0]), 
+        self.assertEqual(chains.dump_chains(mod.body[0]),
                          ['f -> ()'])
-    
+
     def test_annotation_unbound_pep563(self):
         code = '''
 from __future__ import annotations
@@ -791,7 +805,7 @@ def f(x:f) -> f: # 'f' annotations are NOT unbound because pep563
         self.checkChains(
             code, ['annotations -> ()', 'f -> (f -> (), f -> ())']
         )
-    
+
     def test_method_annotation_unbound_pep563(self):
         code = '''
 from __future__ import annotations
@@ -801,9 +815,9 @@ class S:
         mod, chains = self.checkChains(
             code, ['annotations -> ()', 'S -> ()']
         )
-        self.assertEqual(chains.dump_chains(mod.body[1]), 
+        self.assertEqual(chains.dump_chains(mod.body[1]),
                          ['f -> (f -> (), f -> ())'])
-    
+
     def test_import_dotted_name_binds_first_name(self):
         code = '''import collections.abc;collections;collections.abc'''
         self.checkChains(
@@ -815,7 +829,7 @@ class S:
         self.checkChains(
             code, ['* -> (name1 -> (), name2 -> ())','* -> (name1 -> (), name2 -> ())','* -> (name2 -> ())']
         )
-    
+
     def test_wildcard_may_override(self):
         # we could argue that the wildcard import might override name2,
         # but we're currently ignoring these kind of scenarios.
@@ -842,7 +856,7 @@ class System:
                     'Thing -> ()',
                     'System -> ()',]
         )
-    
+
     def test_future_annotation_class_var(self):
         code = '''
 from __future__ import annotations
@@ -851,18 +865,18 @@ class System:
     Thing = bytes
     @property
     def Attribute(self) -> Type[Thing]:...
-'''     
-        
+'''
+
         mod, chains = self.checkChains(
             code, ['annotations -> ()',
             'Type -> (Type -> (<Subscript> -> ()))', 'System -> ()']
         )
         # locals of System
         self.assertEqual(chains.dump_chains(mod.body[-1]), [
-            'Thing -> (Thing -> (<Subscript> -> ()))', 
+            'Thing -> (Thing -> (<Subscript> -> ()))',
             'Attribute -> ()'
         ])
-        
+
     def test_pep0563_annotations(self):
 
         # code taken from https://peps.python.org/pep-0563/
@@ -895,7 +909,7 @@ class C:
         def method(self) -> D.field2:  # this FAILS, class D is local to C
             ...                        # and is therefore only available
                                        # as C.D. This was already true
-                                       # before the PEP. 
+                                       # before the PEP.
                                        # We check first the globals, then the locals
                                        # of the class D, and 'D' is not defined in either
                                        # of those, it defined in the locals of class C.
@@ -925,7 +939,7 @@ Thing:TypeAlias = 'Mapping'
                     'Type -> (Type -> (<Subscript> -> ()))',
                     'C -> (C -> (.field -> ()), C -> (.D -> ()), C -> (.D -> '
                     '(.field2 -> ())))',
-                    'Thing -> (Thing -> (), Thing -> (<Subscript> -> ()))'], 
+                    'Thing -> (Thing -> (), Thing -> (<Subscript> -> ()))'],
                 strict=False
             )
         produced_messages = out.getvalue().strip().split("\n")
@@ -935,20 +949,20 @@ Thing:TypeAlias = 'Mapping'
             "W: unbound identifier 'D'",
         ]
 
-        assert len(produced_messages) == len(expected_warnings), len(produced_messages)
+        assert len(produced_messages) == len(expected_warnings), produced_messages
         assert all(any(w in pw for pw in produced_messages) for w in expected_warnings)
 
         # locals of C
-        self.assertEqual(c.dump_chains(node.body[-2]), 
+        self.assertEqual(c.dump_chains(node.body[-2]),
                          ['method -> ()',
                             'method -> ()',
                             'method -> ()',
                             'method -> ()',
                             'field -> (field -> (), field -> ())',
                             'D -> (D -> ())'])
-        
+
         # locals of D
-        self.assertEqual(c.dump_chains(node.body[-2].body[-1]), 
+        self.assertEqual(c.dump_chains(node.body[-2].body[-1]),
                          ['field2 -> (field2 -> (), field2 -> ())',
                             'method -> ()',
                             'method -> ()',
@@ -968,9 +982,9 @@ class A:
     A: 'str'
 '''
         self.checkChains(
-                code, 
+                code,
                 ['annotations -> ()',
-                 'B -> ()', 
+                 'B -> ()',
                  'A -> (A -> ())'], # good
                 strict=False
             )
@@ -983,13 +997,13 @@ class B:
     A: A # this should point to the top-level class
 '''
         self.checkChains(
-                code, 
+                code,
                 ['annotations -> ()',
-                 'A -> (A -> ())', 
-                 'B -> ()'], 
+                 'A -> (A -> ())',
+                 'B -> ()'],
                 strict=False
             )
-    
+
     def test_wilcard_import_annotation(self):
         code = '''
 from typing import *
@@ -997,19 +1011,19 @@ primes: List[int] # should resolve to the star
         '''
 
         self.checkChains(
-                code, 
+                code,
                 ['* -> (List -> (<Subscript> -> ()))', 'primes -> ()'],
                 strict=False
             )
         # same with 'from __future__ import annotations'
         self.checkChains(
-                'from __future__ import annotations\n' + code, 
+                'from __future__ import annotations\n' + code,
                 ['annotations -> ()', '* -> (List -> (<Subscript> -> ()))', 'primes -> ()'],
                 strict=False
             )
-    
+
     def test_wilcard_import_annotation_and_global_scope(self):
-        # we might argue that it should resolve to both the wildcard 
+        # we might argue that it should resolve to both the wildcard
         # defined name and the type alias, but we're currently ignoring these
         # kind of scenarios.
         code = '''
@@ -1020,16 +1034,16 @@ List = list
     '''
 
         self.checkChains(
-                code, 
+                code,
                 ['annotations -> ()',
                 '* -> ()',
                 'primes -> ()',
                 'List -> (List -> (<Subscript> -> ()))'],
                 strict=False
             )
-    
+
     def test_annotation_in_functions_locals(self):
-        
+
         code = '''
 class A:... # this one for pep 563 style
 def generate():
@@ -1043,25 +1057,25 @@ X = generate()
 
         # runtime style
         mod, chains = self.checkChains(
-                code, 
-                ['A -> ()', 
-                 'generate -> (generate -> (<Call> -> ()))', 
+                code,
+                ['A -> ()',
+                 'generate -> (generate -> (<Call> -> ()))',
                  'X -> ()'],
             )
-        self.assertEqual(chains.dump_chains(mod.body[1]), 
-                         ['A -> (A -> (), A -> ())', 
+        self.assertEqual(chains.dump_chains(mod.body[1]),
+                         ['A -> (A -> (), A -> ())',
                           'C -> (C -> ())'])
 
         # pep 563 style
         mod, chains = self.checkChains(
-                'from __future__ import annotations\n' + code, 
-                ['annotations -> ()', 
+                'from __future__ import annotations\n' + code,
+                ['annotations -> ()',
                  'A -> (A -> (), A -> ())',
-                 'generate -> (generate -> (<Call> -> ()))', 
+                 'generate -> (generate -> (<Call> -> ()))',
                  'X -> ()'],
             )
-        self.assertEqual(chains.dump_chains(mod.body[2]), 
-                         ['A -> ()', 
+        self.assertEqual(chains.dump_chains(mod.body[2]),
+                         ['A -> ()',
                           'C -> (C -> ())'])
 
     def test_annotation_in_inner_functions_locals(self):
@@ -1080,54 +1094,56 @@ def outer():
 fn = outer()
         '''
 
-        mod = ast.parse(code)
+        mod = self.ast.parse(code)
         chains = beniget.DefUseChains('test')
         with captured_output() as (out, err):
             chains.visit(mod)
-        
+
         produced_messages = out.getvalue().strip().split("\n")
 
         self.assertEqual(produced_messages, ["W: unbound identifier 'mytype' at test:5:20"])
 
         self.assertEqual(
-                chains.dump_chains(mod), 
-                ['mytype -> ()', 
-                 'mytype2 -> ()', 
-                 'outer -> (outer -> (<Call> -> ()))', 
+                chains.dump_chains(mod),
+                ['mytype -> ()',
+                 'mytype2 -> ()',
+                 'outer -> (outer -> (<Call> -> ()))',
                  'fn -> ()'],
             )
-        
-        self.assertEqual(chains.dump_chains(mod.body[1]), 
-                         ['middle -> (middle -> (<Call> -> ()))', 
+
+        self.assertEqual(chains.dump_chains(mod.body[1]),
+                         ['middle -> (middle -> (<Call> -> ()))',
                           'mytype2 -> (mytype2 -> ())'])
-        self.assertEqual(chains.dump_chains(mod.body[1].body[0]), 
-                         ['inner -> (inner -> ())', 
+        self.assertEqual(chains.dump_chains(mod.body[1].body[0]),
+                         ['inner -> (inner -> ())',
                           'mytype -> ()']) # annotation is unbound, so not linked here (and a warning is emitted)
 
         # in this case, the behaviour changes radically with pep 563
 
         mod, chains = self.checkChains(
-                'from __future__ import annotations\n' + code, 
-                ['annotations -> ()', 
-                 'mytype -> (mytype -> ())', 
-                 'mytype2 -> (mytype2 -> ())', 
-                 'outer -> (outer -> (<Call> -> ()))', 
+                'from __future__ import annotations\n' + code,
+                ['annotations -> ()',
+                 'mytype -> (mytype -> ())',
+                 'mytype2 -> (mytype2 -> ())',
+                 'outer -> (outer -> (<Call> -> ()))',
                  'fn -> ()'],
             )
-        self.assertEqual(chains.dump_chains(mod.body[2]), 
-                         ['middle -> (middle -> (<Call> -> ()))', 
+        self.assertEqual(chains.dump_chains(mod.body[2]),
+                         ['middle -> (middle -> (<Call> -> ()))',
                           'mytype2 -> ()'])
-        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
-                         ['inner -> (inner -> ())', 
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]),
+                         ['inner -> (inner -> ())',
                           'mytype -> ()'])
 
-        # but if we remove 'mytype = mytype2 = object' and 
-        # keep the __future__ import then all anotations refers 
-        # to the inner classes. 
+        # but if we remove 'mytype = mytype2 = object' and
+        # keep the __future__ import then all anotations refers
+        # to the inner classes.
 
     def test_lookup_scopes(self):
-        from beniget.beniget import _get_lookup_scopes
-        mod, fn, cls, lambd, gen, comp = ast.Module(), ast.FunctionDef(), ast.ClassDef(), ast.Lambda(), ast.GeneratorExp(), ast.DictComp()
+        defuse = beniget.DefUseChains()
+        defuse.visit(self.ast.Module(body=[]))
+
+        mod, fn, cls, lambd, gen, comp = self.ast.Module(), self.ast.FunctionDef(), self.ast.ClassDef(), self.ast.Lambda(), self.ast.GeneratorExp(), self.ast.DictComp()
         assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
         assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
         assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
@@ -1145,15 +1161,15 @@ fn = outer()
         code = '''
 def outer():
     def middle():
-        def inner(a:mytype): 
+        def inner(a:mytype):
             ...
     class mytype(str):...
 '''
         mod, chains = self.checkChains(
-                code, 
+                code,
                 ['outer -> ()',],
             )
-        self.assertEqual(chains.dump_chains(mod.body[0]), 
+        self.assertEqual(chains.dump_chains(mod.body[0]),
                          ['middle -> ()',
                           'mytype -> (mytype -> ())'])
 
@@ -1162,27 +1178,27 @@ def outer():
              ['annotations -> ()',
               'outer -> ()',],
         )
-        self.assertEqual(chains.dump_chains(mod.body[1]), 
+        self.assertEqual(chains.dump_chains(mod.body[1]),
                          ['middle -> ()',
                           'mytype -> (mytype -> ())'])
-    
+
 
     def test_annotation_very_nested(self):
-        
+
         # this code does not produce any pyright warnings
         code = '''
 from __future__ import annotations
 
-# when the following line is defined, 
+# when the following line is defined,
 # all annotations references points to it.
 # when it's not defined, all anotation points
-# to the inner classes. 
+# to the inner classes.
 # in both cases pyright doesn't report any errors.
 mytype = mytype2 = object
 
 def outer():
     def middle():
-        def inner(a:mytype, b:mytype2): 
+        def inner(a:mytype, b:mytype2):
             return getattr(a, 'count')(b)
         class mytype(str):
             class substr(int):
@@ -1199,34 +1215,34 @@ fn = outer()
         '''
 
         mod, chains = self.checkChains(
-                code, 
+                code,
                 ['annotations -> ()',
                 'mytype -> (mytype -> (), mytype -> (), mytype -> (), mytype -> ())',
                 'mytype2 -> (mytype2 -> (), mytype2 -> ())',
                 'outer -> (outer -> (<Call> -> ()))',
                 'fn -> ()'],
             )
-        self.assertEqual(chains.dump_chains(mod.body[2]), 
+        self.assertEqual(chains.dump_chains(mod.body[2]),
                          ['middle -> (middle -> (<Call> -> ()))',
                           'mytype2 -> (mytype2 -> (<Call> -> (<Call> -> ())), '
                           'mytype2 -> (<Call> -> (<Call> -> ())))'])
-        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]),
                          ['inner -> (inner -> (<Call> -> ()))',
                           'mytype -> (mytype -> (<Call> -> (<Call> -> ())), mytype -> (<Call> -> ()))'])
 
         mod, chains = self.checkChains(
-                code.replace('mytype = mytype2 = object', 'pass'), 
+                code.replace('mytype = mytype2 = object', 'pass'),
                 ['annotations -> ()',
                 'outer -> (outer -> (<Call> -> ()))',
                 'fn -> ()'],
             )
-        self.assertEqual(chains.dump_chains(mod.body[2]), 
+        self.assertEqual(chains.dump_chains(mod.body[2]),
                          ['middle -> (middle -> (<Call> -> ()))',
                           'mytype2 -> (mytype2 -> (<Call> -> (<Call> -> ())), '
                                        'mytype2 -> (<Call> -> (<Call> -> ())), '
                                        'mytype2 -> (), '
                                        'mytype2 -> ())'])
-        self.assertEqual(chains.dump_chains(mod.body[2].body[0]), 
+        self.assertEqual(chains.dump_chains(mod.body[2].body[0]),
                          ['inner -> (inner -> (<Call> -> ()))',
                           'mytype -> (mytype -> (<Call> -> (<Call> -> ())), '
                                      'mytype -> (<Call> -> ()), '
@@ -1234,7 +1250,7 @@ fn = outer()
                                      'mytype -> (), '
                                      'mytype -> (), '
                                      'mytype -> ())'])
-    
+
     def test_pep563_type_alias_override_class(self):
         code = '''
 from __future__ import annotations
@@ -1245,18 +1261,17 @@ class A:
 A = bytes
 '''
         self.checkChains(
-                code, 
+                code,
                 ['annotations -> ()',
-                 'B -> ()', 
+                 'B -> ()',
                  'A -> ()',
                  'A -> (A -> (), A -> ())'], # good
                 strict=False
             )
-    
-    @skipIf(sys.version_info.major < 3, "Python 3 syntax")
+
     def test_annotation_def_is_not_assign_target(self):
         code = 'from typing import Optional; var:Optional'
-        self.checkChains(code, ['Optional -> (Optional -> ())', 
+        self.checkChains(code, ['Optional -> (Optional -> ())',
                                 'var -> ()'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
@@ -1362,8 +1377,15 @@ print(x, y)
                        'x -> (<MatchClass> -> (), x -> (<Call> -> ()))',
                        'y -> (<MatchClass> -> (), y -> (<Call> -> ()))'])
 
+
+class TestDefUseChainsStdlib(TestDefUseChains):
+    ast = _ast
+
 class TestUseDefChains(TestCase):
+    ast = _gast
     def checkChains(self, code, ref):
+        node = self.ast.parse(code)
+
         class StrictDefUseChains(beniget.DefUseChains):
             def unbound_identifier(self, name, node):
                 raise RuntimeError(
@@ -1372,12 +1394,17 @@ class TestUseDefChains(TestCase):
                     )
                 )
 
-        node = ast.parse(code)
         c = StrictDefUseChains()
         c.visit(node)
         cc = beniget.UseDefChains(c)
+        actual = str(cc)
 
-        self.assertEqual(str(cc), ref)
+        # work arround little change from python 3.6
+        if sys.version_info.minor == 6:
+            # 3.6
+            actual = replace_deprecated_names(actual)
+
+        self.assertEqual(actual, ref)
 
     def test_simple_expression(self):
         code = "a = 1; a"
@@ -1386,3 +1413,7 @@ class TestUseDefChains(TestCase):
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "<Call> <- {<Constant>, <Constant>, bar}, bar <- {bar}")
+
+class TestUseDefChainsStdlib(TestDefUseChains):
+    ast = _ast
+
