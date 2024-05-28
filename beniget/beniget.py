@@ -2,20 +2,27 @@ from collections import defaultdict
 from contextlib import contextmanager
 import sys
 
-import gast as ast
+import gast
 
 from .ordered_set import ordered_set
 
-class Ancestors(ast.NodeVisitor):
+
+def pkg(node):
+    return sys.modules[type(node).__module__]
+
+
+class Ancestors(gast.NodeVisitor):
     """
     Build the ancestor tree, that associates a node to the list of node visited
     from the root node (the Module) to the current node
 
-    >>> import gast as ast
-    >>> code = 'def foo(x): return x + 1'
-    >>> module = ast.parse(code)
-
+    Example usage with gast module
     >>> from beniget import Ancestors
+    >>> code = 'def foo(x): return x + 1'
+
+    >>> import gast
+    >>> module = gast.parse(code)
+
     >>> ancestors = Ancestors()
     >>> ancestors.visit(module)
 
@@ -25,6 +32,20 @@ class Ancestors(ast.NodeVisitor):
     <class 'gast.gast.Module'>
     <class 'gast.gast.FunctionDef'>
     <class 'gast.gast.Return'>
+
+    >>> import ast
+
+    >>> module = ast.parse(code)
+
+    >>> ancestors = Ancestors()
+    >>> ancestors.visit(module)
+
+    >>> binop = module.body[0].body[0].value
+    >>> for n in ancestors.parents(binop):
+    ...    print(type(n).__name__)
+    Module
+    FunctionDef
+    Return
     """
 
     def __init__(self):
@@ -50,11 +71,12 @@ class Ancestors(ast.NodeVisitor):
         raise ValueError("{} has no parent of type {}".format(node, cls))
 
     def parentFunction(self, node):
+        ast = pkg(node)
         return self.parentInstance(node, (ast.FunctionDef,
                                           ast.AsyncFunctionDef))
 
     def parentStmt(self, node):
-        return self.parentInstance(node, ast.stmt)
+        return self.parentInstance(node, gast.stmt)
 
 _novalue = object()
 @contextmanager
@@ -100,6 +122,7 @@ class Def(object):
         If the node associated to this Def has a name, returns this name.
         Otherwise returns its type
         """
+        ast = pkg(self.node)
         if isinstance(self.node, (ast.ClassDef,
                                   ast.FunctionDef,
                                   ast.AsyncFunctionDef)):
@@ -168,7 +191,7 @@ def collect_future_imports(node):
     """
     Returns a set of future imports names for the given ast module.
     """
-    assert isinstance(node, ast.Module)
+    assert isinstance(node, pkg(node).Module)
     cf = _CollectFutureImports()
     cf.visit(node)
     return cf.FutureImports
@@ -176,7 +199,7 @@ def collect_future_imports(node):
 class _StopTraversal(Exception):
     pass
 
-class _CollectFutureImports(ast.NodeVisitor):
+class _CollectFutureImports(gast.NodeVisitor):
     # A future statement must appear near the top of the module.
     # The only lines that can appear before a future statement are:
     # - the module docstring (if any),
@@ -209,7 +232,7 @@ class _CollectFutureImports(ast.NodeVisitor):
     def generic_visit(self, node):
         raise _StopTraversal()
 
-class CollectLocals(ast.NodeVisitor):
+class CollectLocals(gast.NodeVisitor):
     def __init__(self):
         self.Locals = set()
         self.NonLocals = set()
@@ -228,7 +251,7 @@ class CollectLocals(ast.NodeVisitor):
     visit_Global = visit_Nonlocal
 
     def visit_Name(self, node):
-        if isinstance(node.ctx, ast.Store) and node.id not in self.NonLocals:
+        if isinstance(node.ctx, pkg(node).Store) and node.id not in self.NonLocals:
             self.Locals.add(node.id)
 
     def skip(self, _):
@@ -259,7 +282,7 @@ def collect_locals(node):
     return visitor.Locals
 
 
-class DefUseChains(ast.NodeVisitor):
+class DefUseChains(gast.NodeVisitor):
     """
     Module visitor that gathers two kinds of informations:
         - locals: Dict[node, List[Def]], a mapping between a node and the list
@@ -349,7 +372,7 @@ class DefUseChains(ast.NodeVisitor):
             for name,defs in groupped.items()]
 
     def dump_definitions(self, node, ignore_builtins=True):
-        if isinstance(node, ast.Module) and not ignore_builtins:
+        if isinstance(node, pkg(node).Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
             return sorted(d.name()
                           for d in self.locals[node] if d not in builtins)
@@ -399,7 +422,7 @@ class DefUseChains(ast.NodeVisitor):
         # >>> foo() # fails, a is a local referenced before being assigned
         # >>> class bar: a = a
         # >>> bar() # ok, and `bar.a is a`
-        if isinstance(scope, ast.ClassDef):
+        if isinstance(scope, pkg(scope).ClassDef):
             top_level_definitions = self._definitions[0:-self._scope_depths[0]]
             isglobal = any((name in top_lvl_def or '*' in top_lvl_def)
                            for top_lvl_def in top_level_definitions)
@@ -452,7 +475,7 @@ class DefUseChains(ast.NodeVisitor):
                 for scope, depth, precomputed_locals in zip(scopes_iter,
                                                             depths_iter,
                                                             precomputed_locals_iter):
-                    if not isinstance(scope, ast.ClassDef):
+                    if not isinstance(scope, pkg(scope).ClassDef):
                         defs = self._definitions[lvl + depth: lvl]
                         if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
                             looked_up_definitions.append(StopIteration)
@@ -483,7 +506,11 @@ class DefUseChains(ast.NodeVisitor):
     defs = compute_defs
 
     def process_body(self, stmts):
+        if not stmts:
+            return
+
         deadcode = False
+        ast = pkg(stmts[0])
         for stmt in stmts:
             self.visit(stmt)
             if isinstance(stmt, (ast.Break, ast.Continue, ast.Raise)):
@@ -611,7 +638,7 @@ class DefUseChains(ast.NodeVisitor):
     def set_definition(self, name, dnode_or_dnodes, index=-1):
         if self._deadcode:
             return
-        
+
         if isinstance(dnode_or_dnodes, Def):
             dnodes = ordered_set((dnode_or_dnodes,))
         else:
@@ -619,7 +646,7 @@ class DefUseChains(ast.NodeVisitor):
 
         # set the islive flag to False on killed Defs
         for d in self._definitions[index].get(name, ()):
-            if not isinstance(d.node, ast.AST):
+            if not isinstance(d.node, gast.AST):
                 # A builtin: we never explicitely mark the builtins as killed, since 
                 # it can be easily deducted.
                 continue
@@ -631,7 +658,7 @@ class DefUseChains(ast.NodeVisitor):
                 # - a variable is conditionnaly killed (any(...))
                 continue
             d.islive = False
-        
+
         self._definitions[index][name] = dnodes
 
     @staticmethod
@@ -674,7 +701,7 @@ class DefUseChains(ast.NodeVisitor):
             self.visit(annotation)
 
     def visit_skip_annotation(self, node):
-        if isinstance(node, ast.Name):
+        if isinstance(node, pkg(node).Name):
             self.visit_Name(node, skip_annotation=True)
         else:
             self.visit(node)
@@ -780,8 +807,8 @@ class DefUseChains(ast.NodeVisitor):
 
     def visit_AugAssign(self, node):
         dvalue = self.visit(node.value)
-        if isinstance(node.target, ast.Name):
-            ctx, node.target.ctx = node.target.ctx, ast.Load()
+        if isinstance(node.target, pkg(node).Name):
+            ctx, node.target.ctx = node.target.ctx, pkg(node).Load()
             dtarget = self.visit(node.target)
             dvalue.add_user(dtarget)
             node.target.ctx = ctx
@@ -1140,7 +1167,7 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_Starred(self, node):
-        if isinstance(node.ctx, ast.Store):
+        if isinstance(node.ctx, pkg(node).Store):
             return self.visit(node.value)
         else:
             dnode = self.chains.setdefault(node, Def(node))
@@ -1150,7 +1177,7 @@ class DefUseChains(ast.NodeVisitor):
     def visit_NamedExpr(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.value).add_user(dnode)
-        if isinstance(node.target, ast.Name):
+        if isinstance(node.target, pkg(node).Name):
             self.visit_Name(node.target, named_expr=True)
         return dnode
 
@@ -1161,13 +1188,15 @@ class DefUseChains(ast.NodeVisitor):
     def _first_non_comprehension_scope(self):
         index = -1
         enclosing_scope = self._scopes[index]
-        while isinstance(enclosing_scope, (ast.DictComp, ast.ListComp, 
+        ast = pkg(enclosing_scope)
+        while isinstance(enclosing_scope, (ast.DictComp, ast.ListComp,
                                             ast.SetComp, ast.GeneratorExp)):
             index -= 1
             enclosing_scope = self._scopes[index]
         return index, enclosing_scope
 
     def visit_Name(self, node, skip_annotation=False, named_expr=False):
+        ast = pkg(node)
         if isinstance(node.ctx, (ast.Param, ast.Store)):
             dnode = self.chains.setdefault(node, Def(node))
             # FIXME: find a smart way to merge the code below with add_to_locals
@@ -1210,6 +1239,7 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_Destructured(self, node):
+        ast = pkg(node)
         dnode = self.chains.setdefault(node, Def(node))
         tmp_store = ast.Store()
         for elt in node.elts:
@@ -1224,6 +1254,7 @@ class DefUseChains(ast.NodeVisitor):
         return dnode
 
     def visit_List(self, node):
+        ast = pkg(node)
         if isinstance(node.ctx, ast.Load):
             dnode = self.chains.setdefault(node, Def(node))
             for elt in node.elts:
@@ -1336,6 +1367,7 @@ class DefUseChains(ast.NodeVisitor):
     visit_MatchSingleton = visit_MatchValue
 
     def visit_MatchSequence(self, node):
+        ast = pkg(node)
         # mimics a list
         with _rename_attrs(node, ctx=ast.Load(), elts=node.patterns):
             return self.visit_List(node)
@@ -1346,7 +1378,7 @@ class DefUseChains(ast.NodeVisitor):
             # mimics a dict
             self.visit_Dict(node)
         if node.rest:
-            with _rename_attrs(node, id=node.rest, ctx=ast.Store(), annotation=None):
+            with _rename_attrs(node, id=node.rest, ctx=pkg(node).Store(), annotation=None):
                 self.visit_Name(node)
         return dnode
 
@@ -1364,7 +1396,7 @@ class DefUseChains(ast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         if node.name:
             # mimics store name
-            with _rename_attrs(node, id=node.name, ctx=ast.Store(), annotation=None):
+            with _rename_attrs(node, id=node.name, ctx=pkg(node).Store(), annotation=None):
                 self.visit_Name(node)
         return dnode
 
@@ -1373,7 +1405,7 @@ class DefUseChains(ast.NodeVisitor):
         if node.pattern:
             self.visit(node.pattern)
         if node.name:
-            with _rename_attrs(node, id=node.name, ctx=ast.Store(), annotation=None):
+            with _rename_attrs(node, id=node.name, ctx=pkg(node).Store(), annotation=None):
                 self.visit_Name(node)
         return dnode
 
@@ -1390,6 +1422,7 @@ def _validate_comprehension(node):
      - a named expression is used in a comprehension iterable expression
      - a named expression rebinds a comprehension iteration variable
     """
+    ast = pkg(node)
     iter_names = set() # comprehension iteration variables
     for gen in node.generators:
         for namedexpr in (n for n in ast.walk(gen.iter) if isinstance(n, ast.NamedExpr)):
@@ -1488,6 +1521,8 @@ def _get_lookup_scopes(heads):
     except IndexError:
         # we got only a global scope
         return [direct_scope]
+
+    ast = pkg(direct_scope)
     # more of less modeling what's described here.
     # https://github.com/gvanrossum/gvanrossum.github.io/blob/main/formal/scopesblog.md
     other_scopes = [s for s in heads if isinstance(s, (
@@ -1519,7 +1554,7 @@ class UseDefChains(object):
     def __init__(self, defuses):
         self.chains = {}
         for chain in defuses.chains.values():
-            if isinstance(chain.node, ast.Name):
+            if isinstance(chain.node, pkg(chain.node).Name):
                 self.chains.setdefault(chain.node, [])
             for use in chain.users():
                 self.chains.setdefault(use.node, []).append(chain)
