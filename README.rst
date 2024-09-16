@@ -7,6 +7,8 @@ It's a building block to write static analyzer or compiler for Python.
 Beniget relies on `gast <https://pypi.org/project/gast/>`_ to provide a cross
 version abstraction of the AST, effectively working across all Python 3 versions greater than 3.6.
 
+Since version 0.5.0, beniget works with the standard library `ast <https://docs.python.org/3/library/ast.html#module-ast>`_ as well 🥳!
+
 API
 ---
 
