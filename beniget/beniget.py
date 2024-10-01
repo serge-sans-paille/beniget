@@ -4,12 +4,17 @@ import builtins
 import sys
 
 import gast
+import ast as _ast
 
 from .ordered_set import ordered_set
 
 
 def pkg(node):
-    return sys.modules[type(node).__module__]
+    """
+    Given a supported AST node, return the origin module where it's class is defined. 
+    The result will be gast or ast.
+    """
+    return gast.gast if node.__class__.__module__ == 'gast.gast' else _ast
 
 # NodeVisitor is compatible with standard library ast
 class Ancestors(gast.NodeVisitor):
@@ -96,9 +101,6 @@ def _rename_attrs(obj, **attrs):
         else:
             setattr(obj, k, v)
 
-_PY310PLUS = sys.version_info >= (3, 10)
-_PY38PLUS = sys.version_info >= (3, 8)
-
 class Def(object):
     """
     Model a definition, either named or unnamed, and its users.
@@ -133,18 +135,18 @@ class Def(object):
             return self.node.name
         elif isinstance(self.node, ast.Name):
             return self.node.id
-        elif ast is not gast.gast and isinstance(self.node, ast.arg):
-            return self.node.arg
-        elif ast is not gast.gast and isinstance(self.node, ast.ExceptHandler):
-            return self.node.name
         elif isinstance(self.node, ast.alias):
             base = self.node.name.split(".", 1)[0]
             return self.node.asname or base
-        elif _PY310PLUS and isinstance(self.node, (ast.MatchStar, ast.MatchAs)) \
-            and isinstance(self.node.name, str):
+        elif isinstance(self.node, ast.ExceptHandler) and isinstance(self.node.name, str):
+            # this branch copes with the structural difference in between ast and gast regarding the except handler.
             return self.node.name
-        elif _PY310PLUS and isinstance(self.node, ast.MatchMapping) \
-            and self.node.rest:
+        # We compare as string for these nodes since they might not exist depending on the python version or ast module used.
+        elif self.node.__class__.__name__ == 'arg':
+            return self.node.arg
+        elif self.node.__class__.__name__ in ('MatchStar', 'MatchAs') and self.node.name:
+            return self.node.name
+        elif self.node.__class__.__name__ == 'MatchMapping' and self.node.rest:
             return self.node.rest
         elif isinstance(self.node, ast.Attribute):
             return "." + self.node.attr
@@ -435,7 +437,8 @@ class DefUseChains(gast.NodeVisitor):
         # >>> foo() # fails, a is a local referenced before being assigned
         # >>> class bar: a = a
         # >>> bar() # ok, and `bar.a is a`
-        if isinstance(scope, pkg(scope).ClassDef):
+        ast = pkg(scope)
+        if isinstance(scope, ast.ClassDef):
             top_level_definitions = self._definitions[0:-self._scope_depths[0]]
             isglobal = any((name in top_lvl_def or '*' in top_lvl_def)
                            for top_lvl_def in top_level_definitions)
@@ -484,11 +487,12 @@ class DefUseChains(gast.NodeVisitor):
             if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
                 looked_up_definitions.extend(reversed(defs))
 
+                ast = pkg(node)
                 # Iterate over scopes, filtering out class scopes.
                 for scope, depth, precomputed_locals in zip(scopes_iter,
                                                             depths_iter,
                                                             precomputed_locals_iter):
-                    if not isinstance(scope, pkg(scope).ClassDef):
+                    if not isinstance(scope, ast.ClassDef):
                         defs = self._definitions[lvl + depth: lvl]
                         if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
                             looked_up_definitions.append(StopIteration)
@@ -1494,8 +1498,6 @@ def _validate_comprehension(node):
      - a named expression is used in a comprehension iterable expression
      - a named expression rebinds a comprehension iteration variable
     """
-    if not _PY38PLUS:
-        return
     ast = pkg(node)
     iter_names = set() # comprehension iteration variables
     for gen in node.generators:
@@ -1509,6 +1511,11 @@ def _validate_comprehension(node):
         if bound in iter_names:
             raise SyntaxError('assignment expression cannot rebind '
                               "comprehension iteration variable '{}'".format(bound))
+
+if not sys.version_info >= (3, 8):
+    # we redefine _validate_comprehension for python version without the warlus operator
+    # since it only needs to be validated if the warlus operator is supported.
+    def _validate_comprehension(node): return
 
 def lookup_annotation_name_defs(name, heads, locals_map):
     r"""
