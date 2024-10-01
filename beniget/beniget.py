@@ -293,8 +293,6 @@ def collect_locals(node):
     visitor.generic_visit(node)
     return visitor.Locals
 
-_DeclarationStep, _DefinitionStep = object(), object()
-
 class DefUseChains(gast.NodeVisitor):
     """
     Module visitor that gathers two kinds of informations:
@@ -590,7 +588,7 @@ class DefUseChains(gast.NodeVisitor):
             visitor = getattr(self,
                               "visit_{}".format(type(fnode).__name__))
             with self.SwitchScopeContext(defs, scopes, scope_depths, precomputed_locals):
-                visitor(fnode, step=_DefinitionStep)
+                visitor(fnode, step=DefinitionStep)
 
     def process_annotations(self):
         compute_defs, self.defs = self.defs,  self.compute_annotation_defs
@@ -780,8 +778,8 @@ class DefUseChains(gast.NodeVisitor):
         else:
             self.visit(node)
 
-    def visit_FunctionDef(self, node, step=_DeclarationStep):
-        if step is _DeclarationStep:
+    def visit_FunctionDef(self, node, step=DeclarationStep):
+        if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
@@ -817,7 +815,7 @@ class DefUseChains(gast.NodeVisitor):
                                   list(self._scopes),
                                   list(self._scope_depths),
                                   list(self._precomputed_locals)))
-        elif step is _DefinitionStep:
+        elif step is DefinitionStep:
             with self.ScopeContext(node):
                 for arg in _iter_arguments(node.args):
                     self.visit_skip_annotation(arg)
@@ -1106,8 +1104,8 @@ class DefUseChains(gast.NodeVisitor):
         self.visit(node.operand).add_user(dnode)
         return dnode
 
-    def visit_Lambda(self, node, step=_DeclarationStep):
-        if step is _DeclarationStep:
+    def visit_Lambda(self, node, step=DeclarationStep):
+        if step is DeclarationStep:
             dnode = self.chains.setdefault(node, Def(node))
             for default in node.args.defaults:
                 self.visit(default).add_user(dnode)
@@ -1118,7 +1116,7 @@ class DefUseChains(gast.NodeVisitor):
                                   list(self._scope_depths),
                                   list(self._precomputed_locals)))
             return dnode
-        elif step is _DefinitionStep:
+        elif step is DefinitionStep:
             dnode = self.chains[node]
             with self.ScopeContext(node):
                 for a in _iter_arguments(node.args):
