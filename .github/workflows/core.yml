@@ -28,9 +28,10 @@ jobs:
         python -m pip install --upgrade pip
         test "${{ matrix.python-version }}" != "3.12" -a "${{ matrix.python-version }}" != "3.13.0-beta.1" || pip install setuptools
         pip install -r requirements.txt
+        pip install setuptools pytest
     - name: Setup
       run: |
-        python setup.py install
+        pip install .
     - name: Testing sequential
       run: |
-        python setup.py test
+        pytest --doctest-modules beniget/ tests/
