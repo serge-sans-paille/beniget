@@ -5,15 +5,16 @@ import gast as _gast
 
 from .test_chains import StrictDefUseChains
 
-from typeshed_client import finder
 
-typeshed_context = finder.get_search_context(search_path=[])
 
 class TestStubs(TestCase):
     ast = _gast
 
     @skipIf(sys.version_info < (3, 8), reason='positional only syntax is used')
     def test_buitlins_stub(self):
+        from typeshed_client import finder
+        typeshed_context = finder.get_search_context(search_path=[])
+
         filename = 'builtins.pyi'
         file = finder.get_stub_file('builtins', search_context=typeshed_context)
         node = self.ast.parse(file.read_text(), filename)
@@ -27,6 +28,9 @@ class TestStubs(TestCase):
     
     @skipIf(sys.version_info < (3, 8), reason='positional only syntax is used')
     def test_all_stubs(self):
+        from typeshed_client import finder
+        typeshed_context = finder.get_search_context(search_path=[])
+        
         for module_name, module_path in finder.get_all_stub_files(typeshed_context):
             with self.subTest(name=module_name, path=module_path):
                 node = self.ast.parse(module_path.read_text(), module_path.as_posix())
