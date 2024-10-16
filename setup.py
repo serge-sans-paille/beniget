@@ -28,6 +28,7 @@ It can also compute def-use chains from each definition.""",
     url="https://github.com/serge-sans-paille/beniget/",
     license="BSD 3-Clause",
     install_requires=open("requirements.txt").read().splitlines(),
+    extras_require={'test': ['pytest', 'typeshed-client==2.7.0']},
     classifiers=[
         "Development Status :: 4 - Beta",
         "Environment :: Console",
