@@ -394,11 +394,11 @@ def _potential_module_names(filename):
     Returns a tuple of potential module 
     names deducted from the POSIX filename.
 
-    >>> potential_module_names('/var/lib/config.py')
+    >>> _potential_module_names('/var/lib/config.py')
     ('var.lib.config', 'lib.config', 'config')
-    >>> potential_module_names('git-repos/pydoctor/pydoctor/driver.py')
+    >>> _potential_module_names('git-repos/pydoctor/pydoctor/driver.py')
     ('pydoctor.pydoctor.driver', 'pydoctor.driver', 'driver')
-    >>> potential_module_names('git-repos/pydoctor/pydoctor/__init__.py')
+    >>> _potential_module_names('git-repos/pydoctor/pydoctor/__init__.py')
     ('pydoctor.pydoctor', 'pydoctor')
     """
     parts = (*filter(bool, filename.strip('/').split('/')),) # split the POSIX filename path
@@ -465,7 +465,8 @@ def matches_qualname(*, heads, locals, imports, modnames, expr, qnames):
         for n in qnames:
             mod, _, _name = n.rpartition('.')
             if mod and expr.attr == _name:
-                if matches_qualname(heads, locals, imports, modnames, expr.value, set((mod,))):
+                if matches_qualname(heads=heads, locals=locals, imports=imports, modnames=modnames, 
+                                    expr=expr.value, qnames={mod,}):
                     return True
     return False
 
@@ -536,7 +537,7 @@ class DefUseChains(gast.NodeVisitor):
         # - The module name doesn't have to be provided to use matches_qualname() 
         #   if filename is provided.
         is_package = False
-        if filename.endswith(('.__init__.py', '.__init__.pyi')):
+        if filename and filename.endswith(('/__init__.py', '/__init__.pyi')):
             is_package = True
         if modname:
             if modname.endswith('.__init__'):
