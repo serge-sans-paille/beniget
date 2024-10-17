@@ -1586,12 +1586,12 @@ class TestUseDefChainsStdlib(TestDefUseChains):
 class TestDefUseChainsUnderstandsFilename(TestCase):
 
     def test_potential_module_names(self):
-        from beniget.beniget import potential_module_names
-        self.assertEqual(potential_module_names('/var/lib/config.py'), 
+        from beniget.beniget import _potential_module_names
+        self.assertEqual(_potential_module_names('/var/lib/config.py'), 
                          ('var.lib.config', 'lib.config', 'config'))
-        self.assertEqual(potential_module_names('git-repos/pydoctor/pydoctor/driver.py'), 
+        self.assertEqual(_potential_module_names('git-repos/pydoctor/pydoctor/driver.py'), 
                          ('pydoctor.pydoctor.driver', 'pydoctor.driver', 'driver'))
-        self.assertEqual(potential_module_names('git-repos/pydoctor/pydoctor/__init__.py'), 
+        self.assertEqual(_potential_module_names('git-repos/pydoctor/pydoctor/__init__.py'), 
                          ('pydoctor.pydoctor', 'pydoctor'))
 
     def test_def_use_chains_init_modname(self):

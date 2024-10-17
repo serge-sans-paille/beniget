@@ -389,36 +389,10 @@ def collect_locals(node):
     visitor.generic_visit(node)
     return visitor.Locals
 
-def posixpath_splitparts(path):
-    """
-    Split a POSIX filename in parts.
-
-    >>> posixpath_splitparts('typing.pyi')
-    ('typing.pyi',)
-    
-    >>> posixpath_splitparts('/var/lib/config.ini')
-    ('var', 'lib', 'config.ini')
-
-    >>> posixpath_splitparts('/var/lib/config/')
-    ('var', 'lib', 'config')
-
-    >>> posixpath_splitparts('c:/dir/config.ini')
-    ('c:', 'dir', 'config.ini')
-    """
-    sep = '/'
-    r = deque(path.split(sep))
-    # make sure the parts doesn't 
-    # start or ends with a separator or empty string.
-    while r and r[0] in (sep, ''):
-        r.popleft()
-    while r and r[-1] in (sep, ''):
-        r.pop()
-    return tuple(r)
-
-def potential_module_names(filename):
+def _potential_module_names(filename):
     """
     Returns a tuple of potential module 
-    names deducted from the filename.
+    names deducted from the POSIX filename.
 
     >>> potential_module_names('/var/lib/config.py')
     ('var.lib.config', 'lib.config', 'config')
@@ -427,7 +401,7 @@ def potential_module_names(filename):
     >>> potential_module_names('git-repos/pydoctor/pydoctor/__init__.py')
     ('pydoctor.pydoctor', 'pydoctor')
     """
-    parts = posixpath_splitparts(filename)
+    parts = (*filter(bool, filename.strip('/').split('/')),) # split the POSIX filename path
     mod = os.path.splitext(parts[-1])[0]
     if mod == '__init__':
         parts = parts[:-1]
@@ -438,17 +412,19 @@ def potential_module_names(filename):
     len_parts = len(parts)
     for i in range(len_parts):
         p = parts[i:]
-        if not p or any(not all(sb.isidentifier() 
-                        for sb in s.split('.')) for s in p):
-            # the path cannot be converted to a module name
-            # because there are unallowed caracters.
+        if any(not all(sb.isidentifier() for sb in s.split('.')) for s in p):
+            # The path cannot be converted to a standard module name
+            # because there are caracters that cannot be inserted in an import statement.
+            # This does not mean that the module is not importable - it can still be imported
+            # with importlib. But since we only use this value to compare against actual import statements
+            # we only consider names that can be use in such situations.
             continue
         names.append('.'.join(p))
     
     return tuple(names) or ('',)
 
 
-def matches_qualname(heads, locals, imports, modnames, expr, qnames):
+def matches_qualname(*, heads, locals, imports, modnames, expr, qnames):
     """
     Returns True if - one of - the expression's definition(s) matches
     one of the given qualified names.
@@ -468,7 +444,8 @@ def matches_qualname(heads, locals, imports, modnames, expr, qnames):
     if isinstance(expr, ast.Name):
         try:
             defs = lookup_annotation_name_defs(expr.id, heads, locals)
-        except Exception:
+        except LookupError:
+            # TODO: Should this function support builtins?
             return False
         
         for d in defs:
@@ -492,10 +469,6 @@ def matches_qualname(heads, locals, imports, modnames, expr, qnames):
                     return True
     return False
 
-def matches_typing_name(heads, locals, imports, modnames, expr, name):
-    return matches_qualname(heads, locals, imports, modnames, expr, 
-                            set(('typing.{}'.format(name), 
-                                 'typing_extensions.{}'.format(name))))
 
 class DefUseChains(gast.NodeVisitor):
     """
@@ -563,7 +536,7 @@ class DefUseChains(gast.NodeVisitor):
         # - The module name doesn't have to be provided to use matches_qualname() 
         #   if filename is provided.
         is_package = False
-        if filename and posixpath_splitparts(filename)[-1].split('.')[0] == '__init__':
+        if filename.endswith(('.__init__.py', '.__init__.pyi')):
             is_package = True
         if modname:
             if modname.endswith('.__init__'):
@@ -571,7 +544,7 @@ class DefUseChains(gast.NodeVisitor):
                 is_package = True
             self._modnames = (modname, )
         elif filename:
-            self._modnames = potential_module_names(filename)
+            self._modnames = _potential_module_names(filename)
         else:
             self._modnames = ('', )
         self.modname = next(iter(self._modnames))
@@ -668,6 +641,20 @@ class DefUseChains(gast.NodeVisitor):
 
     def warn(self, msg, node):
         print("W: {}{}".format(msg, self.location(node)))
+
+    def refers_to_typing(self, expr, name):
+        """
+        Whether the expression refers to the given name in the typing.py module
+        in the current context.
+        """
+        qnames = set((f'typing.{name}', 
+                      f'typing_extensions.{name}'))
+        return matches_qualname(heads=self._scopes, 
+                                locals=self.locals, 
+                                imports=self.imports, 
+                                modnames=self._modnames,
+                                expr=expr, 
+                                qnames=qnames)
 
     def invalid_name_lookup(self, name, scope, precomputed_locals, local_defs):
         # We may hit the situation where we refer to a local variable which is
@@ -1143,11 +1130,9 @@ class DefUseChains(gast.NodeVisitor):
             self.visit(target)
     
     def visit_AnnAssign(self, node):
-        if (self.is_stub and node.value and matches_typing_name(
-                self._scopes, self.locals, self.imports, self._modnames,
-                node.annotation, 'TypeAlias')):
+        if (self.is_stub and node.value and self.refers_to_typing(node.annotation, 'TypeAlias')):
             # support for PEP 613 - Explicit Type Aliases
-            # BUT an untyped global expression 'x=int' will NOT be considered a type alias.
+            # an untyped expression 'x = SomeClass' will be analyzed as usual.
             self._defered_annotations[-1].append(
                 (node.value, list(self._scopes), None))
         elif node.value:
@@ -1490,9 +1475,7 @@ class DefUseChains(gast.NodeVisitor):
     def visit_Call(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.func).add_user(dnode)
-        if self.is_stub and matches_typing_name(
-                self._scopes, self.locals, self.imports, self._modnames, 
-                node.func, 'TypeVar'):
+        if self.is_stub and self.refers_to_typing(node.func, 'TypeVar'):
             # In stubs, constraints and bound argument 
             # of TypeVar() can be forward references.
             current_scopes = list(self._scopes)
