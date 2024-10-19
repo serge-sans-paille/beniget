@@ -28,6 +28,11 @@ class TestStubs(TestCase):
     
     @skipIf(sys.version_info < (3, 8), reason='positional only syntax is used')
     def test_all_stubs(self):
+        """
+        This tests that we can parse all typeshed stubs and that beniget detect no errors.
+
+        It's a pretty slow test because there are many files to parse...
+        """
         from typeshed_client import finder
         typeshed_context = finder.get_search_context(search_path=[])
         
