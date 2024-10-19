@@ -389,23 +389,41 @@ def collect_locals(node):
     visitor.generic_visit(node)
     return visitor.Locals
 
-def _potential_module_names(filename):
+def _split_posixpath(path):
+    """
+    @param str path: the posix path to split.
+    @returns: a tuple of strings.
+    """
+    return (*filter(bool, path.strip('/').split('/')),) # split the POSIX filename path
+
+def _is_init(parts):
+    return parts and parts[-1] in ('__init__.py', '__init__.pyi',)
+
+def _potential_module_names(parts):
     """
     Returns a tuple of potential module 
-    names deducted from the POSIX filename.
+    names deducted from the POSIX filename parts (as given by `_split_posixpath()`).
 
-    >>> _potential_module_names('/var/lib/config.py')
+    >>> _potential_module_names(('var', 'lib', 'config.py'))
     ('var.lib.config', 'lib.config', 'config')
-    >>> _potential_module_names('git-repos/pydoctor/pydoctor/driver.py')
+    >>> _potential_module_names(('not-importable', 'pydoctor', 'pydoctor', 'driver.py'))
     ('pydoctor.pydoctor.driver', 'pydoctor.driver', 'driver')
-    >>> _potential_module_names('git-repos/pydoctor/pydoctor/__init__.py')
+    >>> _potential_module_names(('not-importable', 'pydoctor', 'pydoctor', '__init__.py'))
     ('pydoctor.pydoctor', 'pydoctor')
+    >>> _potential_module_names(())
+    ('',)
+    >>> _potential_module_names(('', ''))
+    ('',)
+    >>> _potential_module_names(('not-importable',))
+    ('',)
     """
-    parts = (*filter(bool, filename.strip('/').split('/')),) # split the POSIX filename path
-    mod = os.path.splitext(parts[-1])[0]
-    if mod == '__init__':
+    if not parts:
+        return ('',)
+    
+    if _is_init(parts):
         parts = parts[:-1]
     else:
+        mod = os.path.splitext(parts[-1])[0]
         parts = parts[:-1] + (mod,)
     
     names = []
@@ -422,7 +440,6 @@ def _potential_module_names(filename):
         names.append('.'.join(p))
     
     return tuple(names) or ('',)
-
 
 def matches_qualname(*, heads, locals, imports, modnames, expr, qnames):
     """
@@ -504,9 +521,9 @@ class DefUseChains(gast.NodeVisitor):
             - filename: str, POSIX-like path pointing to the source file, 
               you can use `Path.as_posix` to ensure the value has proper format. 
               It's recommended to either provide the filename of the source
-              relative to the root of the package or provide both 
-              a module name and a filename.
-              Included in error messages and used as part of the import resolving.
+              relative to the root of the package (i.e. package/__init__.py) or provide both 
+              an explicit module name and a filename.
+              The filename is included in error messages and used as part of the import resolving.
             - modname: str, fully qualified name of the module we're analysing. 
               A module name may end with '.__init__' to indicate the module is a package.
             - future_annotations: bool, PEP 563 mode. 
@@ -536,18 +553,20 @@ class DefUseChains(gast.NodeVisitor):
         #   if they ends with __init__.
         # - The module name doesn't have to be provided to use matches_qualname() 
         #   if filename is provided.
+        filename_parts = _split_posixpath(filename) if filename else ('',)
         is_package = False
-        if filename and filename.endswith(('/__init__.py', '/__init__.pyi')):
+        
+        if _is_init(filename_parts):
             is_package = True
+        
         if modname:
             if modname.endswith('.__init__'):
                 modname = modname[:-9] # strip __init__
                 is_package = True
             self._modnames = (modname, )
-        elif filename:
-            self._modnames = _potential_module_names(filename)
         else:
-            self._modnames = ('', )
+            self._modnames = _potential_module_names(filename_parts)
+        
         self.modname = next(iter(self._modnames))
         self.is_package = is_package
 
