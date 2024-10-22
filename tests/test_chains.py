@@ -1389,7 +1389,7 @@ F = object
                 filename='/home/dev/projects/typeshed_client/typeshed/typing.pyi',
             )
         
-        # When geniget doesn't know we're analysing the typing module, it cannot link
+        # When beniget doesn't know we're analysing the typing module, it cannot link
         # TypeVar to typing.TypeVar, so this special stub semantics doesn't apply.
         self.checkChains(
                 code, 

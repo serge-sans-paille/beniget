@@ -544,7 +544,7 @@ class DefUseChains(gast.NodeVisitor):
         self.imports = {}
 
         self.filename = filename
-        self.is_stub = is_stub or filename is not None and filename.endswith('.pyi')
+        self.is_stub = is_stub or filename and filename.endswith('.pyi')
         
         # determine module name, we provide some flexibility: 
         # - The module name is not required to have correct parsing when the 
