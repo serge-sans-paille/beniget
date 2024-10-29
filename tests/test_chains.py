@@ -1411,6 +1411,25 @@ LiteralValue: TypeAlias = list[LiteralValue]|object
                 filename='typing.pyi',
             )
     
+    def test_stubs_conditionnal_typealias(self):
+        code = '''
+import sys
+if sys.version_info < (3,10):
+    TypeAlias = object
+else:
+    from typing import TypeAlias
+LiteralValue: TypeAlias = list[LiteralValue]|object
+'''
+        self.checkChains(
+                code, 
+                ['sys -> (sys -> (.version_info -> (<Compare> -> ())))',
+                 'TypeAlias -> (TypeAlias -> ())', 
+                 'TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (LiteralValue -> (<Subscript> -> (<BinOp> -> ())))',
+                 ],
+                filename='test.pyi',
+            )
+    
     def test_stubs_class_decorators(self):
         code = '''
 @dataclass_transform

@@ -476,7 +476,7 @@ def matches_qualname(*, heads, locals, imports, modnames, expr, qnames):
                 return True
             else:
                 # localy defined name, but module name doesn't match
-                break
+                continue
 
     elif isinstance(expr, ast.Attribute):
         for n in qnames:
