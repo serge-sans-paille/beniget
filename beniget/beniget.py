@@ -8,6 +8,12 @@ import ast as _ast
 
 from .ordered_set import ordered_set
 
+def is_deleted_def(dnode):
+    ast = pkg(dnode.node)
+    if not isinstance(dnode.node, ast.Name):
+        return False
+    return isinstance(dnode.node.ctx, ast.Del)
+
 
 def pkg(node):
     """
@@ -504,7 +510,11 @@ class DefUseChains(gast.NodeVisitor):
             if defs is StopIteration:
                 break
             elif name in defs:
-                return defs[name] if not stars else stars + list(defs[name])
+                name_defs = {dnode for dnode in defs[name] if not
+                             is_deleted_def(dnode)}
+                if not name_defs:
+                    break
+                return name_defs if not stars else stars + list(name_defs)
             elif "*" in defs:
                 stars.extend(defs["*"])
 
@@ -1273,7 +1283,22 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_Name(self, node, skip_annotation=False, named_expr=False):
         ast = pkg(node)
-        if isinstance(node.ctx, (ast.Param, ast.Store)):
+
+        if isinstance(node.ctx, (ast.Load, ast.Del)):
+            node_in_chains = node in self.chains
+            if node_in_chains:
+                dnode = self.chains[node]
+            else:
+                dnode = Def(node)
+            for d in self.defs(node):
+                d.add_user(dnode)
+            if not node_in_chains:
+                self.chains[node] = dnode
+
+            if isinstance(node.ctx, ast.Del):
+                node = ast.Name(node.id, ast.Del())
+
+        if isinstance(node.ctx, (ast.Param, ast.Store, ast.Del)):
             dnode = self.chains.setdefault(node, Def(node))
             # FIXME: find a smart way to merge the code below with add_to_locals
             if any(node.id in _globals for _globals in self._globals):
@@ -1298,20 +1323,6 @@ class DefUseChains(gast.NodeVisitor):
             if getattr(node, 'annotation', None) is not None and not skip_annotation and not self.future_annotations:
                 self.visit(node.annotation)
 
-
-        elif isinstance(node.ctx, (ast.Load, ast.Del)):
-            node_in_chains = node in self.chains
-            if node_in_chains:
-                dnode = self.chains[node]
-            else:
-                dnode = Def(node)
-            for d in self.defs(node):
-                d.add_user(dnode)
-            if not node_in_chains:
-                self.chains[node] = dnode
-            # currently ignore the effect of a del
-        else:
-            raise NotImplementedError()
         return dnode
 
     def visit_Destructured(self, node):

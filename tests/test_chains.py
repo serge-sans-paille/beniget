@@ -547,6 +547,46 @@ def outer():
         self.check_message(code,
                            ["W: unbound identifier 'x' at <unknown>:3:2"])
 
+    def test_unbound_deleted_identifier(self):
+        code = "x = 1; del x; x"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:1:14"])
+
+    def test_unbound_deleted_identifier_in_class(self):
+        code = "class X:\n x = 1\n del x\n x"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:4:1"])
+
+    def test_bound_deleted_identifier(self):
+        code = "x = 1; del x; x = 1; x"
+        self.check_message(code,
+                           [])
+
+    def test_del_in_for(self):
+        code = "for x in [1]:\n del x\nx"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:3:0"])
+
+    def test_del_predef_in_for(self):
+        code = "x = 1\nfor x in [1]:\n del x\nx"
+        self.check_message(code,
+                           [])
+
+    def test_bound_deleted_identifier_in_if(self):
+        code = "x = 1\ndel x\nif 1:\n x = 1\nx"
+        self.check_message(code,
+                           [])
+
+    def test_maybe_unbound_in_if(self):
+        code = "def foo(x):\n  if x: del x\n  print(x)"
+        self.check_message(code,
+                           [])
+
+    def test_always_unbound_in_if(self):
+        code = "def foo(x):\n  if x: del x\n  else: del x\n  x"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:4:2"])
+
     def test_assign_uses_class_level_name(self):
         code = '''
 visit_Name = object
