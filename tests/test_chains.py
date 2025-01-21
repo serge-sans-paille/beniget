@@ -1414,6 +1414,6 @@ class TestUseDefChains(TestCase):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "<Call> <- {<Constant>, <Constant>, bar}, bar <- {bar}")
 
-class TestUseDefChainsStdlib(TestDefUseChains):
+class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
 
