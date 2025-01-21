@@ -8,12 +8,6 @@ import ast as _ast
 
 from .ordered_set import ordered_set
 
-def is_deleted_def(dnode):
-    ast = pkg(dnode.node)
-    if not isinstance(dnode.node, ast.Name):
-        return False
-    return isinstance(dnode.node.ctx, ast.Del)
-
 
 def pkg(node):
     """
@@ -166,6 +160,12 @@ class Def(object):
         The list of ast entity that holds a reference to this node
         """
         return self._users
+
+    def is_deleted_def(self):
+        ast = pkg(self.node)
+        if not isinstance(self.node, ast.Name):
+            return False
+        return isinstance(self.node.ctx, ast.Del)
 
     def __repr__(self):
         return self._repr({})
@@ -395,7 +395,9 @@ class DefUseChains(gast.NodeVisitor):
         if isinstance(node, pkg(node).Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
             return sorted(d.name()
-                          for d in self.locals[node] if d not in builtins)
+                          for d in self.locals[node]
+                          if d not in builtins
+                          if not d.is_deleted_def())
         else:
             return sorted(d.name() for d in self.locals[node])
 
@@ -511,7 +513,7 @@ class DefUseChains(gast.NodeVisitor):
                 break
             elif name in defs:
                 name_defs = {dnode for dnode in defs[name] if not
-                             is_deleted_def(dnode)}
+                             dnode.is_deleted_def()}
                 if not name_defs:
                     break
                 return name_defs if not stars else stars + list(name_defs)
