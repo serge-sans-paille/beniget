@@ -650,7 +650,7 @@ v # not great but we must stay over approximated"""
         # This test do not pass at the moment
         # self.check_message(code, ["W: unbound identifier 'v' at <unknown>:5:4"])
         self.checkChains(code, ['v -> (v -> (), v -> (), v -> ())', 
-                                'q -> (q -> (<Call> -> ()))'], srtrict=False)
+                                'q -> (q -> (<Call> -> ()))'], strict=False)
 
     def test_cant_delete_global_not_decalred_with_global_keyword(self):
         code = """\
