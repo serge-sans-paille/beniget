@@ -566,6 +566,104 @@ def outer():
         code = "x = 1\ndel x\nif 1:\n x = 1\nx"
         self.check_message(code,
                            [])
+    
+    def test_deleted_annotation(self):
+        # Passes pyright and mypy. But fails at runtime, because of the annotation X.
+        code = """\
+class X: ...
+del X
+def f() -> X: ..."""
+        self.check_message(code, ["W: unbound identifier 'X' at <unknown>:3:11"])
+    
+    def test_deleted_pep649_deferred_annotation(self):
+        # This will not pass at runtime anymore starting at Python 3.14
+        code = """\
+class X: ...
+def f() -> X: ...
+del X
+f.__annotations__"""
+        self.check_message(code, [])
+
+    def test_deleted_pep563_deferred_annotation(self):
+        # Passes pyright and mypy and runtime
+        code = """\
+from __future__ import annotations
+class X: ...
+del X
+def f() -> X: ... 
+f()"""
+        self.check_message(code, [])
+
+    def test_unsafe_use_in_function_before_deleted(self):
+        # Passes at runtime, but fairly unsafe.
+        code = """\
+class X: ...
+def f(): return X()
+f(); del X"""
+        self.check_message(code, ["W: unbound identifier 'X' at <unknown>:2:16"])
+
+    def test_use_in_function_after_deleted(self):
+        # Passes pyright and mypy but fails at runtime.
+        code = """\
+class X: ...
+def f(): return X() 
+del X; f()"""
+        self.check_message(code, ["W: unbound identifier 'X' at <unknown>:2:16"])
+
+    def test_deleted_non_local_var(self):
+        code = """\
+def f():
+    v = 1
+    def q():
+        nonlocal v
+        del v
+        v # unbound
+    q()
+    v # not great but we must stay over approximated
+f()"""
+        self.check_message(code, ["W: unbound identifier 'v' at <unknown>:6:8"])
+
+    def test_cant_delete_nonlocal_not_declared_with_nonlocal_keyword(self):
+        code = """\
+def f():
+    v = 1
+    def q():
+        del v # unbound
+    q()
+    v # not great but we must stay over approximated
+f()"""
+
+        # This test do not pass at the moment
+        # self.check_message(code, ["W: unbound identifier 'v' at <unknown>:4:12"])
+        self.checkChains(code, ['f -> (f -> (<Call> -> ()))'], strict=False)
+
+    def test_deleted_global(self):
+        code = """\
+v = 1
+def q():
+    global v
+    del v
+    v # unbound
+q()
+v # not great but we must stay over approximated"""
+
+        # This test do not pass at the moment
+        # self.check_message(code, ["W: unbound identifier 'v' at <unknown>:5:4"])
+        self.checkChains(code, ['v -> (v -> (), v -> (), v -> ())', 
+                                'q -> (q -> (<Call> -> ()))'], srtrict=False)
+
+    def test_cant_delete_global_not_decalred_with_global_keyword(self):
+        code = """\
+v = 1
+def q():
+    del v # unbound
+q()
+v # ok"""
+
+        # This test do not pass at the moment
+        # self.check_message(code, ["W: unbound identifier 'v' at <unknown>:3:8"])
+        self.checkChains(code, ['v -> (v -> (), v -> ())', 
+                                'q -> (q -> (<Call> -> ()))'], strict=False)
 
     def test_maybe_unbound_in_if(self):
         code = "def foo(x):\n  if x: del x\n  print(x)"
