@@ -396,8 +396,7 @@ class DefUseChains(gast.NodeVisitor):
             builtins = {d for d in self._builtins.values()}
             return sorted(d.name()
                           for d in self.locals[node]
-                          if d not in builtins
-                          if not d.is_deleted_def())
+                          if d not in builtins)
         else:
             return sorted(d.name() for d in self.locals[node])
 
@@ -716,6 +715,14 @@ class DefUseChains(gast.NodeVisitor):
                 nb_overloaded_bltns = len(overloaded_builtins)
                 nb_heads = len({d.name() for d in self.locals[node]})
                 assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns
+
+        # Deleted nodes are not actual definitions, but are useful for
+        # intermediate analysis. Prune them once the processing is done.
+        for dnodes in self.locals.values():
+            del_indices = [i for i, n in enumerate(dnodes)
+                              if n.is_deleted_def()]
+            for del_index in reversed(del_indices):
+                dnodes.pop(del_index)
 
         assert not self._definitions
         assert not self._defered_annotations
@@ -1297,9 +1304,9 @@ class DefUseChains(gast.NodeVisitor):
             if not node_in_chains:
                 self.chains[node] = dnode
 
-            if isinstance(node.ctx, ast.Del):
-                node = ast.Name(node.id, ast.Del())
-
+        # Note that nodes with ast.Del context are considered as a Load (they
+        # actually read the identifier <> value binding) and as a Store (they
+        # somehow create a new binding from the identifier to an unbound value).
         if isinstance(node.ctx, (ast.Param, ast.Store, ast.Del)):
             dnode = self.chains.setdefault(node, Def(node))
             # FIXME: find a smart way to merge the code below with add_to_locals

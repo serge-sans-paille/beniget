@@ -547,6 +547,20 @@ def outer():
         self.check_message(code,
                            ["W: unbound identifier 'x' at <unknown>:3:2"])
 
+    def test_deleted_identifier(self):
+        code = "x = 1; del x"
+        self.checkChains(code, ['x -> (x -> ())'])
+
+    def test_deleted_unknown_identifier(self):
+        code = "del x"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:1:4"])
+        self.checkChains(code, [], strict=False)
+
+    def test_deleted_identifier_redefined(self):
+        code = "x = 1; del x; x = 2"
+        self.checkChains(code, ['x -> (x -> ())', 'x -> ()'], strict=False)
+
     def test_unbound_deleted_identifier(self):
         code = "x = 1; del x; x"
         self.check_message(code,
