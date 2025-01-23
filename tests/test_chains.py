@@ -698,6 +698,29 @@ v # ok"""
         code = "def foo(x):\n  if x: del x\n  else: del x\n  x"
         self.check_message(code,
                            ["W: unbound identifier 'x' at <unknown>:4:2"])
+    
+    def test_delete_list_syntax(self):
+        code = "x,y = {}, 1; del x, y[0]; x, y"
+        self.check_message(code,
+                           ["W: unbound identifier 'x' at <unknown>:1:26"])
+    
+    def test_redefined_global_deleted_lower_scope_var(self):
+        # test inspired by https://github.com/python/mypy/issues/9600
+        code = '''\
+x = 1
+class y:
+    @property(x)
+    def a(self):...
+    x = 2
+    @property(x)
+    def b(self):...
+    del x
+    @property(x)
+    def c(self):...
+'''     
+        # TODO: This is not right
+        # self.check_message(code, [])
+        self.checkChains(code, ['x -> (x -> (<Call> -> ()))', 'y -> ()'], strict=False)
 
     def test_assign_uses_class_level_name(self):
         code = '''
