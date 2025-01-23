@@ -430,6 +430,17 @@ class TestDefIsLive(TestCase):
         """
         self.checkLiveLocals(code, ["x:6"], ["x:3,5,6"])
     
+    def test_DeletedLocalAssignRedefIfElseOverride(self):
+        code = """
+            if NotImplemented:
+                x = 2
+            else:
+                x = 3
+            x = 0
+            del x
+        """
+        self.checkLiveLocals(code, [], ["x:3,5,6"])
+    
     def test_LocalAssignmentRedefInEachBranch(self):
         code = """
         x = 10
@@ -439,6 +450,18 @@ class TestDefIsLive(TestCase):
             x = 1000
         """
         self.checkLiveLocals(code, ["x:4,6"], ["x:2,4,6"])
+    
+    def test_DeletedLocalAssignmentRedefInEachBranch(self):
+        code = """
+        x = 10
+        if NotImplemented:
+            x = 100
+            del x
+        else:
+            x = 1000
+            del x
+        """
+        self.checkLiveLocals(code, [], ["x:2,4,7"])
 
     def test_AssignmentInsideBothBranchesOfTryExcept(self):
         code = """
@@ -450,6 +473,31 @@ class TestDefIsLive(TestCase):
                 x = -1
         """
         self.checkLiveLocals(code, ["x:5,7"], ["x:5,7"])
+    
+    def test_BothDeletedAssignmentInsideBothBranchesOfTryExcept(self):
+        code = """
+            try:
+                1 / 0
+            except ZeroDivisionError:
+                x = 10
+                del x
+            except RuntimeError:
+                x = -1
+                del x
+        """
+        self.checkLiveLocals(code, [], ["x:5,8"])
+    
+    def test_DeletedAssignmentInsideBothBranchesOfTryExcept(self):
+        code = """
+            try:
+                1 / 0
+            except ZeroDivisionError:
+                x = 10
+                del x
+            except RuntimeError:
+                x = -1
+        """
+        self.checkLiveLocals(code, ["x:8"], ["x:5,8"])
 
     def test_AssignmentOverrideFinallyBlock(self):
         code = """
@@ -510,6 +558,15 @@ class TestDefIsLive(TestCase):
             i = 3
         """
         self.checkLiveLocals(code, ['i:2,4'], ['i:2,4'])
+    
+    def test_loop_body_might_not_run_deletion(self):
+        code = """
+        i = 2
+        while int: 
+            i = 3
+            del i
+        """
+        self.checkLiveLocals(code, ['i:2'], ['i:2,4'])
     
     def test_var_in_comp_doesnt_kill_upper_scope_var(self):
         code = '''
