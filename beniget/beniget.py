@@ -255,6 +255,12 @@ class Def(object):
         """
         return self._users
 
+    def isdel(self):
+        ast = pkg(self.node)
+        if not isinstance(self.node, ast.Name):
+            return False
+        return isinstance(self.node.ctx, ast.Del)
+
     def __repr__(self):
         return self._repr({})
 
@@ -586,6 +592,9 @@ class DefUseChains(gast.NodeVisitor):
         # stack of variable defined with the global keywords
         self._globals = []
 
+        # stack of variable defined with the nonlocal keywords
+        self._nonlocals = []
+
         # stack of local identifiers, used to detect 'read before assign'
         self._precomputed_locals = []
 
@@ -633,8 +642,8 @@ class DefUseChains(gast.NodeVisitor):
     def dump_definitions(self, node, ignore_builtins=True):
         if isinstance(node, pkg(node).Module) and not ignore_builtins:
             builtins = {d for d in self._builtins.values()}
-            return sorted(d.name()
-                          for d in self.locals[node] if d not in builtins)
+            return sorted(d.name() for d in self.locals[node]
+                          if d not in builtins)
         else:
             return sorted(d.name() for d in self.locals[node])
 
@@ -724,46 +733,62 @@ class DefUseChains(gast.NodeVisitor):
         name = node.id
         stars = []
 
+        # List of definitions to check. This includes all non-class
+        # definitions *and* the last definition. Class definitions are not
+        # included because they require fully qualified access.
+        looked_up_definitions = []
+
+        scopes_iter = iter(reversed(self._scopes))
+        depths_iter = iter(reversed(self._scope_depths))
+        precomputed_locals_iter = iter(reversed(self._precomputed_locals))
+
+        # Keep the last scope because we could be in class scope, in which
+        # case we don't need fully qualified access.
+        lvl = depth = next(depths_iter)
+        precomputed_locals = next(precomputed_locals_iter)
+        base_scope = next(scopes_iter)
+        defs = self._definitions[depth:]
+        if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
+
+            def add_defs(looked_up_definitions, defs):
+                if self.is_global(name):
+                    # only add deleted node, if any
+                    for defs_ in reversed(defs):
+                        for dnode in defs_.get(name, ()):
+                            if dnode.isdel():
+                                # This create a del that shadows the global
+                                looked_up_definitions.append({name: [dnode]})
+                else:
+                    looked_up_definitions.extend(reversed(defs))
+
+            add_defs(looked_up_definitions, defs)
+
+            ast = pkg(node)
+            # Iterate over scopes, filtering out class scopes.
+            for scope, depth, precomputed_locals in zip(scopes_iter,
+                                                        depths_iter,
+                                                        precomputed_locals_iter):
+                if not isinstance(scope, ast.ClassDef):
+                    defs = self._definitions[lvl + depth: lvl]
+                    if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
+                        looked_up_definitions.append(StopIteration)
+                        break
+                    add_defs(looked_up_definitions, defs)
+                lvl += depth
+
         # If the `global` keyword has been used, honor it
-        if any(name in _globals for _globals in self._globals):
-            looked_up_definitions = self._definitions[0:-self._scope_depths[0]]
-        else:
-            # List of definitions to check. This includes all non-class
-            # definitions *and* the last definition. Class definitions are not
-            # included because they require fully qualified access.
-            looked_up_definitions = []
-
-            scopes_iter = iter(reversed(self._scopes))
-            depths_iter = iter(reversed(self._scope_depths))
-            precomputed_locals_iter = iter(reversed(self._precomputed_locals))
-
-            # Keep the last scope because we could be in class scope, in which
-            # case we don't need fully qualified access.
-            lvl = depth = next(depths_iter)
-            precomputed_locals = next(precomputed_locals_iter)
-            base_scope = next(scopes_iter)
-            defs = self._definitions[depth:]
-            if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
-                looked_up_definitions.extend(reversed(defs))
-
-                ast = pkg(node)
-                # Iterate over scopes, filtering out class scopes.
-                for scope, depth, precomputed_locals in zip(scopes_iter,
-                                                            depths_iter,
-                                                            precomputed_locals_iter):
-                    if not isinstance(scope, ast.ClassDef):
-                        defs = self._definitions[lvl + depth: lvl]
-                        if self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
-                            looked_up_definitions.append(StopIteration)
-                            break
-                        looked_up_definitions.extend(reversed(defs))
-                    lvl += depth
+        if self.is_global(name):
+            looked_up_definitions.extend(self._definitions[0:-self._scope_depths[0]])
 
         for defs in looked_up_definitions:
             if defs is StopIteration:
                 break
             elif name in defs:
-                return defs[name] if not stars else stars + list(defs[name])
+                name_defs = {dnode for dnode in defs[name] if not
+                             dnode.isdel()}
+                if not name_defs:
+                    break
+                return name_defs if not stars else stars + list(name_defs)
             elif "*" in defs:
                 stars.extend(defs["*"])
 
@@ -815,9 +840,11 @@ class DefUseChains(gast.NodeVisitor):
         self._scope_depths.append(-1)
         self._definitions.append(defaultdict(ordered_set))
         self._globals.append(set())
+        self._nonlocals.append(set())
         self._precomputed_locals.append(collect_locals(node))
         yield
         self._precomputed_locals.pop()
+        self._nonlocals.pop()
         self._globals.pop()
         self._definitions.pop()
         self._scope_depths.pop()
@@ -963,6 +990,13 @@ class DefUseChains(gast.NodeVisitor):
                 nb_overloaded_bltns = len(overloaded_builtins)
                 nb_heads = len({d.name() for d in self.locals[node]})
                 assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns
+
+        # Deleted nodes are not actual definitions, but are useful for
+        # intermediate analysis. Prune them once the processing is done.
+        for dnodes in self.locals.values():
+            del_indices = [i for i, n in enumerate(dnodes) if n.isdel()]
+            for del_index in reversed(del_indices):
+                dnodes.pop(del_index)
 
         assert not self._definitions
         assert not self._defered_annotations
@@ -1172,7 +1206,7 @@ class DefUseChains(gast.NodeVisitor):
             dtarget = self.visit(node.target)
             dvalue.add_user(dtarget)
             node.target.ctx = ctx
-            if any(node.target.id in _globals for _globals in self._globals):
+            if self.is_global(node.target.id):
                 self.extend_global(node.target.id, dtarget)
             else:
                 loaded_from = [d.name() for d in self.defs(node.target,
@@ -1332,7 +1366,7 @@ class DefUseChains(gast.NodeVisitor):
             self.visit(node.msg)
 
     def add_to_locals(self, name, dnode):
-        if any(name in _globals for _globals in self._globals):
+        if self.is_global(name):
             self.set_or_extend_global(name, dnode)
         else:
             self.locals[self._scopes[-1]].append(dnode)
@@ -1361,6 +1395,7 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_Nonlocal(self, node):
         for name in node.names:
+            self._nonlocals[-1].add(name)
             # Exclude global scope
             global_scope_depth = -self._scope_depths[0]
             for d in reversed(self._definitions[global_scope_depth: -1]):
@@ -1556,9 +1591,11 @@ class DefUseChains(gast.NodeVisitor):
             self.visit_Name(node.target, named_expr=True)
         return dnode
 
-    def is_in_current_scope(self, name):
-        return any(name in defs
-                   for defs in self._definitions[self._scope_depths[-1]:])
+    def is_global(self, name):
+        return any(name in _globals for _globals in self._globals)
+
+    def is_nonlocal(self, name):
+        return any(name in _nonlocals for _nonlocals in self._nonlocals)
 
     def _first_non_comprehension_scope(self):
         index = -1
@@ -1572,10 +1609,38 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_Name(self, node, skip_annotation=False, named_expr=False):
         ast = pkg(node)
-        if isinstance(node.ctx, (ast.Param, ast.Store)):
+
+        if isinstance(node.ctx, (ast.Load, ast.Del)):
+            node_in_chains = node in self.chains
+            if node_in_chains:
+                dnode = self.chains[node]
+            else:
+                dnode = Def(node)
+
+            # Extra linting for Del context: it is invalid to delete a
+            # global name from local scope unless it's marked global
+            if isinstance(node.ctx, ast.Del) and len(self._scopes) > 1:
+                non_local_definitions = self._definitions[0:-sum(self._scope_depths[:-1])]
+                for d in self.defs(node):
+                    if isinstance(getattr(d.node, 'ctx', None), ast.Store):
+                        if any(d in defs.get(node.id, ()) for defs in non_local_definitions):
+                            if not self.is_global(node.id) and not self.is_nonlocal(node.id):
+                                self.warn("deleting unreachable variable", node)
+                                continue
+                    d.add_user(dnode)
+            else:
+                for d in self.defs(node):
+                    d.add_user(dnode)
+            if not node_in_chains:
+                self.chains[node] = dnode
+
+        # Note that nodes with ast.Del context are considered as a Load (they
+        # actually read the identifier <> value binding) and as a Store (they
+        # somehow create a new binding from the identifier to an unbound value).
+        if isinstance(node.ctx, (ast.Param, ast.Store, ast.Del)):
             dnode = self.chains.setdefault(node, Def(node))
             # FIXME: find a smart way to merge the code below with add_to_locals
-            if any(node.id in _globals for _globals in self._globals):
+            if self.is_global(node.id) and not dnode.isdel():
                 self.set_or_extend_global(node.id, dnode)
             else:
                 # special code for warlus target: should be
@@ -1597,20 +1662,6 @@ class DefUseChains(gast.NodeVisitor):
             if getattr(node, 'annotation', None) is not None and not skip_annotation and not self.future_annotations:
                 self.visit(node.annotation)
 
-
-        elif isinstance(node.ctx, (ast.Load, ast.Del)):
-            node_in_chains = node in self.chains
-            if node_in_chains:
-                dnode = self.chains[node]
-            else:
-                dnode = Def(node)
-            for d in self.defs(node):
-                d.add_user(dnode)
-            if not node_in_chains:
-                self.chains[node] = dnode
-            # currently ignore the effect of a del
-        else:
-            raise NotImplementedError()
         return dnode
 
     def visit_Destructured(self, node):
