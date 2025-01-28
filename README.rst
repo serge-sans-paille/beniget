@@ -37,22 +37,20 @@ This is a very basic usage: look for def without any use, and warn about them, f
     >>> import beniget, gast as ast
 
     # parse some simple statements
-    >>> code = "from math import cos, sin; print(cos(3))"
+    >>> code = "from math import cos, sin; import x, y; print(cos(3) + y.f(2))"
     >>> module = ast.parse(code)
 
     # compute the def-use chains at module level
     >>> duc = beniget.DefUseChains()
     >>> duc.visit(module)
 
-    # grab the import statement
-    >>> imported = module.body[0].names
-
     # inspect the users of each imported name
-    >>> for name in imported:
-    ...   ud = duc.chains[name]
+    >>> for alias, imported in duc.imports.items():
+    ...   ud = duc.chains[alias]
     ...   if not ud.users():
-    ...     print("Unused import: {}".format(ud.name()))
+    ...     print(f"Unused import: {ud.name()}")
     Unused import: sin
+    Unused import: x
 
 *NOTE*: Due to the dynamic nature of Python, one can fool this analysis by
 calling the ``eval`` function, eventually through an indirection, or by performing a lookup
