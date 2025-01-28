@@ -14,9 +14,9 @@ API
 
 Basically Beniget provides three analyse:
 
-- ``beniget.Ancestors`` that maps each node to the list of enclosing nodes;
-- ``beniget.DefUseChains`` that maps each node to the list of definition points in that node;
-- ``beniget.UseDefChains`` that maps each node to the list of possible definition of that node.
+- `beniget.Ancestors` that maps each node to the list of enclosing nodes;
+- `beniget.DefUseChains` that maps each node to the list of definition points in that node;
+- `beniget.UseDefChains` that maps each node to the list of possible definition of that node.
 
 See sample usages and/or run ``pydoc beniget`` for more information :-).
 
