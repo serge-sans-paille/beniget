@@ -1555,7 +1555,7 @@ print(x, y)
     
     def test_newer_Python_version_builtin_name(self):
         # Tests for issue https://github.com/serge-sans-paille/beniget/issues/119
-        code = ('try: 1/0\nexcept PythonFinalizationError, EncodingWarning as e: raise\n'
+        code = ('try: 1/0\nexcept (PythonFinalizationError, EncodingWarning) as e: raise\n'
                 'a,b = anext(), aiter()')
         self.check_message(code, [])
 
