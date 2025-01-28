@@ -27,7 +27,7 @@ class TestStubs(TestCase):
         for chains in c._builtins.values():
             assert len(chains.users())==0, chains
     
-    @skipIf((sys.version_info < (3, 8)) or ('GITHUB_TOKEN' not in os.environ.keys()), 
+    @skipIf((sys.version_info < (3, 8)) or ('GITHUB_REPOSITORY' not in os.environ.keys()), 
             reason='positional only syntax is used; only running this test on Github CI to make local development faster')
     def test_all_stubs(self):
         """
