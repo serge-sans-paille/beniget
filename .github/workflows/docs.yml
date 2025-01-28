@@ -33,19 +33,14 @@ jobs:
       run: |
         # Run pydoctor build
         pydoctor \
-            --project-name='Gast, Beniget!' \
             --project-url=https://github.com/$GITHUB_REPOSITORY \
             --html-viewsource-base=https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA \
             --html-base-url=https://$GITHUB_REPOSITORY_OWNER.github.io/${GITHUB_REPOSITORY#*/} \
-            --html-output=./apidocs \
-            --docformat=restructuredtext \
-            --intersphinx=https://docs.python.org/3/objects.inv \
-            ./beniget
 
     - name: Push API documentation to Github Pages
       if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
       uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./apidocs
+        publish_dir: build/www
         commit_message: "Generate API documentation"
