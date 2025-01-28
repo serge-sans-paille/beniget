@@ -202,6 +202,10 @@ Builtins = {k: v for k, v in BuiltinsSrc.items()}
 # this should probably be assigned to the filename give to DefUseChains instead.
 Builtins["__file__"] = __file__
 
+# The WindowsError is the sole occurence of a conditionally existing builtin.
+# So we handle it by special-casing it.
+Builtins.setdefault('WindowsError', OSError)
+
 DeclarationStep, DefinitionStep = object(), object()
 
 def collect_future_imports(node):
