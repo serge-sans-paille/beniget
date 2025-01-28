@@ -243,28 +243,47 @@ reports when their beeing imported and used.
 .. code:: python
 
     >>> import ast, beniget
-    >>> def search(names, defuse: beniget.DefUseChains) -> 'list[beniget.Def]':
-    ...    names = set(names)
+    >>> def search(names, defuse: beniget.DefUseChains, ancestors: beniget.Ancestors) -> 'list[beniget.Def]':
+    ...    names = dict.fromkeys(names)
     ...    found = []
     ...    for  al,imp in defuse.imports.items():
-    ...        if imp.target() in names:
+    ...        if imp.target() in names: # "from x import y;y" form
     ...            for use in defuse.chains[al].users():
     ...                found.append(use)
-    ...                # this doesn't handle aliasing.
+    ...                # Note: this doesn't handle aliasing.
+    ...        else: # "import x; x.y" form
+    ...            for n in names:
+    ...                if n.startswith(f'{imp.target()}.'):
+    ...                    diffnames = n[len(f'{imp.target()}.'):].split('.')
+    ...                    for use in defuse.chains[al].users():
+    ...                        attr_node = parent_node = ancestors.parent(use.node)
+    ...                        index = 0
+    ...                        # check if node is part of an attribute access matching the dotted name
+    ...                        while isinstance(parent_node, ast.Attribute) and index < len(diffnames):
+    ...                            if parent_node.attr != diffnames[index]:
+    ...                                break
+    ...                            attr_node = parent_node
+    ...                            parent_node = ancestors.parent(parent_node)
+    ...                            index += 1
+    ...                        else:
+    ...                            if index: # It has not break and did a loop, meaning we found a match
+    ...                                found.append(defuse.chains[attr_node])
+    ...            
     ...    return found
     ...
-
     >>> module = ast.parse('''\
-    ... from typing import List, Dict, overload
+    ... from typing import List, Dict; import typing as t; import numpy as np
     ... def f() -> List[str]: ...
-    ... def g(a: Dict) -> None :...''')
+    ... def g(a: Dict) -> t.overload: return np.fft.calc(0)''')
     >>> c = beniget.DefUseChains()
     >>> c.visit(module)
-    >>> print([str(i) for i in search(['typing.Dict', 'typing.List'], c)])
-    ['List -> (<Subscript> -> ())', 'Dict -> ()']
+    >>> a = beniget.Ancestors()
+    >>> a.visit(module)
+    >>> print([str(i) for i in search(['typing.Dict', 'typing.List', 'typing.overload', 'numpy.fft.calc'], c, a)])
+    ['List -> (<Subscript> -> ())', 'Dict -> ()', '.overload -> ()', '.calc -> (<Call> -> ())']
 
-    >>> print([str(i) for i in search(['typing.overload'], c)])
-    []
+    >>> print([str(i) for i in search(['typing'], c, a)])
+    ['t -> (.overload -> ())']
 
 Acknowledgments
 ---------------
