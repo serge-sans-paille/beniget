@@ -15,7 +15,10 @@ API
 Basically Beniget provides three analyse:
 
 - ``beniget.Ancestors`` that maps each node to the list of enclosing nodes;
-- ``beniget.DefUseChains`` that maps each node to the list of definition points in that node;
+- ``beniget.DefUseChains`` that: 
+    - maps each node to the list of definition points in that node;
+    - maps each scope node to their locals dictionary; 
+    - maps each alias node to their resolved import;
 - ``beniget.UseDefChains`` that maps each node to the list of possible definition of that node.
 
 See sample usages and/or run ``pydoc beniget`` for more information :-).
@@ -230,6 +233,38 @@ let's use the UseDef chains combined with the ancestors.
     >>> # the three top level assignments have been captured!
     >>> list(map(type, capturex.external))
     [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
+
+Report usage of deprecated functions or classes
+***********************************************
+
+This analysis takes a collection of names and 
+reports when their beeing imported and used.
+
+.. code:: python
+
+    >>> import ast, beniget
+    >>> def search(names, defuse: beniget.DefUseChains) -> list[beniget.Def]:
+    ...    names = set(names)
+    ...    found = []
+    ...    for  al,imp in defuse.imports.items():
+    ...        if imp.target() in names:
+    ...            for use in defuse.chains[al].users():
+    ...                found.append(use)
+    ...                # this doesn't handle aliasing.
+    ...    return found
+    ...
+
+    >>> module = ast.parse('''\
+    ... from typing import List, Dict, overload
+    ... def f() -> List[str]: ...
+    ... def g(a: Dict) -> None :...''')
+    >>> c = beniget.DefUseChains()
+    >>> c.visit(module)
+    >>> print([str(i) for i in search(['typing.Dict', 'typing.List'], c)])
+    ['List -> (<Subscript> -> ())', 'Dict -> ()']
+
+    >>> print([str(i) for i in search(['typing.overload'], c)])
+    []
 
 Acknowledgments
 ---------------
