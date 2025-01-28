@@ -1549,8 +1549,14 @@ print(x, y)
                        'y -> (<MatchClass> -> (), y -> (<Call> -> ()))'])
 
     def test_WindowsError_builtin_name(self):
-        # Test for issue https://github.com/serge-sans-paille/beniget/issues/119
+        # Tests for issue https://github.com/serge-sans-paille/beniget/issues/119
         code = 'try: 1/0\nexcept WindowsError as e: raise'
+        self.check_message(code, [])
+    
+    def test_newer_Python_version_builtin_name(self):
+        # Tests for issue https://github.com/serge-sans-paille/beniget/issues/119
+        code = ('try: 1/0\nexcept PythonFinalizationError, EncodingWarning as e: raise\n'
+                'a,b = anext(), aiter()')
         self.check_message(code, [])
 
 

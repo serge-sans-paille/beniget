@@ -202,9 +202,14 @@ Builtins = {k: v for k, v in BuiltinsSrc.items()}
 # this should probably be assigned to the filename give to DefUseChains instead.
 Builtins["__file__"] = __file__
 
-# The WindowsError is the sole occurence of a conditionally existing builtin.
-# So we handle it by special-casing it.
-Builtins.setdefault('WindowsError', OSError)
+# Cope with conditionally existing builtins by special-casing them.
+Builtins.setdefault('WindowsError', OSError) # never defined under Linux
+Builtins.setdefault('anext', next) # added in Python 3.10
+Builtins.setdefault('aiter', iter) # added in Python 3.10
+Builtins.setdefault('EncodingWarning', Warning) # added in Python 3.10
+Builtins.setdefault('PythonFinalizationError', RuntimeError) # added in Python 3.13
+# beniget doesn't run Python 3.5 and below, so we don't need to 
+# account for names introduced before Python 3.6
 
 DeclarationStep, DefinitionStep = object(), object()
 
