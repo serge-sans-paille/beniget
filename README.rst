@@ -243,7 +243,7 @@ reports when their beeing imported and used.
 .. code:: python
 
     >>> import ast, beniget
-    >>> def search(names, defuse: beniget.DefUseChains) -> list[beniget.Def]:
+    >>> def search(names, defuse: beniget.DefUseChains) -> 'list[beniget.Def]':
     ...    names = set(names)
     ...    found = []
     ...    for  al,imp in defuse.imports.items():
