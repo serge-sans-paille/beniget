@@ -85,9 +85,9 @@ class Ancestors(gast.NodeVisitor):
     def parentStmt(self, node):
         return self.parentInstance(node, gast.stmt) # gast.stmt and ast.stmt are the same.
 
-class ImportInfo:
+class Import:
     """
-    Complement an `ast.alias` node with resolved 
+    Represents an `ast.alias` node with resolved 
     origin module and target of the locally bound name.
 
     :note: `orgname` will be ``*`` for wildcard imports.
@@ -110,6 +110,8 @@ class ImportInfo:
     def name(self):
         """
         Returns the local name of the imported symbol, str.
+
+        This will be equal to the ``name()`` of the `Def` of the `ast.alias` node this `Import` represents.
         """
         if self.asname:
             return self.asname
@@ -145,19 +147,20 @@ class ImportInfo:
 # Adapted from the project typeshed_client.
 def parse_import(node, modname, is_package=False):
     """
-    Parse the given import node into a mapping of aliases to `ImportInfo`.
+    Parse the given import node into a mapping of aliases to their `Import`.
     
-    :param node: the import node (ast.Import or ast.ImportFrom).
-    :param str modname: the name of the module.
-    :param bool is_package: whether the module is a package.
-    :rtype: dict[ast.alias, ImportInfo]
+    :param node: The import node (ast.Import or ast.ImportFrom).
+    :param str modname: The name of the module, required to resolve relative imports.
+    :param bool is_package: Whether the module is the ``__init__`` file of a package, 
+        required to correctly resolve relative imports in package's __init__.py files.
+    :rtype: dict[ast.alias, Import]
     """
     result = {}
 
     ast = pkg(node)
     if isinstance(node, ast.Import):
         for al in node.names:
-            result[al] = ImportInfo(orgmodule=al.name, 
+            result[al] = Import(orgmodule=al.name, 
                                     asname=al.asname)
     
     elif isinstance(node, ast.ImportFrom):
@@ -191,7 +194,7 @@ def parse_import(node, modname, is_package=False):
             source_module = relative_module + module
 
         for alias in node.names:
-            result[alias] = ImportInfo(
+            result[alias] = Import(
                 orgmodule=".".join(source_module), 
                 orgname=alias.name,
                 asname=alias.asname, 
@@ -521,11 +524,11 @@ def refers_to_qualname(*, heads, locals, imports, modnames, expr, qnames):
 class DefUseChains(gast.NodeVisitor):
     """
     Module visitor that gathers two kinds of informations:
-        - locals: dict[node, list[Def]], a mapping between a node and the list
+        - locals: dict[ast.AST, list[Def]], a mapping between a node and the list
           of variable defined in this node,
-        - chains: dict[node, Def], a mapping between nodes and their chains.
-        - imports: dict[node, ImportInfo], a mapping between import aliases
-          and their resolved target.
+        - chains: dict[ast.AST, Def], a mapping between nodes and their chains.
+        - imports: dict[ast.aslias, Import], a mapping between import aliases
+          and their resolved Import instance.
 
     >>> import gast as ast
     >>> module = ast.parse("from b import c, d; c()")
@@ -570,7 +573,6 @@ class DefUseChains(gast.NodeVisitor):
         """
         self.chains = {}
         self.locals = defaultdict(list)
-        # mapping from ast.alias to their ImportInfo.
         self.imports = {}
 
         self.filename = filename
