@@ -241,7 +241,7 @@ reports when their beeing imported and used.
 .. code:: python
 
     >>> import ast, beniget
-    >>> def search(names, defuse: beniget.DefUseChains, ancestors: beniget.Ancestors) -> 'list[beniget.Def]':
+    >>> def find_references_to(names, defuse: beniget.DefUseChains, ancestors: beniget.Ancestors) -> 'list[beniget.Def]':
     ...    names = dict.fromkeys(names)
     ...    found = []
     ...    for  al,imp in defuse.imports.items():
@@ -277,10 +277,10 @@ reports when their beeing imported and used.
     >>> c.visit(module)
     >>> a = beniget.Ancestors()
     >>> a.visit(module)
-    >>> print([str(i) for i in search(['typing.Dict', 'typing.List', 'typing.overload', 'numpy.fft.calc'], c, a)])
+    >>> print([str(i) for i in find_references_to(['typing.Dict', 'typing.List', 'typing.overload', 'numpy.fft.calc'], c, a)])
     ['List -> (<Subscript> -> ())', 'Dict -> ()', '.overload -> ()', '.calc -> (<Call> -> ())']
 
-    >>> print([str(i) for i in search(['typing'], c, a)])
+    >>> print([str(i) for i in find_references_to(['typing'], c, a)])
     ['t -> (.overload -> ())']
 
 Acknowledgments
