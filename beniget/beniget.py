@@ -88,28 +88,56 @@ class Ancestors(gast.NodeVisitor):
 class ImportInfo:
     """
     Complement an `ast.alias` node with resolved 
-    origin module and name of the locally bound name.
+    origin module and target of the locally bound name.
 
     :note: `orgname` will be ``*`` for wildcard imports.
     """
-    __slots__ = 'orgmodule', 'orgname'
+    __slots__ = 'orgmodule', 'orgname', 'asname', '_orgroot'
 
-    def __init__(self, orgmodule, orgname=None):
+    def __init__(self, orgmodule, orgname=None, asname=None):
         """
-        :param orgmodule: str
-        :param orgname: str or None
+        Create instances of this class with parse_import().
+
+        :param orgmodule: str, The origin module
+        :param orgname: str or None, The origin name
+        :param orgname: str or None, Import asname
         """
         self.orgmodule = orgmodule
+        self._orgroot = orgmodule.split(".", 1)[0]
         self.orgname = orgname
+        self.asname = asname
+    
+    def name(self):
+        """
+        Returns the local name of the imported symbol, str.
+        """
+        if self.asname:
+            return self.asname
+        if self.orgname:
+            return self.orgname
+        return self._orgroot
     
     def target(self):
         """
-        Returns the qualified name of the the imported symbol, str.
+        Returns the fully qualified name of the target of the imported symbol, str.
         """
         if self.orgname:
             return "{}.{}".format(self.orgmodule, self.orgname)
-        else:
+        if self.asname:
             return self.orgmodule
+        return self._orgroot
+    
+    def code(self):
+        """
+        Returns this imported name as an import code statement, str.
+        """
+        if self.orgname:
+            if self.asname:
+                return "from {} import {} as {}".format(self.orgmodule, self.orgname, self.asname)
+            return "from {} import {}".format(self.orgmodule, self.orgname)
+        elif self.asname:
+            return "import {} as {}".format(self.orgmodule, self.asname)
+        return "import {}".format(self.orgmodule)
 
 
 # The MIT License (MIT)
@@ -129,14 +157,8 @@ def parse_import(node, modname, is_package=False):
     ast = pkg(node)
     if isinstance(node, ast.Import):
         for al in node.names:
-            if al.asname:
-                result[al] = ImportInfo(orgmodule=al.name)
-            else:
-                # Here, we're not including information 
-                # regarding the submodules imported - if there is one.
-                # This is because this analysis map the names bounded by imports, 
-                # not the dependencies.
-                result[al] = ImportInfo(orgmodule=al.name.split(".", 1)[0])
+            result[al] = ImportInfo(orgmodule=al.name, 
+                                    asname=al.asname)
     
     elif isinstance(node, ast.ImportFrom):
         current_module = tuple(modname.split("."))
@@ -170,7 +192,9 @@ def parse_import(node, modname, is_package=False):
 
         for alias in node.names:
             result[alias] = ImportInfo(
-                orgmodule=".".join(source_module), orgname=alias.name
+                orgmodule=".".join(source_module), 
+                orgname=alias.name,
+                asname=alias.asname, 
             )
 
     else:
@@ -447,9 +471,9 @@ def _potential_module_names(parts):
     
     return tuple(names) or ('',)
 
-def matches_qualname(*, heads, locals, imports, modnames, expr, qnames):
+def refers_to_qualname(*, heads, locals, imports, modnames, expr, qnames):
     """
-    Returns True if - one of - the expression's definition(s) matches
+    Returns True if - one of - the expression's definition(s) refers to
     one of the given qualified names.
 
     The expression definition is looked up with 
@@ -488,7 +512,7 @@ def matches_qualname(*, heads, locals, imports, modnames, expr, qnames):
         for n in qnames:
             mod, _, _name = n.rpartition('.')
             if mod and expr.attr == _name:
-                if matches_qualname(heads=heads, locals=locals, imports=imports, modnames=modnames, 
+                if refers_to_qualname(heads=heads, locals=locals, imports=imports, modnames=modnames, 
                                     expr=expr.value, qnames={mod,}):
                     return True
     return False
@@ -557,7 +581,7 @@ class DefUseChains(gast.NodeVisitor):
         #   filename is a relative filename that starts at the package root. 
         # - We deduce whether the module is a package from module name or filename
         #   if they ends with __init__.
-        # - The module name doesn't have to be provided to use matches_qualname() 
+        # - The module name doesn't have to be provided to use refers_to_qualname() 
         #   if filename is provided.
         filename_parts = _split_posixpath(filename) if filename else ('',)
         is_package = False
@@ -678,7 +702,7 @@ class DefUseChains(gast.NodeVisitor):
         """
         qnames = set((f'typing.{name}', 
                       f'typing_extensions.{name}'))
-        return matches_qualname(heads=self._scopes, 
+        return refers_to_qualname(heads=self._scopes, 
                                 locals=self.locals, 
                                 imports=self.imports, 
                                 modnames=self._modnames,
