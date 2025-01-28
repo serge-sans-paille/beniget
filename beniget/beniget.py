@@ -1681,8 +1681,9 @@ class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
-        - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
-          that define it.
+    
+    - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
+        that define it.
     """
 
     def __init__(self, defuses: DefUseChains):
