@@ -45,7 +45,7 @@ This is a very basic usage: look for def without any use, and warn about them, f
     >>> duc.visit(module)
 
     # inspect the users of each imported name
-    >>> for alias, imported in duc.imports.items():
+    >>> for alias in duc.imports:
     ...   ud = duc.chains[alias]
     ...   if not ud.users():
     ...     print(f"Unused import: {ud.name()}")
