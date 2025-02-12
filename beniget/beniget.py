@@ -193,6 +193,126 @@ class Def(object):
                                        for u in self._users)
             )
 
+class Import:
+    """
+    Represents an `ast.alias` node with resolved 
+    origin module and target of the locally bound name.
+    :note: `orgname` will be ``*`` for wildcard imports.
+    """
+    __slots__ = 'orgmodule', 'orgname', 'asname', '_orgroot'
+
+    def __init__(self, orgmodule, orgname=None, asname=None):
+        """
+        Create instances of this class with parse_import().
+        :param orgmodule: str, The origin module
+        :param orgname: str or None, The origin name
+        :param orgname: str or None, Import asname
+        """
+        self.orgmodule = orgmodule
+        self._orgroot = orgmodule.split(".", 1)[0]
+        self.orgname = orgname
+        self.asname = asname
+
+    def name(self):
+        """
+        Returns the local name of the imported symbol, str.
+        This will be equal to the ``name()`` of the `Def` of the `ast.alias` node this `Import` represents.
+        """
+        if self.asname:
+            return self.asname
+        if self.orgname:
+            return self.orgname
+        return self._orgroot
+
+    def target(self):
+        """
+        Returns the fully qualified name of the target of the imported symbol, str.
+        """
+        if self.orgname:
+            return "{}.{}".format(self.orgmodule, self.orgname)
+        if self.asname:
+            return self.orgmodule
+        return self._orgroot
+
+    def code(self):
+        """
+        Returns this imported name as an import code statement, str.
+        """
+        if self.orgname:
+            if self.asname:
+                return "from {} import {} as {}".format(self.orgmodule, self.orgname, self.asname)
+            return "from {} import {}".format(self.orgmodule, self.orgname)
+        elif self.asname:
+            return "import {} as {}".format(self.orgmodule, self.asname)
+        return "import {}".format(self.orgmodule)
+    
+    def __eq__(self, value):
+        if isinstance(value, Import):
+            return self.code() == value.code()
+        return NotImplemented
+
+def parse_import(node, modname=None, is_package=False):
+    """
+    Parse the given import node into a mapping of aliases to their `Import`.
+    
+    :param node: The import node (ast.Import or ast.ImportFrom).
+    :param modname: The name of the module, required to resolve relative imports.
+    :type modname: string or None (it wich case we can't resolve relative imports)
+    :param bool is_package: Whether the module is the ``__init__`` file of a package, 
+        required to correctly resolve relative imports in package's __init__.py files.
+    :rtype: dict[ast.alias, Import]
+    """
+    result = {}
+
+    ast = pkg(node)
+    if isinstance(node, ast.Import):
+        for al in node.names:
+            result[al] = Import(orgmodule=al.name, 
+                                    asname=al.asname)
+
+    elif isinstance(node, ast.ImportFrom):
+        if node.module is None:
+            module = ()
+        else:
+            module = tuple(node.module.split("."))
+
+        if not node.level:
+            source_module = module
+        else:
+            if modname:
+                # parse relative imports, if module name if provided.
+                current_module = tuple(modname.split("."))
+                if node.level == 1:
+                    if is_package:
+                        relative_module = current_module
+                    else:
+                        relative_module = current_module[:-1]
+                else:
+                    if is_package:
+                        relative_module = current_module[: 1 - node.level]
+                    else:
+                        relative_module = current_module[: -node.level]
+            else:
+                relative_module = ()
+
+            if not relative_module:
+                # We don't raise errors when an relative import makes no sens, 
+                # we simply pad the name with dots.
+                relative_module = ("",) * node.level
+
+            source_module = relative_module + module
+
+        for alias in node.names:
+            result[alias] = Import(
+                orgmodule=".".join(source_module), 
+                orgname=alias.name,
+                asname=alias.asname, 
+            )
+
+    else:
+        raise TypeError('unexpected node type: {}'.format(type(node)))
+
+    return result
 
 import builtins
 BuiltinsSrc = builtins.__dict__
@@ -324,13 +444,17 @@ class DefUseChains(gast.NodeVisitor):
     """
 
 
-    def __init__(self, filename=None):
+    def __init__(self, filename=None, modname=None, is_package=False):
         """
             - filename: str, included in error messages if specified
         """
         self.chains = {}
         self.locals = defaultdict(list)
+        self.imports = {}
+
         self.filename = filename
+        self.modname = modname
+        self.is_package = is_package
 
         # deep copy of builtins, to remain reentrant
         self._builtins = {k: Def(v) for k, v in Builtins.items()}
@@ -1093,6 +1217,9 @@ class DefUseChains(gast.NodeVisitor):
             base = alias.name.split(".", 1)[0]
             self.set_definition(alias.asname or base, dalias)
             self.add_to_locals(alias.asname or base, dalias)
+        
+        self.imports.update(parse_import(node, self.modname, 
+                                         is_package=self.is_package))
 
     def visit_ImportFrom(self, node):
         for alias in node.names:
@@ -1102,6 +1229,9 @@ class DefUseChains(gast.NodeVisitor):
             else:
                 self.set_definition(alias.asname or alias.name, dalias)
             self.add_to_locals(alias.asname or alias.name, dalias)
+        
+        self.imports.update(parse_import(node, self.modname, 
+                                         is_package=self.is_package))
 
     def visit_Global(self, node):
         for name in node.names:
