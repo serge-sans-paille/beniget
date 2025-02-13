@@ -3,6 +3,7 @@ import ast as _ast
 from unittest import TestCase
 from textwrap import dedent
 
+from .test_chains import StrictDefUseChains
 from beniget.beniget import Def, parse_import
 
 class TestImportParser(TestCase):
@@ -29,6 +30,9 @@ class TestImportParser(TestCase):
         {'*': ('ast', '*', None, '*', 'ast.*', 'from ast import *')}]
 
         node = self.ast.parse(dedent(code))
+        du = StrictDefUseChains('./mod1.py', 'mod1', is_package=False)
+        du.visit(node)
+
         assert len(expected)==len(node.body)
         for import_node, expected_names in zip(node.body, expected):
             assert isinstance(import_node, (self.ast.Import, self.ast.ImportFrom))
@@ -43,6 +47,9 @@ class TestImportParser(TestCase):
                 assert i.name() == expected_name
                 assert i.target() == expected_target
                 assert i.code() == expected_code
+
+                assert i == du.imports[al]
+                assert repr(i).startswith(("Import('import ", "Import('from "))
 
                 ran=True
         assert ran
