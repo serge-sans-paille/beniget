@@ -251,6 +251,9 @@ class Import:
             return self.code() == value.code()
         return NotImplemented
 
+    def __repr__(self):
+        return f'Import({self.code()!r})'
+
 def parse_import(node, modname=None, is_package=False):
     """
     Parse the given import node into a mapping of aliases to their `Import`.
@@ -267,44 +270,37 @@ def parse_import(node, modname=None, is_package=False):
     ast = pkg(node)
     if isinstance(node, ast.Import):
         for al in node.names:
-            result[al] = Import(orgmodule=al.name, 
-                                    asname=al.asname)
-
+            result[al] = Import(orgmodule=al.name, asname=al.asname)
+    
     elif isinstance(node, ast.ImportFrom):
         if node.module is None:
-            module = ()
+            orgmodule = ()
         else:
-            module = tuple(node.module.split("."))
-
-        if not node.level:
-            source_module = module
-        else:
+            orgmodule = tuple(node.module.split("."))
+        level = node.level
+        if level:
+            relative_module = ()
             if modname:
                 # parse relative imports, if module name if provided.
-                current_module = tuple(modname.split("."))
-                if node.level == 1:
-                    if is_package:
-                        relative_module = current_module
-                    else:
-                        relative_module = current_module[:-1]
-                else:
-                    if is_package:
-                        relative_module = current_module[: 1 - node.level]
-                    else:
-                        relative_module = current_module[: -node.level]
-            else:
-                relative_module = ()
-
+                curr = tuple(modname.split('.'))
+                if is_package: 
+                    level -= 1
+                for _ in range(level):
+                    if not curr:
+                        break
+                    curr = curr[:-1]
+                if curr:
+                    relative_module = curr + orgmodule
             if not relative_module:
-                # We don't raise errors when an relative import makes no sens, 
+                # An relative import makes no sens for beniget... 
                 # we simply pad the name with dots.
-                relative_module = ("",) * node.level
-
-            source_module = relative_module + module
+                relative_module = ("",) * node.level + orgmodule
+            
+            orgmodule = relative_module
 
         for alias in node.names:
             result[alias] = Import(
-                orgmodule=".".join(source_module), 
+                orgmodule=".".join(orgmodule), 
                 orgname=alias.name,
                 asname=alias.asname, 
             )
