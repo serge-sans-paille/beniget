@@ -14,13 +14,13 @@ unittest.util._MAX_LENGTH=2000
 
 def replace_deprecated_names(out):
     return out.replace(
-        'Num', 'Constant'
+        '<Num>', '<Constant>'
     ).replace(
-        'Ellipsis', 'Constant'
+        '<Ellipsis>', '<Constant>'
     ).replace(
-        'Str', 'Constant'
+        '<Str>', '<Constant>'
     ).replace(
-        'Bytes', 'Constant'
+        '<Bytes>', '<Constant>'
     )
 
 @contextmanager
@@ -1570,9 +1570,9 @@ class TestUseDefChains(TestCase):
         cc = beniget.UseDefChains(c)
         actual = str(cc)
 
-        # work arround little change from python 3.6
-        if sys.version_info.minor == 6:
-            # 3.6
+        # work arround little change from python 3.8
+        if sys.version_info <= (3, 7):
+            # 3.6 or 3.7
             actual = replace_deprecated_names(actual)
 
         self.assertEqual(actual, ref)
