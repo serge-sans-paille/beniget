@@ -30,7 +30,7 @@ class TestImportParser(TestCase):
         {'*': ('ast', '*', None, '*', 'ast.*', 'from ast import *')}]
 
         node = self.ast.parse(dedent(code))
-        du = StrictDefUseChains('./mod1.py', 'mod1', is_package=False)
+        du = StrictDefUseChains(modname='mod1')
         du.visit(node)
 
         assert len(expected)==len(node.body)
@@ -63,7 +63,11 @@ class TestImportParser(TestCase):
         expected = [{'b':('top.mod2','bar')},
                     {'foo':('top.subpack.other.pack','foo')},
                     {'x': ('......error', 'x')}]
+        
         node = self.ast.parse(dedent(code))
+        du = StrictDefUseChains(modname='top.subpack.other', is_package=True)
+        du.visit(node)
+        
         assert len(expected)==len(node.body)
         for import_node, expected_names in zip(node.body, expected):
             assert isinstance(import_node, (self.ast.Import, self.ast.ImportFrom))
@@ -74,6 +78,10 @@ class TestImportParser(TestCase):
                 expected_orgmodule, expected_orgname = expected_names[Def(al).name()]
                 assert i.orgmodule == expected_orgmodule
                 assert i.orgname == expected_orgname
+
+                assert i == du.imports[al]
+                assert repr(i).startswith(("Import('import ", "Import('from "))
+
                 ran=True
         assert ran
     
@@ -86,7 +94,11 @@ class TestImportParser(TestCase):
         expected = [{'b':('top.mod2','bar')},
                     {'foo':('top.subpack.pack','foo')},
                     {'x': ('......error', 'x')}]
+        
         node = self.ast.parse(dedent(code))
+        du = StrictDefUseChains(modname='top.subpack.other', is_package=False)
+        du.visit(node)
+
         assert len(expected)==len(node.body)
         for import_node, expected_names in zip(node.body, expected):
             assert isinstance(import_node, (self.ast.Import, self.ast.ImportFrom))
@@ -97,6 +109,10 @@ class TestImportParser(TestCase):
                 expected_orgmodule, expected_orgname = expected_names[Def(al).name()]
                 assert i.orgmodule == expected_orgmodule
                 assert i.orgname == expected_orgname
+
+                assert i == du.imports[al]
+                assert repr(i).startswith(("Import('import ", "Import('from "))
+                
                 ran=True
         assert ran
 
