@@ -1557,21 +1557,13 @@ class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         node = self.ast.parse(code)
 
-        class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
-                raise RuntimeError(
-                    "W: unbound identifier '{}' at {}:{}".format(
-                        name, node.lineno, node.col_offset
-                    )
-                )
-
         c = StrictDefUseChains()
         c.visit(node)
         cc = beniget.UseDefChains(c)
         actual = str(cc)
 
-        # work arround little change from python 3.8
-        if sys.version_info <= (3, 7):
+        # work arround Constant simplicifation from Python 3.8
+        if sys.version_info.minor in {6, 7}:
             # 3.6 or 3.7
             actual = replace_deprecated_names(actual)
 
