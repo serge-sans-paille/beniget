@@ -281,7 +281,7 @@ def parse_import(node, modname=None, is_package=False):
         if level:
             relative_module = ()
             if modname:
-                # parse relative imports, if module name if provided.
+                # parse relative imports, if module name is provided.
                 curr = tuple(modname.split('.'))
                 if is_package: 
                     level -= 1
