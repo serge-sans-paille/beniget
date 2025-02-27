@@ -11,36 +11,18 @@ on:
       - main
 
 jobs:
-  deploy:
+  check:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v5
     - name: Set up Python 3.12
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
         python-version: 3.12
 
-    - name: Install requirements for documentation generation
-      run: |
-        python -m pip install --upgrade pip setuptools wheel
-        python -m pip install pydoctor
+    - name: Install documentation tool
+      run: python -m pip install pydoctor
 
-    - name: Generate documentation
-      run: |
-        # Run pydoctor build
-        pydoctor \
-            --project-url=https://github.com/$GITHUB_REPOSITORY \
-            --html-viewsource-base=https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA \
-            --html-base-url=https://$GITHUB_REPOSITORY_OWNER.github.io/${GITHUB_REPOSITORY#*/} \
-
-    - name: Push API documentation to Github Pages
-      if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-      uses: peaceiris/actions-gh-pages@v4
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: build/www
-        commit_message: "Generate API documentation"
+    - name: Check documentation syntax
+      # TODO: We might want to pass -W to fail when pydoctor emits a warning
+      run: pydoctor ./beniget
