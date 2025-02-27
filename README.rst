@@ -18,7 +18,7 @@ Basically Beniget provides three analyse:
 - `beniget.DefUseChains` that maps each node to the list of definition points in that node;
 - `beniget.UseDefChains` that maps each node to the list of possible definition of that node.
 
-Read the `documentation <https://serge-sans-paille.github.io/beniget/>`_ for more information :-).
+Read the `documentation <https://beniget.readthedocs.io>`_ for more information :-).
 
 
 Sample Usages
