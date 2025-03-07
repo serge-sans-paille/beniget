@@ -1311,10 +1311,23 @@ fn = outer()
         # to the inner classes.
 
     def test_lookup_scopes(self):
-        defuse = beniget.DefUseChains()
-        defuse.visit(self.ast.Module(body=[]))
+        
+        def get_scopes():
+            yield self.ast.parse('')                                # Module
+            yield self.ast.parse('def f(): pass').body[0]           # FunctionDef
+            yield self.ast.parse('class C: pass').body[0]           # ClassDef
+            yield self.ast.parse('lambda: True').body[0].value      # Lambda
+            yield self.ast.parse('(x for x in list())').body[0].value  # GeneratorExp
+            yield self.ast.parse('{k:v for k, v in dict().items()}').body[0].value  # DictComp
 
-        mod, fn, cls, lambd, gen, comp = self.ast.Module(), self.ast.FunctionDef(), self.ast.ClassDef(), self.ast.Lambda(), self.ast.GeneratorExp(), self.ast.DictComp()
+        mod, fn, cls, lambd, gen, comp = get_scopes()
+        assert isinstance(mod, self.ast.Module)
+        assert isinstance(fn, self.ast.FunctionDef)
+        assert isinstance(cls, self.ast.ClassDef)
+        assert isinstance(lambd, self.ast.Lambda)
+        assert isinstance(gen, self.ast.GeneratorExp)
+        assert isinstance(comp, self.ast.DictComp)
+
         assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
         assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
         assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
