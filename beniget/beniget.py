@@ -203,11 +203,11 @@ Builtins = {k: v for k, v in BuiltinsSrc.items()}
 Builtins["__file__"] = __file__
 
 # Cope with conditionally existing builtins by special-casing them.
-Builtins.setdefault('WindowsError', OSError) # never defined under Linux
-Builtins.setdefault('anext', next) # added in Python 3.10
-Builtins.setdefault('aiter', iter) # added in Python 3.10
-Builtins.setdefault('EncodingWarning', Warning) # added in Python 3.10
-Builtins.setdefault('PythonFinalizationError', RuntimeError) # added in Python 3.13
+Builtins.setdefault('WindowsError', object()) # never defined under Linux
+Builtins.setdefault('anext', object()) # added in Python 3.10
+Builtins.setdefault('aiter', object()) # added in Python 3.10
+Builtins.setdefault('EncodingWarning', object()) # added in Python 3.10
+Builtins.setdefault('PythonFinalizationError', object()) # added in Python 3.13
 # beniget doesn't run Python 3.5 and below, so we don't need to 
 # account for names introduced before Python 3.6
 
