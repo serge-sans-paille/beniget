@@ -9,24 +9,24 @@ on:
       - master
 jobs:
   build:
+    name: ${{ matrix.os }} py${{ matrix.python-version }} ${{ matrix.use-docker && '(docker)' || '' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
           python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14-dev"]
+          os: [ubuntu-latest, windows-latest, macos-latest]
+          use-docker: [false]
           include:
-          - name: Legacy Python on Ubuntu
-            os: ubuntu-latest
-            python-version: '3.6'
-            use-docker: true
-          - name: Legacy Python on Ubuntu
-            os: ubuntu-latest
-            python-version: '3.7'
-            use-docker: true
-          - name: Legacy Python on Ubuntu
-            os: ubuntu-latest
-            python-version: '3.8'
-            use-docker: true
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
-    container: ${{ matrix.container }}
+            - python-version: '3.6'
+              os: ubuntu-latest
+              use-docker: true
+            - python-version: '3.7'
+              os: ubuntu-latest
+              use-docker: true
+            - python-version: '3.8'
+              os: ubuntu-latest
+              use-docker: true
+    
     steps:
     - uses: actions/checkout@v4
     - name: Setup Python ${{ matrix.python-version }}
