@@ -11,28 +11,47 @@ jobs:
   build:
     strategy:
       matrix:
-          python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14-dev"]
+          python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14-dev"]
           include:
-            - python-version: "3.6"
-              os: ubuntu-20.04
-            - python-version: "3.7"
-              os: ubuntu-20.04
+          - name: Legacy Python on Ubuntu
+            os: ubuntu-latest
+            python-version: '3.6'
+            use-docker: true
+          - name: Legacy Python on Ubuntu
+            os: ubuntu-latest
+            python-version: '3.7'
+            use-docker: true
+          - name: Legacy Python on Ubuntu
+            os: ubuntu-latest
+            python-version: '3.8'
+            use-docker: true
     runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     container: ${{ matrix.container }}
     steps:
     - uses: actions/checkout@v4
     - name: Setup Python ${{ matrix.python-version }}
+      if: ${{ !matrix.use-docker }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
+      if: ${{ !matrix.use-docker }}
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install setuptools pytest
+        pip install -U pip
+        pip install setuptools wheel pytest
     - name: Setup
+      if: ${{ !matrix.use-docker }}
       run: |
         pip install .
-    - name: Testing sequential
+    - name: Testing
+      if: ${{ !matrix.use-docker }}
       run: |
         pytest --doctest-modules beniget/ tests/
+    - name: Testing legacy
+      if: ${{ matrix.use-docker }}
+      run: |
+          docker run --rm -v ${{ github.workspace }}:/app -w /app python:${{ matrix.python-version }} bash -c "
+            python -m pip install -U pip setuptools wheel pytest
+            python -m pip install .
+            pytest --doctest-modules beniget/ tests/
+          "
