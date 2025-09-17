@@ -1,0 +1,27 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.13
+
+    - name: Install documentation tool
+      run: python -m pip install pydoctor
+
+    - name: Check documentation syntax
+      run: pydoctor -W ./beniget

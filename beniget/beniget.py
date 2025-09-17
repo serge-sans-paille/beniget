@@ -318,6 +318,15 @@ Builtins = {k: v for k, v in BuiltinsSrc.items()}
 # this should probably be assigned to the filename give to DefUseChains instead.
 Builtins["__file__"] = __file__
 
+# Cope with conditionally existing builtins by special-casing them.
+Builtins.setdefault('WindowsError', object()) # never defined under Linux
+Builtins.setdefault('anext', object()) # added in Python 3.10
+Builtins.setdefault('aiter', object()) # added in Python 3.10
+Builtins.setdefault('EncodingWarning', object()) # added in Python 3.10
+Builtins.setdefault('PythonFinalizationError', object()) # added in Python 3.13
+# beniget doesn't run Python 3.5 and below, so we don't need to 
+# account for names introduced before Python 3.6
+
 DeclarationStep, DefinitionStep = object(), object()
 
 def collect_future_imports(node):
@@ -941,6 +950,13 @@ class DefUseChains(gast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
+            for default in node.args.defaults:
+                self.visit(default).add_user(dnode)
+            for kw_default in filter(None, node.args.kw_defaults):
+                self.visit(kw_default).add_user(dnode)
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+
             if not self.future_annotations:
                 for arg in _iter_arguments(node.args):
                     self.visit_annotation(arg)
@@ -955,13 +971,6 @@ class DefUseChains(gast.NodeVisitor):
                     if arg.annotation:
                         self._defered_annotations[-1].append(
                             (arg.annotation, currentscopes, None))
-
-            for kw_default in filter(None, node.args.kw_defaults):
-                self.visit(kw_default).add_user(dnode)
-            for default in node.args.defaults:
-                self.visit(default).add_user(dnode)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
 
             if not self.future_annotations and node.returns:
                 self.visit(node.returns)
@@ -987,12 +996,12 @@ class DefUseChains(gast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         self.add_to_locals(node.name, dnode)
 
+        for decorator in node.decorator_list:
+            self.visit(decorator).add_user(dnode)
         for base in node.bases:
             self.visit(base).add_user(dnode)
         for keyword in node.keywords:
             self.visit(keyword.value).add_user(dnode)
-        for decorator in node.decorator_list:
-            self.visit(decorator).add_user(dnode)
 
         with self.ScopeContext(node):
             self.set_definition("__class__", Def("__class__"))
@@ -1807,8 +1816,9 @@ class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
-        - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
-          that define it.
+    
+    - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
+        that define it.
     """
 
     def __init__(self, defuses: DefUseChains):
