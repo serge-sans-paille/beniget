@@ -419,7 +419,7 @@ class DefUseChains(gast.NodeVisitor):
         self.module = None
         self.future_annotations = False
         """
-        Flag indicates the use of `from __future__ import annotation`. 
+        Flag indicates the use of ``from __future__ import annotation``. 
         It should also be manually turned on to support Python3.14+'s annotation scopes. 
         """
 
