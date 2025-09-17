@@ -1988,6 +1988,7 @@ class B[decorator](object):
             with self.subTest(code):
                 self.checkChains(code, ['S -> ()', 'o -> ()'])
     
+    @skipIf(sys.version_info < (3,12), "Python 3.12 syntax")  
     def test_pepe695_class_keywords(self):
         src = '''
         class A[T]:
