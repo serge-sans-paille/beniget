@@ -1323,7 +1323,7 @@ fn = outer()
             yield self.ast.parse('lambda: True').body[0].value      # Lambda
             yield self.ast.parse('(x for x in list())').body[0].value  # GeneratorExp
             yield self.ast.parse('{k:v for k, v in dict().items()}').body[0].value  # DictComp
-            yield def695(body=[], d=self.ast.FunctionDef())
+            yield def695(body=[], d=...)
 
         mod, fn, cls, lambd, gen, comp, typeparams = get_scopes()
         assert isinstance(mod, self.ast.Module)
