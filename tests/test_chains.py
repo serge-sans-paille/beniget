@@ -1571,6 +1571,11 @@ print(x, y)
         code = ('try: 1/0\nexcept (PythonFinalizationError, EncodingWarning) as e: raise\n'
                 'a,b = anext(), aiter()')
         self.check_message(code, [])
+    
+    def test_class_decorators_runs_before_bases_and_keywords(self):
+        code = '''class A:... \n@D \nclass C(D, (D:=A), (Z:=D), Z,  metaclass=(Z:=D)):...'''
+        self.check_message(code, ["W: unbound identifier 'D' at <unknown>:2:1", 
+            "W: unbound identifier 'D' at <unknown>:3:8"])
 
 
 class TestDefUseChainsStdlib(TestDefUseChains):

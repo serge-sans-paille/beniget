@@ -876,12 +876,12 @@ class DefUseChains(gast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         self.add_to_locals(node.name, dnode)
 
+        for decorator in node.decorator_list:
+            self.visit(decorator).add_user(dnode)
         for base in node.bases:
             self.visit(base).add_user(dnode)
         for keyword in node.keywords:
             self.visit(keyword.value).add_user(dnode)
-        for decorator in node.decorator_list:
-            self.visit(decorator).add_user(dnode)
 
         with self.ScopeContext(node):
             self.set_definition("__class__", Def("__class__"))
