@@ -326,20 +326,49 @@ while done:
 
     def test_simple_except(self):
         code = "try: pass\nexcept Exception as e: pass\ne"
-        self.checkChains(code, ["e -> (e -> ())"])
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
+        self.checkChains(code, ['e -> ()'], strict=False)
 
     @skipIf(sys.version_info < (3, 11), 'Python 3.11 syntax')
     def test_simple_except_star(self):
         code = "try: pass\nexcept* Exception as e: pass\ne"
-        self.checkChains(code, ["e -> (e -> ())"])
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
+        self.checkChains(code, ['e -> ()'], strict=False)
 
     def test_simple_try_except(self):
         code = 'try: f = open("")\nexcept Exception as e: pass\ne;f'
-        self.checkChains(code, ["f -> (f -> ())", "e -> (e -> ())"])
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
+        self.checkChains(code, ["f -> (f -> ())", "e -> ()"], strict=False)
 
     def test_redef_try_except(self):
         code = 'try: f = open("")\nexcept Exception as f: pass\nf'
-        self.checkChains(code, ["f -> (f -> ())", "f -> (f -> ())"])
+        self.checkChains(code, ["f -> (f -> ())",  "f -> ()"])
+
+    def test_try_except_refdef_exception_same_name(self):
+        code = 'try: ...\nexcept Exception as f: f=f\nf'
+        self.check_message(code, ["W: unbound identifier 'f' at <unknown>:3:0"])
+
+    def test_try_except_refdef_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e\nf'
+        self.checkChains(code, ['e -> (e -> ())', 'f -> (f -> ())'])
+
+    def test_try_except_delete_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e; del e\nf'
+        self.checkChains(code, ['e -> (e -> (), e -> ())', 'f -> (f -> ())'])
+
+    def test_try_multiple_excepts(self):
+        code = 'try:... \nexcept KeyError as e1: e2 \nexcept ValueError as e2: e1'
+        self.check_message(code, ["W: unbound identifier 'e2' at <unknown>:2:23",
+            "W: unbound identifier 'e1' at <unknown>:3:25"])
+
+    def test_try_except_delete_exception_in_finally(self):
+        code = 'try: ...\nexcept Exception as e: f=e \nfinally: del e,f\nf'
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:13",
+                                  "W: unbound identifier 'f' at <unknown>:4:0"])
+
+    def test_try_except_delete_redef_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e\nf; del f'
+        self.checkChains(code, ['e -> (e -> ())', 'f -> (f -> (), f -> ())'])
 
     def test_simple_import(self):
         code = "import x; x"
@@ -1313,7 +1342,7 @@ fn = outer()
         # to the inner classes.
 
     def test_lookup_scopes(self):
-        
+
         def get_scopes():
             yield self.ast.parse('')                                # Module
             yield self.ast.parse('def f(): pass').body[0]           # FunctionDef
@@ -1567,40 +1596,40 @@ print(x, y)
         # Tests for issue https://github.com/serge-sans-paille/beniget/issues/119
         code = 'try: 1/0\nexcept WindowsError as e: raise'
         self.check_message(code, [])
-    
+
     def test_newer_Python_version_builtin_name(self):
         # Tests for issue https://github.com/serge-sans-paille/beniget/issues/119
         code = ('try: 1/0\nexcept (PythonFinalizationError, EncodingWarning) as e: raise\n'
                 'a,b = anext(), aiter()')
         self.check_message(code, [])
-    
+
     @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
     def test_class_decorators_runs_before_bases_and_keywords_wrt_warlus(self):
         code = '''class A:... \n@D \n@Z \nclass C(D, (D:=A), (Z:=D), Z,  metaclass=(Z:=D)):...'''
-        self.check_message(code, ["W: unbound identifier 'D' at <unknown>:2:1", 
-            "W: unbound identifier 'Z' at <unknown>:3:1", 
+        self.check_message(code, ["W: unbound identifier 'D' at <unknown>:2:1",
+            "W: unbound identifier 'Z' at <unknown>:3:1",
             "W: unbound identifier 'D' at <unknown>:4:8"])
 
     @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
     def test_function_decorators_runs_after_default_values_wrt_warlus(self):
         code = '''class A:... \n@D \ndef C(b=(D:=A)) -> D: ...'''
         self.check_message(code, [])
-    
+
     @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
     def test_function_decorators_runs_before_annotation_wrt_warlus(self):
         code = '''class A:... \n@D \ndef C(b:(D:=A)) -> D: ...'''
         self.check_message(code, ["W: unbound identifier 'D' at <unknown>:2:1"])
-    
+
     @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
     def test_function_default_values_order_wrt_warlus(self):
         code = '''def C(b=(D:=1), z=D, *, c=D) -> D: ...'''
         self.check_message(code, [])
-    
+
     @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
     def test_function_annotation_runs_after_default_values_wrt_warlus(self):
         code = '''def C(b:(D:=F), *, c=D, e=(F:=2)) -> D: ...'''
         self.check_message(code, ["W: unbound identifier 'D' at <unknown>:1:21"])
-    
+
     @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
     def test_function_decorators_runs_before_annotations_wrt_warlus(self):
         code = '''@D \ndef C(b:(D:=1)): ...'''
@@ -1639,15 +1668,15 @@ class TestUseDefChains(TestCase):
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "<Call> <- {<Constant>, <Constant>, bar}, bar <- {bar}")
-    
+
     def test_arguments(self):
         code = "def f(a, b=True, *, c:int): return a(b, c)"
         self.checkChains(code, "<Call> <- {a, b, c}, a <- {a}, b <- {b}, c <- {c}, f <- {<Constant>}, int <- {<type>}")
-    
+
     def test_excepthandler(self):
         code = "try: raise int \nexcept KeyError as e: \n print(e)"
         self.checkChains(code, "<Call> <- {e, print}, KeyError <- {<type>}, e <- {e}, int <- {<type>}, print <- {<builtin_function_or_method>}")
-    
+
     def test_delete(self):
         code = "a = 1; del a"
         self.checkChains(code, "a <- {a}")

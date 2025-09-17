@@ -22,8 +22,8 @@ class Ancestors(gast.NodeVisitor):
     Build the ancestor tree, that associates a node to the list of node visited
     from the root node (the Module) to the current node.
 
-    Example usage: 
-    
+    Example usage:
+
     >>> from beniget import Ancestors
     >>> code = 'def foo(x): return x + 1'
 
@@ -113,14 +113,14 @@ class Def(object):
         """
         :type node: ast.AST
         """
-        
+
         self.node = node
         """
         Syntax tree node wrapped by this `Def`.
         """
-        
+
         self._users = ordered_set()
-        
+
         self.islive = True
         """
         Whether this definition might reach the final block of it's scope.
@@ -230,7 +230,7 @@ Builtins.setdefault('anext', object()) # added in Python 3.10
 Builtins.setdefault('aiter', object()) # added in Python 3.10
 Builtins.setdefault('EncodingWarning', object()) # added in Python 3.10
 Builtins.setdefault('PythonFinalizationError', object()) # added in Python 3.13
-# beniget doesn't run Python 3.5 and below, so we don't need to 
+# beniget doesn't run Python 3.5 and below, so we don't need to
 # account for names introduced before Python 3.6
 
 DeclarationStep, DefinitionStep = object(), object()
@@ -335,7 +335,7 @@ def collect_locals(node):
 class DefUseChains(gast.NodeVisitor):
     """
     Module visitor that gathers two kinds of informations:
-    
+
         - `locals`: ``dict[node, list[Def]]``, a mapping between a node and the list
           of variable defined in this node.
         - `chains`: ``dict[node, Def]``, a mapping between nodes and their chains.
@@ -361,17 +361,17 @@ class DefUseChains(gast.NodeVisitor):
         :param filename: included in error messages if specified
         :type filename: str
         """
-        
+
         self.chains = {}
         """
         :type: dict[node, Def]
         """
-        
+
         self.locals = defaultdict(list)
         """
         :type: dict[node, list[Def]]
         """
-        
+
         self.filename = filename
 
         # deep copy of builtins, to remain reentrant
@@ -420,7 +420,7 @@ class DefUseChains(gast.NodeVisitor):
         """
         Object visited by `visit_Module`, `None` if the visitor has not run yet.
         """
-        
+
         self.future_annotations = False
 
     #
@@ -704,12 +704,12 @@ class DefUseChains(gast.NodeVisitor):
         # ExceptHandler node as reference point.
 
         def visit_ExceptHandler(node):
-            if isinstance(node.name, str):
-                dnode = self.chains.setdefault(node, Def(node))
-                self.set_definition(node.name, dnode)
-                if dnode not in self.locals[self._scopes[-1]]:
-                    self.locals[self._scopes[-1]].append(dnode)
-            self.generic_visit(node)
+            if node.name:
+                with _rename_attrs(node, id=node.name, ctx=pkg(node).Store()):
+                    self.visit_Name(node)
+            if node.type:
+                self.visit(node.type)
+            self.process_body(node.body)
 
         self.visit_ExceptHandler = visit_ExceptHandler
 
@@ -770,13 +770,15 @@ class DefUseChains(gast.NodeVisitor):
                     name = d.name()
                     if name in self._builtins:
                         overloaded_builtins.add(name)
-                    assert name in self._definitions[0], (name, d.node)
+                    assert name in self._definitions[0], (
+                        f'Sanity check failed: {name} not in {list(self._definitions[0])}')
 
                 nb_defs = len(self._definitions[0])
                 nb_bltns = len(self._builtins)
                 nb_overloaded_bltns = len(overloaded_builtins)
                 nb_heads = len({d.name() for d in self.locals[node]})
-                assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns
+                assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns, (
+                    f'Sanity check failed: {nb_defs} != {nb_heads + nb_bltns - nb_overloaded_bltns}')
 
         # Deleted nodes are not actual definitions, but are useful for
         # intermediate analysis. Prune them once the processing is done.
@@ -1115,12 +1117,32 @@ class DefUseChains(gast.NodeVisitor):
             with self.DefinitionContext(defaultdict(ordered_set)) as handler_def:
                 self.visit(excepthandler)
 
+                # When an exception has been assigned using "as" target, it is cleared
+                # at the end of the except clause.
+                if excepthandler.name:
+                    # Compat gast/ast
+                    ast = pkg(node)
+                    handler_name = getattr(excepthandler.name, 'id', excepthandler.name)
+
+                    # Adding a fake del at the end of the definition context
+                    # which is not going to be added to the use-def chains.
+                    fake_del = ast.Name(id=handler_name, ctx=ast.Del(),
+                        lineno=excepthandler.lineno, col_offset=excepthandler.col_offset)
+                    self.visit_Name(fake_del, skip_chains=True)
+
             for hd in handler_def:
                 self.extend_definition(hd, handler_def[hd])
 
         self.process_body(node.finalbody)
 
     visit_TryStar = visit_Try
+
+    def visit_ExceptHandler(self, node):
+        if node.name:
+            self.visit_Name(node.name)
+        if node.type:
+            self.visit(node.type)
+        self.process_body(node.body)
 
     def visit_Assert(self, node):
         self.visit(node.test)
@@ -1354,16 +1376,16 @@ class DefUseChains(gast.NodeVisitor):
             enclosing_scope = self._scopes[index]
         return index, enclosing_scope
 
-    def visit_Name(self, node, skip_annotation=False, named_expr=False):
+    def visit_Name(self, node, skip_annotation=False, named_expr=False, skip_chains=False):
         ast = pkg(node)
 
-        if isinstance(node.ctx, (ast.Load, ast.Del)):
-            node_in_chains = node in self.chains
-            if node_in_chains:
-                dnode = self.chains[node]
-            else:
-                dnode = Def(node)
+        node_in_chains = node in self.chains
+        if node_in_chains:
+            dnode = self.chains[node]
+        else:
+            dnode = Def(node)
 
+        if isinstance(node.ctx, (ast.Load, ast.Del)) and not skip_chains:
             # Extra linting for Del context: it is invalid to delete a
             # global name from local scope unless it's marked global
             if isinstance(node.ctx, ast.Del) and len(self._scopes) > 1:
@@ -1378,14 +1400,14 @@ class DefUseChains(gast.NodeVisitor):
             else:
                 for d in self.defs(node):
                     d.add_user(dnode)
-            if not node_in_chains:
-                self.chains[node] = dnode
+
+        if not node_in_chains and not skip_chains:
+            self.chains[node] = dnode
 
         # Note that nodes with ast.Del context are considered as a Load (they
         # actually read the identifier <> value binding) and as a Store (they
         # somehow create a new binding from the identifier to an unbound value).
         if isinstance(node.ctx, (ast.Param, ast.Store, ast.Del)):
-            dnode = self.chains.setdefault(node, Def(node))
             # FIXME: find a smart way to merge the code below with add_to_locals
             if self.is_global(node.id) and not dnode.isdel():
                 self.set_or_extend_global(node.id, dnode)
@@ -1720,7 +1742,7 @@ class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
-    
+
     - `chains`: ``dict[node, list[Def]]``, a mapping between use nodes and the `Defs <Def>`
         that define it.
     """
