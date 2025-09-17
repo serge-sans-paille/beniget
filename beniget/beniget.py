@@ -1443,10 +1443,6 @@ class DefUseChains(gast.NodeVisitor):
         self.process_body(node.body)
         return dnode
 
-    def visit_arguments(self, node):
-        for arg in _iter_arguments(node):
-            self.visit(arg)
-
     def visit_withitem(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.context_expr).add_user(dnode)
