@@ -9,30 +9,49 @@ on:
       - master
 jobs:
   build:
+    name: ${{ matrix.os }} py${{ matrix.python-version }} ${{ matrix.use-docker && '(docker)' || '' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-          python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14-dev"]
+          python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14-dev"]
+          os: [ubuntu-latest, windows-latest, macos-latest]
+          use-docker: [false]
           include:
-            - python-version: "3.6"
-              os: ubuntu-20.04
-            - python-version: "3.7"
-              os: ubuntu-20.04
-    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
-    container: ${{ matrix.container }}
+            - python-version: '3.6'
+              os: ubuntu-latest
+              use-docker: true
+            - python-version: '3.7'
+              os: ubuntu-latest
+              use-docker: true
+            - python-version: '3.8'
+              os: ubuntu-latest
+              use-docker: true
+    
     steps:
     - uses: actions/checkout@v4
     - name: Setup Python ${{ matrix.python-version }}
+      if: ${{ !matrix.use-docker }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
+      if: ${{ !matrix.use-docker }}
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install setuptools pytest
+        pip install -U pip
+        pip install setuptools wheel pytest
     - name: Setup
+      if: ${{ !matrix.use-docker }}
       run: |
         pip install .
-    - name: Testing sequential
+    - name: Testing
+      if: ${{ !matrix.use-docker }}
       run: |
         pytest --doctest-modules beniget/ tests/
+    - name: Testing legacy
+      if: ${{ matrix.use-docker }}
+      run: |
+          docker run --rm -v ${{ github.workspace }}:/app -w /app python:${{ matrix.python-version }} bash -c "
+            python -m pip install -U pip setuptools wheel pytest
+            python -m pip install .
+            pytest --doctest-modules beniget/ tests/
+          "

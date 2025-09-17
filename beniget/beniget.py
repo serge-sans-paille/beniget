@@ -884,19 +884,18 @@ class DefUseChains(gast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
-            if not defer_annotations:
-                for arg in _iter_arguments(node.args):
-                    self.visit_annotation(arg, defer=False)
-  
+            
             if not in_def695:
 
-                for kw_default in filter(None, node.args.kw_defaults):
-                    self.visit(kw_default).add_user(dnode)
                 for default in node.args.defaults:
                     self.visit(default).add_user(dnode)
+                for kw_default in filter(None, node.args.kw_defaults):
+                    self.visit(kw_default).add_user(dnode)
                 for decorator in node.decorator_list:
                     self.visit(decorator)
                 if not defer_annotations:
+                    for arg in _iter_arguments(node.args):
+                        self.visit_annotation(arg, defer=False)
                     self.visit_annotation(node, defer=False, field='returns')
 
                 if has_type_parameters:
@@ -945,8 +944,6 @@ class DefUseChains(gast.NodeVisitor):
                 self.visit_def695(def695(body=node.type_params, d=node))
                 return
         
-        scopeindex = -1 if not in_def695 else -2
-
         for base in node.bases:
             self.visit(base).add_user(dnode)
         for keyword in node.keywords:
@@ -957,6 +954,7 @@ class DefUseChains(gast.NodeVisitor):
             self.process_body(node.body)
 
         # see comment in visit_FunctionDef
+        scopeindex = -1 if not in_def695 else -2
         self.set_definition(node.name, dnode, index=scopeindex)
 
 
@@ -1872,8 +1870,9 @@ class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
-        - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
-          that define it.
+    
+    - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
+        that define it.
     """
 
     def __init__(self, defuses: DefUseChains):
