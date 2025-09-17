@@ -830,6 +830,13 @@ class DefUseChains(gast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
+            for default in node.args.defaults:
+                self.visit(default).add_user(dnode)
+            for kw_default in filter(None, node.args.kw_defaults):
+                self.visit(kw_default).add_user(dnode)
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+
             if not self.future_annotations:
                 for arg in _iter_arguments(node.args):
                     self.visit_annotation(arg)
@@ -844,13 +851,6 @@ class DefUseChains(gast.NodeVisitor):
                     if arg.annotation:
                         self._defered_annotations[-1].append(
                             (arg.annotation, currentscopes, None))
-
-            for kw_default in filter(None, node.args.kw_defaults):
-                self.visit(kw_default).add_user(dnode)
-            for default in node.args.defaults:
-                self.visit(default).add_user(dnode)
-            for decorator in node.decorator_list:
-                self.visit(decorator)
 
             if not self.future_annotations and node.returns:
                 self.visit(node.returns)
@@ -876,12 +876,12 @@ class DefUseChains(gast.NodeVisitor):
         dnode = self.chains.setdefault(node, Def(node))
         self.add_to_locals(node.name, dnode)
 
+        for decorator in node.decorator_list:
+            self.visit(decorator).add_user(dnode)
         for base in node.bases:
             self.visit(base).add_user(dnode)
         for keyword in node.keywords:
             self.visit(keyword.value).add_user(dnode)
-        for decorator in node.decorator_list:
-            self.visit(decorator).add_user(dnode)
 
         with self.ScopeContext(node):
             self.set_definition("__class__", Def("__class__"))
