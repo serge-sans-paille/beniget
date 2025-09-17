@@ -1077,8 +1077,17 @@ class DefUseChains(gast.NodeVisitor):
         for excepthandler in node.handlers:
             with self.DefinitionContext(defaultdict(ordered_set)) as handler_def:
                 self.visit(excepthandler)
+            
+            # When an exception has been assigned using "as" target, it is cleared at the end of the except clause.
+            # We emulate this by not forwarding it's definition to the enclosing definition context.
+            handler_name = None
+            if excepthandler.name:
+                # Compat gast/ast
+                handler_name = getattr(excepthandler.name, 'id', excepthandler.name)
 
             for hd in handler_def:
+                if hd == handler_name:
+                    continue
                 self.extend_definition(hd, handler_def[hd])
 
         self.process_body(node.finalbody)
@@ -1432,15 +1441,6 @@ class DefUseChains(gast.NodeVisitor):
         self.visit(node.target)
         for if_ in node.ifs:
             self.visit(if_).add_user(dnode)
-        return dnode
-
-    def visit_excepthandler(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
-        if node.type:
-            self.visit(node.type).add_user(dnode)
-        if node.name:
-            self.visit(node.name).add_user(dnode)
-        self.process_body(node.body)
         return dnode
 
     def visit_arguments(self, node):
