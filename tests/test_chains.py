@@ -1562,7 +1562,7 @@ class TestUseDefChains(TestCase):
         cc = beniget.UseDefChains(c)
         actual = str(cc)
 
-        # work arround Constant simplicifation from Python 3.8
+        # work around Constant simplification from Python 3.8
         if sys.version_info.minor in {6, 7}:
             # 3.6 or 3.7
             actual = replace_deprecated_names(actual)
