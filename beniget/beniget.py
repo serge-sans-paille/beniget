@@ -22,7 +22,8 @@ class Ancestors(gast.NodeVisitor):
     Build the ancestor tree, that associates a node to the list of node visited
     from the root node (the Module) to the current node.
 
-    Example usage with gast module
+    Example usage: 
+    
     >>> from beniget import Ancestors
     >>> code = 'def foo(x): return x + 1'
 
