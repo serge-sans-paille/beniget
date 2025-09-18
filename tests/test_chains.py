@@ -14,13 +14,13 @@ unittest.util._MAX_LENGTH=2000
 
 def replace_deprecated_names(out):
     return out.replace(
-        'Num', 'Constant'
+        '<Num>', '<Constant>'
     ).replace(
-        'Ellipsis', 'Constant'
+        '<Ellipsis>', '<Constant>'
     ).replace(
-        'Str', 'Constant'
+        '<Str>', '<Constant>'
     ).replace(
-        'Bytes', 'Constant'
+        '<Bytes>', '<Constant>'
     )
 
 @contextmanager
@@ -1618,22 +1618,14 @@ class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         node = self.ast.parse(code)
 
-        class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
-                raise RuntimeError(
-                    "W: unbound identifier '{}' at {}:{}".format(
-                        name, node.lineno, node.col_offset
-                    )
-                )
-
         c = StrictDefUseChains()
         c.visit(node)
         cc = beniget.UseDefChains(c)
         actual = str(cc)
 
-        # work arround little change from python 3.6
-        if sys.version_info.minor == 6:
-            # 3.6
+        # work around Constant simplification from Python 3.8
+        if sys.version_info.minor in {6, 7}:
+            # 3.6 or 3.7
             actual = replace_deprecated_names(actual)
 
         self.assertEqual(actual, ref)
@@ -1646,6 +1638,6 @@ class TestUseDefChains(TestCase):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "<Call> <- {<Constant>, <Constant>, bar}, bar <- {bar}")
 
-class TestUseDefChainsStdlib(TestDefUseChains):
+class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
 
