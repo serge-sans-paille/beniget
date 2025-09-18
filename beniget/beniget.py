@@ -1585,16 +1585,6 @@ class DefUseChains(gast.NodeVisitor):
             self.visit(if_).add_user(dnode)
         return dnode
 
-    def visit_excepthandler(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
-        if node.type:
-            self.visit(node.type).add_user(dnode)
-        if node.name:
-            self.visit(node.name).add_user(dnode)
-        self.process_body(node.body)
-        return dnode
-
-
     def visit_withitem(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.context_expr).add_user(dnode)
