@@ -341,6 +341,27 @@ while done:
     def test_redef_try_except(self):
         code = 'try: f = open("")\nexcept Exception as f: pass\nf'
         self.checkChains(code, ["f -> (f -> ())"])
+    
+    def test_try_except_refdef_exception_same_name(self):
+        code = 'try: ...\nexcept Exception as f: f=f\nf'
+        self.check_message(code, ["W: unbound identifier 'f' at <unknown>:3:0"])
+    
+    def test_try_except_refdef_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e\nf'
+        self.checkChains(code, []) # currently fails the sanity checks
+    
+    def test_try_except_delete_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e; del e\nf'
+        self.checkChains(code, []) # currently fails the sanity checks
+    
+    def test_try_except_delete_exception_in_finally(self):
+        code = 'try: ...\nexcept Exception as e: f=e \nfinally: del e,f\nf'
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:13", 
+                                  "W: unbound identifier 'f' at <unknown>:4:0"])
+    
+    def test_try_except_delete_redef_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e\nf; del f'
+        self.checkChains(code, ['f -> (f -> (), f -> ())'])
 
     def test_simple_import(self):
         code = "import x; x"
