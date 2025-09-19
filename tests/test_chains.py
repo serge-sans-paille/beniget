@@ -21,6 +21,8 @@ def replace_deprecated_names(out):
         '<Str>', '<Constant>'
     ).replace(
         '<Bytes>', '<Constant>'
+    ).replace(
+        '<NameConstant>', '<Constant>'
     )
 
 @contextmanager
