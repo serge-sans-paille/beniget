@@ -1710,12 +1710,18 @@ def _iter_arguments(args):
     if args.kwarg:
         yield args.kwarg
 
+def _is_use_name(def_):
+    ast = pkg(def_.node)
+    if not isinstance(def_.node, ast.Name):
+        return False
+    return isinstance(def_.node.ctx, (ast.Load, ast.Del))
+
 class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
     
-    - `chains`: ``dict[node, list[Def]]``, a mapping between nodes and the `Defs <Def>`
+    - `chains`: ``dict[node, list[Def]]``, a mapping between use nodes and the `Defs <Def>`
         that define it.
     """
 
@@ -1723,10 +1729,12 @@ class UseDefChains(object):
         self.chains = {}
 
         # TODO: why does this doesn't include functions and classes?
+
+        ast = None
         for chain in defuses.chains.values():
-            if isinstance(chain.node, pkg(chain.node).Name): # TODO: what about arguments ?
-                # they will included for gast but not for stdlib ast since arg in gast are Name.
-                self.chains.setdefault(chain.node, [])
+            node = chain.node
+            if _is_use_name(chain):
+                self.chains.setdefault(node, [])
             for use in chain.users():
                 self.chains.setdefault(use.node, []).append(chain)
 
