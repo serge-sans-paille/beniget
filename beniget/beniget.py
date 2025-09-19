@@ -1728,7 +1728,6 @@ class UseDefChains(object):
     def __init__(self, defuses: DefUseChains):
         self.chains = {}
 
-        # TODO: why does this doesn't include functions and classes?
 
         for chain in defuses.chains.values():
             node = chain.node
