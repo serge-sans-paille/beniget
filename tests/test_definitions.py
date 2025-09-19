@@ -147,16 +147,16 @@ class TestGlobals(TestCase):
 
     def testGlobalTryExcept(self):
         code = "from some import foo\ntry: foo()\nexcept Exception as e: pass"
-        self.checkGlobals(code, ["e", "foo"])
+        self.checkGlobals(code, ["foo"])
 
     def testGlobalTryExceptFinally(self):
         code = "try: w = 1\nexcept Exception as x: y = 1\nfinally: z = 1"
-        self.checkGlobals(code, ["w", "x", "y", "z"])
+        self.checkGlobals(code, ["w", "y", "z"])
 
     @skipIf(sys.version_info < (3, 11), 'Python 3.11 syntax')
     def testGlobalTryStarExcept(self):
         code = "from some import foo\ntry: foo()\nexcept* Exception as e: pass"
-        self.checkGlobals(code, ["e", "foo"])
+        self.checkGlobals(code, ["foo"])
 
     def testGlobalThroughKeyword(self):
         code = "def foo(): global x"
