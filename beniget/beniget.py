@@ -110,8 +110,17 @@ class Def(object):
     __slots__ = "node", "_users", "islive"
 
     def __init__(self, node):
+        """
+        :type node: ast.AST
+        """
+        
         self.node = node
+        """
+        Syntax tree node wrapped by this `Def`.
+        """
+        
         self._users = ordered_set()
+        
         self.islive = True
         """
         Whether this definition might reach the final block of it's scope.
@@ -121,13 +130,18 @@ class Def(object):
         """
 
     def add_user(self, node):
+        """
+        :type node: Def
+        """
         assert isinstance(node, Def)
         self._users.add(node)
 
     def name(self):
         """
-        If the node associated to this Def has a name, returns this name.
-        Otherwise returns its type
+        If the node associated to this `Def` has a name, returns this ``name``.
+        Otherwise returns its ``<type>``.
+
+        :rtype: str
         """
         ast = pkg(self.node)
         if isinstance(self.node, (ast.ClassDef,
@@ -158,11 +172,18 @@ class Def(object):
 
     def users(self):
         """
-        The list of ast entity that holds a reference to this node
+        The collection of entities that holds a reference to this node
+
+        :rtype: ordered_set[Def]
         """
         return self._users
 
     def isdel(self):
+        """
+        Whether this `Def` wraps the target of a ``del`` statement.
+
+        :rtype: bool
+        """
         ast = pkg(self.node)
         if not isinstance(self.node, ast.Name):
             return False
@@ -314,9 +335,10 @@ def collect_locals(node):
 class DefUseChains(gast.NodeVisitor):
     """
     Module visitor that gathers two kinds of informations:
-        - locals: Dict[node, List[Def]], a mapping between a node and the list
-          of variable defined in this node,
-        - chains: Dict[node, Def], a mapping between nodes and their chains.
+    
+        - `locals`: ``dict[node, list[Def]]``, a mapping between a node and the list
+          of variable defined in this node.
+        - `chains`: ``dict[node, Def]``, a mapping between nodes and their chains.
 
     >>> import gast as ast
     >>> module = ast.parse("from b import c, d; c()")
@@ -330,16 +352,26 @@ class DefUseChains(gast.NodeVisitor):
     >>> print(alias_def)
     c -> (c -> (<Call> -> ()))
 
-    One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
+    One instance of `DefUseChains` is only suitable to analyse one AST Module in it's lifecycle.
     """
 
 
     def __init__(self, filename=None):
         """
-            - filename: str, included in error messages if specified
+        :param filename: included in error messages if specified
+        :type filename: str
         """
+        
         self.chains = {}
+        """
+        :type: dict[node, Def]
+        """
+        
         self.locals = defaultdict(list)
+        """
+        :type: dict[node, list[Def]]
+        """
+        
         self.filename = filename
 
         # deep copy of builtins, to remain reentrant
@@ -385,6 +417,10 @@ class DefUseChains(gast.NodeVisitor):
 
         # attributes (re)set in visit_Module
         self.module = None
+        """
+        Object visited by `visit_Module`, `None` if the visitor has not run yet.
+        """
+        
         self.future_annotations = False
 
     #
@@ -1679,7 +1715,7 @@ class UseDefChains(object):
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
     
-    - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
+    - `chains`: ``dict[node, list[Def]]``, a mapping between nodes and the `Defs <Def>`
         that define it.
     """
 
