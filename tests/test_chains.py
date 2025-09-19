@@ -343,12 +343,12 @@ while done:
         self.checkChains(code, ["f -> (f -> ())"])
     
     def test_try_except_refdef_exception_same_name(self):
-        code = 'try: ...\nexcept Exception as f: f=f\nf'
+        code = 'try: ...\nexcept Exception as f: f=f\nf' # currently fails the sanity checks
         self.check_message(code, ["W: unbound identifier 'f' at <unknown>:3:0"])
     
     def test_try_except_refdef_exception(self):
         code = 'try: ...\nexcept Exception as e: f=e\nf'
-        self.checkChains(code, []) # currently fails the sanity checks
+        self.checkChains(code, ['f -> (f -> ())']) 
     
     def test_try_except_delete_exception(self):
         code = 'try: ...\nexcept Exception as e: f=e; del e\nf'
