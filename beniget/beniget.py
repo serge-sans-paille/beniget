@@ -1730,7 +1730,6 @@ class UseDefChains(object):
 
         # TODO: why does this doesn't include functions and classes?
 
-        ast = None
         for chain in defuses.chains.values():
             node = chain.node
             if _is_use_name(chain):
