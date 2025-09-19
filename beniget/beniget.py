@@ -667,12 +667,12 @@ class DefUseChains(gast.NodeVisitor):
         # ExceptHandler node as reference point.
 
         def visit_ExceptHandler(node):
-            if isinstance(node.name, str):
-                dnode = self.chains.setdefault(node, Def(node))
-                self.set_definition(node.name, dnode)
-                if dnode not in self.locals[self._scopes[-1]]:
-                    self.locals[self._scopes[-1]].append(dnode)
-            self.generic_visit(node)
+            if node.name:
+                with _rename_attrs(node, id=node.name, ctx=pkg(node).Store()):
+                    self.visit_Name(node, excepthandler=True)
+            if node.type: 
+                self.visit(node.type)
+            self.process_body(node.body)
 
         self.visit_ExceptHandler = visit_ExceptHandler
 
@@ -1078,9 +1078,6 @@ class DefUseChains(gast.NodeVisitor):
             with self.DefinitionContext(defaultdict(ordered_set)) as handler_def:
                 self.visit(excepthandler)
             
-            for hd in handler_def:
-                self.extend_definition(hd, handler_def[hd])
-            
             # When an exception has been assigned using "as" target, it is cleared 
             # at the end of the except clause. We emulate this by adding a fake del 
             # to the enclosing definition context.
@@ -1089,12 +1086,25 @@ class DefUseChains(gast.NodeVisitor):
                 # Compat gast/ast
                 ast = pkg(node)
                 handler_name = getattr(excepthandler.name, 'id', excepthandler.name)
-                delname = ast.Name(id=handler_name, ctx=ast.Del())
-                self.visit_Name(delname)
+
+                # delname = ast.Name(id=handler_name, ctx=ast.Del())
+                # self.visit_Name(delname)
+            
+            for hd in handler_def:
+                if hd == handler_name:
+                    continue
+                self.extend_definition(hd, handler_def[hd])
 
         self.process_body(node.finalbody)
 
     visit_TryStar = visit_Try
+
+    def visit_ExceptHandler(self, node):
+        if node.name:
+            self.visit_Name(node.name, excepthandler=True)
+        if node.type: 
+            self.visit(node.type)
+        self.process_body(node.body)
 
     def visit_Assert(self, node):
         self.visit(node.test)
@@ -1328,7 +1338,7 @@ class DefUseChains(gast.NodeVisitor):
             enclosing_scope = self._scopes[index]
         return index, enclosing_scope
 
-    def visit_Name(self, node, skip_annotation=False, named_expr=False):
+    def visit_Name(self, node, skip_annotation=False, named_expr=False, excepthandler=False):
         ast = pkg(node)
 
         if isinstance(node.ctx, (ast.Load, ast.Del)):
@@ -1376,7 +1386,9 @@ class DefUseChains(gast.NodeVisitor):
                     return dnode
 
                 self.set_definition(node.id, dnode, index)
-                if dnode not in self.locals[self._scopes[index]]:
+                # Do not add excepthandler targets to the locals since they get always cleared
+                # at the end of the definition context. 
+                if not excepthandler and dnode not in self.locals[self._scopes[index]]:
                     self.locals[self._scopes[index]].append(dnode)
 
             # Compat: Name.annotation is a special case because of gast

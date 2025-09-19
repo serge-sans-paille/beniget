@@ -325,26 +325,22 @@ while done:
     def test_simple_except(self):
         code = "try: pass\nexcept Exception as e: pass\ne"
         self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
-                                       # This is the fake del
-        self.checkChains(code, ["e -> (e -> ())"], strict=False)
+        self.checkChains(code, [], strict=False)
 
     @skipIf(sys.version_info < (3, 11), 'Python 3.11 syntax')
     def test_simple_except_star(self):
         code = "try: pass\nexcept* Exception as e: pass\ne"
         self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
-                                       # This is the fake del
-        self.checkChains(code, ["e -> (e -> ())"], strict=False)
+        self.checkChains(code, [], strict=False)
 
     def test_simple_try_except(self):
         code = 'try: f = open("")\nexcept Exception as e: pass\ne;f'
         self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
-                                                         # This is the fake del
-        self.checkChains(code, ["f -> (f -> ())", "e -> (e -> ())"], strict=False)
+        self.checkChains(code, ["f -> (f -> ())"], strict=False)
 
     def test_redef_try_except(self):
         code = 'try: f = open("")\nexcept Exception as f: pass\nf'
-                                                         # This is the fake del
-        self.checkChains(code, ["f -> (f -> ())", "f -> (f -> ())"], strict=False)
+        self.checkChains(code, ["f -> (f -> ())"])
 
     def test_simple_import(self):
         code = "import x; x"
