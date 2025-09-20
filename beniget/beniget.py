@@ -1389,8 +1389,6 @@ class DefUseChains(gast.NodeVisitor):
                     return dnode
 
                 self.set_definition(node.id, dnode, index)
-                # Do not add excepthandler targets to the locals since they get always cleared
-                # at the end of the definition context. 
                 if dnode not in self.locals[self._scopes[index]]:
                     self.locals[self._scopes[index]].append(dnode)
 
