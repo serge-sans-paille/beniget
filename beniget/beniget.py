@@ -669,7 +669,7 @@ class DefUseChains(gast.NodeVisitor):
         def visit_ExceptHandler(node):
             if node.name:
                 with _rename_attrs(node, id=node.name, ctx=pkg(node).Store()):
-                    self.visit_Name(node, excepthandler=True)
+                    self.visit_Name(node)
             if node.type: 
                 self.visit(node.type)
             self.process_body(node.body)
@@ -733,13 +733,15 @@ class DefUseChains(gast.NodeVisitor):
                     name = d.name()
                     if name in self._builtins:
                         overloaded_builtins.add(name)
-                    assert name in self._definitions[0], (name, d.node)
+                    assert name in self._definitions[0], (
+                        f'Sanity check failed: {name} not in {list(self._definitions[0])}')
 
                 nb_defs = len(self._definitions[0])
                 nb_bltns = len(self._builtins)
                 nb_overloaded_bltns = len(overloaded_builtins)
                 nb_heads = len({d.name() for d in self.locals[node]})
-                assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns
+                assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns, (
+                    f'Sanity check failed: {nb_defs} != {nb_heads + nb_bltns - nb_overloaded_bltns}')
 
         # Deleted nodes are not actual definitions, but are useful for
         # intermediate analysis. Prune them once the processing is done.
@@ -1078,21 +1080,23 @@ class DefUseChains(gast.NodeVisitor):
             with self.DefinitionContext(defaultdict(ordered_set)) as handler_def:
                 self.visit(excepthandler)
             
-            # When an exception has been assigned using "as" target, it is cleared 
-            # at the end of the except clause. We emulate this by adding a fake del 
-            # to the enclosing definition context.
-            handler_name = None
-            if excepthandler.name:
-                # Compat gast/ast
-                ast = pkg(node)
-                handler_name = getattr(excepthandler.name, 'id', excepthandler.name)
+                # When an exception has been assigned using "as" target, it is cleared 
+                # at the end of the except clause.
+                # We emulate this by: a fake del that is not recorded in the uses of the exception name.
+                handler_name = None
+                if excepthandler.name:
+                    # Compat gast/ast
+                    ast = pkg(node)
+                    handler_name = getattr(excepthandler.name, 'id', excepthandler.name)
 
-                # delname = ast.Name(id=handler_name, ctx=ast.Del())
-                # self.visit_Name(delname)
+                    # Adding a fake del at the end of the definition context
+                    # and clean up afterward
+                    delname = ast.Name(id=handler_name, ctx=ast.Del(), 
+                        lineno=excepthandler.end_lineno, 
+                        col_offset=getattr(excepthandler, 'end_col_offset', 0))
+                    self.visit_Name(delname, skip_chains=True)
             
             for hd in handler_def:
-                if hd == handler_name:
-                    continue
                 self.extend_definition(hd, handler_def[hd])
 
         self.process_body(node.finalbody)
@@ -1101,7 +1105,7 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_ExceptHandler(self, node):
         if node.name:
-            self.visit_Name(node.name, excepthandler=True)
+            self.visit_Name(node.name)
         if node.type: 
             self.visit(node.type)
         self.process_body(node.body)
@@ -1338,10 +1342,9 @@ class DefUseChains(gast.NodeVisitor):
             enclosing_scope = self._scopes[index]
         return index, enclosing_scope
 
-    def visit_Name(self, node, skip_annotation=False, named_expr=False, excepthandler=False):
+    def visit_Name(self, node, skip_annotation=False, named_expr=False, skip_chains=False):
         ast = pkg(node)
-
-        if isinstance(node.ctx, (ast.Load, ast.Del)):
+        if isinstance(node.ctx, (ast.Load, ast.Del)) and not skip_chains:
             node_in_chains = node in self.chains
             if node_in_chains:
                 dnode = self.chains[node]
@@ -1388,7 +1391,7 @@ class DefUseChains(gast.NodeVisitor):
                 self.set_definition(node.id, dnode, index)
                 # Do not add excepthandler targets to the locals since they get always cleared
                 # at the end of the definition context. 
-                if not excepthandler and dnode not in self.locals[self._scopes[index]]:
+                if dnode not in self.locals[self._scopes[index]]:
                     self.locals[self._scopes[index]].append(dnode)
 
             # Compat: Name.annotation is a special case because of gast

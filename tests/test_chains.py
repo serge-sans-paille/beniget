@@ -325,22 +325,22 @@ while done:
     def test_simple_except(self):
         code = "try: pass\nexcept Exception as e: pass\ne"
         self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
-        self.checkChains(code, [], strict=False)
+        self.checkChains(code, ['e -> ()'], strict=False)
 
     @skipIf(sys.version_info < (3, 11), 'Python 3.11 syntax')
     def test_simple_except_star(self):
         code = "try: pass\nexcept* Exception as e: pass\ne"
         self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
-        self.checkChains(code, [], strict=False)
+        self.checkChains(code, ['e -> ()'], strict=False)
 
     def test_simple_try_except(self):
         code = 'try: f = open("")\nexcept Exception as e: pass\ne;f'
         self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
-        self.checkChains(code, ["f -> (f -> ())"], strict=False)
+        self.checkChains(code, ["f -> (f -> ())", "e -> ()"], strict=False)
 
     def test_redef_try_except(self):
         code = 'try: f = open("")\nexcept Exception as f: pass\nf'
-        self.checkChains(code, ["f -> (f -> ())"])
+        self.checkChains(code, ["f -> (f -> ())",  "f -> ()"])
     
     def test_try_except_refdef_exception_same_name(self):
         code = 'try: ...\nexcept Exception as f: f=f\nf' # currently fails the sanity checks
@@ -348,11 +348,11 @@ while done:
     
     def test_try_except_refdef_exception(self):
         code = 'try: ...\nexcept Exception as e: f=e\nf'
-        self.checkChains(code, ['f -> (f -> ())']) 
+        self.checkChains(code, ['e -> (e -> ())', 'f -> (f -> ())']) 
     
     def test_try_except_delete_exception(self):
         code = 'try: ...\nexcept Exception as e: f=e; del e\nf'
-        self.checkChains(code, []) # currently fails the sanity checks
+        self.checkChains(code, ['e -> (e -> (), e -> ())', 'f -> (f -> ())'])
     
     def test_try_except_delete_exception_in_finally(self):
         code = 'try: ...\nexcept Exception as e: f=e \nfinally: del e,f\nf'
@@ -361,7 +361,7 @@ while done:
     
     def test_try_except_delete_redef_exception(self):
         code = 'try: ...\nexcept Exception as e: f=e\nf; del f'
-        self.checkChains(code, ['f -> (f -> (), f -> ())'])
+        self.checkChains(code, ['e -> (e -> ())', 'f -> (f -> (), f -> ())'])
 
     def test_simple_import(self):
         code = "import x; x"
