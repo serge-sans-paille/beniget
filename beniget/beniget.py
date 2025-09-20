@@ -261,8 +261,9 @@ def parse_import(node, modname=None, is_package=False):
     :param node: The import node (ast.Import or ast.ImportFrom).
     :param modname: The name of the module, required to resolve relative imports.
     :type modname: string or None (it wich case we can't resolve relative imports)
-    :param bool is_package: Whether the module is the ``__init__`` file of a package, 
+    :param is_package: Whether the module is the ``__init__`` file of a package, 
         required to correctly resolve relative imports in package's __init__.py files.
+    :type is_package: bool
     :rtype: dict[ast.alias, Import]
     """
     result = {}
