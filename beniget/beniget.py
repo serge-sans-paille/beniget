@@ -1090,11 +1090,10 @@ class DefUseChains(gast.NodeVisitor):
                     handler_name = getattr(excepthandler.name, 'id', excepthandler.name)
 
                     # Adding a fake del at the end of the definition context
-                    # and clean up afterward
-                    delname = ast.Name(id=handler_name, ctx=ast.Del(), 
-                        lineno=excepthandler.end_lineno, 
-                        col_offset=getattr(excepthandler, 'end_col_offset', 0))
-                    self.visit_Name(delname, skip_chains=True)
+                    # which is not going to be added to the use-def chains.
+                    fake_del = ast.Name(id=handler_name, ctx=ast.Del(), 
+                        lineno=excepthandler.lineno, col_offset=excepthandler.col_offset)
+                    self.visit_Name(fake_del, skip_chains=True)
             
             for hd in handler_def:
                 self.extend_definition(hd, handler_def[hd])
