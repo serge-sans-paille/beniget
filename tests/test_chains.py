@@ -326,20 +326,49 @@ while done:
 
     def test_simple_except(self):
         code = "try: pass\nexcept Exception as e: pass\ne"
-        self.checkChains(code, ["e -> (e -> ())"])
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
+        self.checkChains(code, ['e -> ()'], strict=False)
 
     @skipIf(sys.version_info < (3, 11), 'Python 3.11 syntax')
     def test_simple_except_star(self):
         code = "try: pass\nexcept* Exception as e: pass\ne"
-        self.checkChains(code, ["e -> (e -> ())"])
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
+        self.checkChains(code, ['e -> ()'], strict=False)
 
     def test_simple_try_except(self):
         code = 'try: f = open("")\nexcept Exception as e: pass\ne;f'
-        self.checkChains(code, ["f -> (f -> ())", "e -> (e -> ())"])
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:0"])
+        self.checkChains(code, ["f -> (f -> ())", "e -> ()"], strict=False)
 
     def test_redef_try_except(self):
         code = 'try: f = open("")\nexcept Exception as f: pass\nf'
-        self.checkChains(code, ["f -> (f -> ())", "f -> (f -> ())"])
+        self.checkChains(code, ["f -> (f -> ())",  "f -> ()"])
+    
+    def test_try_except_refdef_exception_same_name(self):
+        code = 'try: ...\nexcept Exception as f: f=f\nf'
+        self.check_message(code, ["W: unbound identifier 'f' at <unknown>:3:0"])
+    
+    def test_try_except_refdef_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e\nf'
+        self.checkChains(code, ['e -> (e -> ())', 'f -> (f -> ())']) 
+    
+    def test_try_except_delete_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e; del e\nf'
+        self.checkChains(code, ['e -> (e -> (), e -> ())', 'f -> (f -> ())'])
+    
+    def test_try_multiple_excepts(self):
+        code = 'try:... \nexcept KeyError as e1: e2 \nexcept ValueError as e2: e1'
+        self.check_message(code, ["W: unbound identifier 'e2' at <unknown>:2:23", 
+            "W: unbound identifier 'e1' at <unknown>:3:25"])
+    
+    def test_try_except_delete_exception_in_finally(self):
+        code = 'try: ...\nexcept Exception as e: f=e \nfinally: del e,f\nf'
+        self.check_message(code, ["W: unbound identifier 'e' at <unknown>:3:13", 
+                                  "W: unbound identifier 'f' at <unknown>:4:0"])
+    
+    def test_try_except_delete_redef_exception(self):
+        code = 'try: ...\nexcept Exception as e: f=e\nf; del f'
+        self.checkChains(code, ['e -> (e -> ())', 'f -> (f -> (), f -> ())'])
 
     def test_simple_import(self):
         code = "import x; x"
