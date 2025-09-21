@@ -22,6 +22,8 @@ def replace_deprecated_names(out):
         '<Str>', '<Constant>'
     ).replace(
         '<Bytes>', '<Constant>'
+    ).replace(
+        '<NameConstant>', '<Constant>'
     )
 
 @contextmanager
@@ -2172,11 +2174,23 @@ class TestUseDefChains(TestCase):
 
     def test_simple_expression(self):
         code = "a = 1; a"
-        self.checkChains(code, "a <- {a}, a <- {}")
+        self.checkChains(code, "a <- {a}")
 
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "<Call> <- {<Constant>, <Constant>, bar}, bar <- {bar}")
+    
+    def test_arguments(self):
+        code = "def f(a, b=True, *, c:int): return a(b, c)"
+        self.checkChains(code, "<Call> <- {a, b, c}, a <- {a}, b <- {b}, c <- {c}, f <- {<Constant>}, int <- {<type>}")
+    
+    def test_excepthandler(self):
+        code = "try: raise int \nexcept KeyError as e: \n print(e)"
+        self.checkChains(code, "<Call> <- {e, print}, KeyError <- {<type>}, e <- {e}, int <- {<type>}, print <- {<builtin_function_or_method>}")
+    
+    def test_delete(self):
+        code = "a = 1; del a"
+        self.checkChains(code, "a <- {a}")
 
 class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
