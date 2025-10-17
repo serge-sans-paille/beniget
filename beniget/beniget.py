@@ -1082,7 +1082,6 @@ class DefUseChains(gast.NodeVisitor):
             
                 # When an exception has been assigned using "as" target, it is cleared 
                 # at the end of the except clause.
-                # We emulate this by: a fake del that is not recorded in the uses of the exception name.
                 handler_name = None
                 if excepthandler.name:
                     # Compat gast/ast
