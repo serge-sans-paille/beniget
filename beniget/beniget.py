@@ -1379,13 +1379,14 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_Name(self, node, skip_annotation=False, named_expr=False, skip_chains=False):
         ast = pkg(node)
-        if isinstance(node.ctx, (ast.Load, ast.Del)) and not skip_chains:
-            node_in_chains = node in self.chains
-            if node_in_chains:
-                dnode = self.chains[node]
-            else:
-                dnode = Def(node)
 
+        node_in_chains = node in self.chains
+        if node_in_chains:
+            dnode = self.chains[node]
+        else:
+            dnode = Def(node)
+
+        if isinstance(node.ctx, (ast.Load, ast.Del)) and not skip_chains:
             # Extra linting for Del context: it is invalid to delete a
             # global name from local scope unless it's marked global
             if isinstance(node.ctx, ast.Del) and len(self._scopes) > 1:
@@ -1400,14 +1401,14 @@ class DefUseChains(gast.NodeVisitor):
             else:
                 for d in self.defs(node):
                     d.add_user(dnode)
-            if not node_in_chains:
-                self.chains[node] = dnode
+            
+        if not node_in_chains and not skip_chains:
+            self.chains[node] = dnode
 
         # Note that nodes with ast.Del context are considered as a Load (they
         # actually read the identifier <> value binding) and as a Store (they
         # somehow create a new binding from the identifier to an unbound value).
         if isinstance(node.ctx, (ast.Param, ast.Store, ast.Del)):
-            dnode = self.chains.setdefault(node, Def(node))
             # FIXME: find a smart way to merge the code below with add_to_locals
             if self.is_global(node.id) and not dnode.isdel():
                 self.set_or_extend_global(node.id, dnode)
