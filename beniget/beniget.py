@@ -1153,6 +1153,9 @@ class DefUseChains(gast.NodeVisitor):
                 self.visit(default).add_user(dnode)
             for kw_default in filter(None, node.args.kw_defaults):
                 self.visit(kw_default).add_user(dnode)
+            
+            if self.future_annotations:
+                currentscopes = list(self._scopes)
             if self.is_stub:
                 for decorator in node.decorator_list:
                     self._defered_annotations[-1].append((
@@ -1167,7 +1170,6 @@ class DefUseChains(gast.NodeVisitor):
 
             else:
                 # annotations are to be analyzed later as well
-                currentscopes = list(self._scopes)
                 if node.returns:
                     self._defered_annotations[-1].append(
                         (node.returns, currentscopes, None))
