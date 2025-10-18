@@ -14,14 +14,14 @@ API
 
 Basically Beniget provides three analyse:
 
-- ``beniget.Ancestors`` that maps each node to the list of enclosing nodes;
-- ``beniget.DefUseChains`` that: 
+- `beniget.Ancestors <https://beniget.readthedocs.io/en/latest/beniget.Ancestors.html>`_ that:
     - maps each node to the list of definition points in that node;
     - maps each scope node to their locals dictionary; 
     - maps each alias node to their resolved import;
-- ``beniget.UseDefChains`` that maps each node to the list of possible definition of that node.
+- `beniget.DefUseChains <https://beniget.readthedocs.io/en/latest/beniget.DefUseChains.html>`_ that maps each node to the list of definition points in that node;
+- `beniget.UseDefChains <https://beniget.readthedocs.io/en/latest/beniget.UseDefChains.html>`_ that maps each node to the list of possible definition of that node.
 
-See sample usages and/or run ``pydoc beniget`` for more information :-).
+Read the `documentation <https://beniget.readthedocs.io>`_ for more information :-).
 
 
 Sample Usages

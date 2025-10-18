@@ -14,13 +14,15 @@ unittest.util._MAX_LENGTH=2000
 
 def replace_deprecated_names(out):
     return out.replace(
-        'Num', 'Constant'
+        '<Num>', '<Constant>'
     ).replace(
-        'Ellipsis', 'Constant'
+        '<Ellipsis>', '<Constant>'
     ).replace(
-        'Str', 'Constant'
+        '<Str>', '<Constant>'
     ).replace(
-        'Bytes', 'Constant'
+        '<Bytes>', '<Constant>'
+    ).replace(
+        '<NameConstant>', '<Constant>'
     )
 
 @contextmanager
@@ -1318,10 +1320,23 @@ fn = outer()
         # to the inner classes.
 
     def test_lookup_scopes(self):
-        defuse = beniget.DefUseChains()
-        defuse.visit(self.ast.Module(body=[]))
+        
+        def get_scopes():
+            yield self.ast.parse('')                                # Module
+            yield self.ast.parse('def f(): pass').body[0]           # FunctionDef
+            yield self.ast.parse('class C: pass').body[0]           # ClassDef
+            yield self.ast.parse('lambda: True').body[0].value      # Lambda
+            yield self.ast.parse('(x for x in list())').body[0].value  # GeneratorExp
+            yield self.ast.parse('{k:v for k, v in dict().items()}').body[0].value  # DictComp
 
-        mod, fn, cls, lambd, gen, comp = self.ast.Module(), self.ast.FunctionDef(), self.ast.ClassDef(), self.ast.Lambda(), self.ast.GeneratorExp(), self.ast.DictComp()
+        mod, fn, cls, lambd, gen, comp = get_scopes()
+        assert isinstance(mod, self.ast.Module)
+        assert isinstance(fn, self.ast.FunctionDef)
+        assert isinstance(cls, self.ast.ClassDef)
+        assert isinstance(lambd, self.ast.Lambda)
+        assert isinstance(gen, self.ast.GeneratorExp)
+        assert isinstance(comp, self.ast.DictComp)
+
         assert _get_lookup_scopes((mod, fn, fn, fn, cls)) == [mod, fn, fn, fn, cls]
         assert _get_lookup_scopes((mod, fn, fn, fn, cls, fn)) == [mod, fn, fn, fn, fn]
         assert _get_lookup_scopes((mod, cls, fn)) == [mod, fn]
@@ -1733,6 +1748,54 @@ print(x, y)
                        'x -> (<MatchClass> -> (), x -> (<Call> -> ()))',
                        'y -> (<MatchClass> -> (), y -> (<Call> -> ()))'])
 
+    def test_WindowsError_builtin_name(self):
+        # Tests for issue https://github.com/serge-sans-paille/beniget/issues/119
+        code = 'try: 1/0\nexcept WindowsError as e: raise'
+        self.check_message(code, [])
+    
+    def test_newer_Python_version_builtin_name(self):
+        # Tests for issue https://github.com/serge-sans-paille/beniget/issues/119
+        code = ('try: 1/0\nexcept (PythonFinalizationError, EncodingWarning) as e: raise\n'
+                'a,b = anext(), aiter()')
+        self.check_message(code, [])
+    
+    @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
+    def test_class_decorators_runs_before_bases_and_keywords_wrt_warlus(self):
+        code = '''class A:... \n@D \n@Z \nclass C(D, (D:=A), (Z:=D), Z,  metaclass=(Z:=D)):...'''
+        self.check_message(code, ["W: unbound identifier 'D' at <unknown>:2:1", 
+            "W: unbound identifier 'Z' at <unknown>:3:1", 
+            "W: unbound identifier 'D' at <unknown>:4:8"])
+
+    @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
+    def test_function_decorators_runs_after_default_values_wrt_warlus(self):
+        code = '''class A:... \n@D \ndef C(b=(D:=A)) -> D: ...'''
+        self.check_message(code, [])
+    
+    @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
+    def test_function_decorators_runs_before_annotation_wrt_warlus(self):
+        code = '''class A:... \n@D \ndef C(b:(D:=A)) -> D: ...'''
+        self.check_message(code, ["W: unbound identifier 'D' at <unknown>:2:1"])
+    
+    @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
+    def test_function_default_values_order_wrt_warlus(self):
+        code = '''def C(b=(D:=1), z=D, *, c=D) -> D: ...'''
+        self.check_message(code, [])
+    
+    @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
+    def test_function_annotation_runs_after_default_values_wrt_warlus(self):
+        code = '''def C(b:(D:=F), *, c=D, e=(F:=2)) -> D: ...'''
+        self.check_message(code, ["W: unbound identifier 'D' at <unknown>:1:21"])
+    
+    @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
+    def test_function_decorators_runs_before_annotations_wrt_warlus(self):
+        code = '''@D \ndef C(b:(D:=1)): ...'''
+        self.check_message(code, ["W: unbound identifier 'D' at <unknown>:1:1"])
+
+    @skipIf(sys.version_info < (3, 9), 'Use the warlus operator')
+    def test_function_decorators_runs_after_default_values_wrt_warlus(self):
+        code = '''@D \ndef C(b=(D:=1)): ...'''
+        self.check_message(code, [])
+
 
 class TestDefUseChainsStdlib(TestDefUseChains):
     ast = _ast
@@ -1742,35 +1805,39 @@ class TestUseDefChains(TestCase):
     def checkChains(self, code, ref):
         node = self.ast.parse(code)
 
-        class StrictDefUseChains(beniget.DefUseChains):
-            def unbound_identifier(self, name, node):
-                raise RuntimeError(
-                    "W: unbound identifier '{}' at {}:{}".format(
-                        name, node.lineno, node.col_offset
-                    )
-                )
-
         c = StrictDefUseChains()
         c.visit(node)
         cc = beniget.UseDefChains(c)
         actual = str(cc)
 
-        # work arround little change from python 3.6
-        if sys.version_info.minor == 6:
-            # 3.6
+        # work around Constant simplification from Python 3.8
+        if sys.version_info.minor in {6, 7}:
+            # 3.6 or 3.7
             actual = replace_deprecated_names(actual)
 
         self.assertEqual(actual, ref)
 
     def test_simple_expression(self):
         code = "a = 1; a"
-        self.checkChains(code, "a <- {a}, a <- {}")
+        self.checkChains(code, "a <- {a}")
 
     def test_call(self):
         code = "from foo import bar; bar(1, 2)"
         self.checkChains(code, "<Call> <- {<Constant>, <Constant>, bar}, bar <- {bar}")
+    
+    def test_arguments(self):
+        code = "def f(a, b=True, *, c:int): return a(b, c)"
+        self.checkChains(code, "<Call> <- {a, b, c}, a <- {a}, b <- {b}, c <- {c}, f <- {<Constant>}, int <- {<type>}")
+    
+    def test_excepthandler(self):
+        code = "try: raise int \nexcept KeyError as e: \n print(e)"
+        self.checkChains(code, "<Call> <- {e, print}, KeyError <- {<type>}, e <- {e}, int <- {<type>}, print <- {<builtin_function_or_method>}")
+    
+    def test_delete(self):
+        code = "a = 1; del a"
+        self.checkChains(code, "a <- {a}")
 
-class TestUseDefChainsStdlib(TestDefUseChains):
+class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
 
 class TestDefUseChainsUnderstandsFilename(TestCase):

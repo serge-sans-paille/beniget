@@ -23,7 +23,8 @@ class Ancestors(gast.NodeVisitor):
     Build the ancestor tree, that associates a node to the list of node visited
     from the root node (the Module) to the current node.
 
-    Example usage with gast module
+    Example usage: 
+    
     >>> from beniget import Ancestors
     >>> code = 'def foo(x): return x + 1'
 
@@ -230,8 +231,17 @@ class Def(object):
     __slots__ = "node", "_users", "islive"
 
     def __init__(self, node):
+        """
+        :type node: ast.AST
+        """
+        
         self.node = node
+        """
+        Syntax tree node wrapped by this `Def`.
+        """
+        
         self._users = ordered_set()
+        
         self.islive = True
         """
         Whether this definition might reach the final block of it's scope.
@@ -241,13 +251,18 @@ class Def(object):
         """
 
     def add_user(self, node):
+        """
+        :type node: Def
+        """
         assert isinstance(node, Def)
         self._users.add(node)
 
     def name(self):
         """
-        If the node associated to this Def has a name, returns this name.
-        Otherwise returns its type
+        If the node associated to this `Def` has a name, returns this ``name``.
+        Otherwise returns its ``<type>``.
+
+        :rtype: str
         """
         ast = pkg(self.node)
         if isinstance(self.node, (ast.ClassDef,
@@ -278,11 +293,18 @@ class Def(object):
 
     def users(self):
         """
-        The list of ast entity that holds a reference to this node
+        The collection of entities that holds a reference to this node
+
+        :rtype: ordered_set[Def]
         """
         return self._users
 
     def isdel(self):
+        """
+        Whether this `Def` wraps the target of a ``del`` statement.
+
+        :rtype: bool
+        """
         ast = pkg(self.node)
         if not isinstance(self.node, ast.Name):
             return False
@@ -322,6 +344,15 @@ Builtins = {k: v for k, v in BuiltinsSrc.items()}
 # not sure why we override the __file__ attribute?
 # this should probably be assigned to the filename give to DefUseChains instead.
 Builtins["__file__"] = __file__
+
+# Cope with conditionally existing builtins by special-casing them.
+Builtins.setdefault('WindowsError', object()) # never defined under Linux
+Builtins.setdefault('anext', object()) # added in Python 3.10
+Builtins.setdefault('aiter', object()) # added in Python 3.10
+Builtins.setdefault('EncodingWarning', object()) # added in Python 3.10
+Builtins.setdefault('PythonFinalizationError', object()) # added in Python 3.13
+# beniget doesn't run Python 3.5 and below, so we don't need to 
+# account for names introduced before Python 3.6
 
 DeclarationStep, DefinitionStep = object(), object()
 
@@ -524,9 +555,10 @@ def refers_to_qualname(*, heads, locals, imports, modnames, expr, qnames):
 class DefUseChains(gast.NodeVisitor):
     """
     Module visitor that gathers two kinds of informations:
-        - locals: dict[ast.AST, list[Def]], a mapping between a node and the list
-          of variable defined in this node,
-        - chains: dict[ast.AST, Def], a mapping between nodes and their chains.
+
+        - `locals`: ``dict[node, list[Def]]``, a mapping between a node and the list
+          of variable defined in this node.
+        - `chains`: ``dict[node, Def]``, a mapping between nodes and their chains.
         - imports: dict[ast.aslias, Import], a mapping between import aliases
           and their resolved Import instance.
 
@@ -542,7 +574,7 @@ class DefUseChains(gast.NodeVisitor):
     >>> print(alias_def)
     c -> (c -> (<Call> -> ()))
 
-    One instance of DefUseChains is only suitable to analyse one AST Module in it's lifecycle.
+    One instance of `DefUseChains` is only suitable to analyse one AST Module in it's lifecycle.
     """
 
     def __init__(self,
@@ -551,17 +583,15 @@ class DefUseChains(gast.NodeVisitor):
                  future_annotations=False, 
                  is_stub=False):
         """
-            - filename: str, POSIX-like path pointing to the source file, 
-              you can use `Path.as_posix` to ensure the value has proper format. 
-              It's recommended to either provide the filename of the source
-              relative to the root of the package (i.e. package/__init__.py) or provide both 
-              an explicit module name and a filename.
-              The filename is included in error messages and used as part of the import resolving.
-            - modname: str, fully qualified name of the module we're analysing. 
-              A module name may end with '.__init__' to indicate the module is a package.
-            - future_annotations: bool, PEP 563 mode. 
+        :param filename: included in error messages if specified. 
+              It's recommended to either provide both an explicit module name and a filename.
+              And pass is_package=True if the module represents the content of an __init__.py file.
+        :type filename: str
+        :param modname: fully qualified name of the module we're analysing.
+        :param is_package: whether the module represents the content of an __init__.py file
+        :param future_annotations: PEP 563 mode. 
               It will auotmatically be enabled if the module has ``from __future__ import annotations``.
-            - is_stub: bool, stub module semantics mode, implies future_annotations=True.
+        :param is_stub: enable stub module semantics mode, implies future_annotations=True.
               It will auotmatically be enabled if the filename endswith '.pyi'.
               When the module is a stub file, there is no need for quoting to do a forward reference 
               inside: 
@@ -570,9 +600,19 @@ class DefUseChains(gast.NodeVisitor):
                 - ``TypeVar()`` call arguments
                 - classe base expressions, keywords and decorators
                 - function decorators
+       
         """
+        
         self.chains = {}
+        """
+        :type: dict[node, Def]
+        """
+        
         self.locals = defaultdict(list)
+        """
+        :type: dict[node, list[Def]]
+        """
+        
         self.imports = {}
 
         self.filename = filename
@@ -646,6 +686,9 @@ class DefUseChains(gast.NodeVisitor):
         # attributes (re)set in visit_Module
         self.module = None
         self.future_annotations = self.is_stub or future_annotations
+        """
+        Object visited by `visit_Module`, `None` if the visitor has not run yet.
+        """
 
     #
     ## test helpers
@@ -1106,6 +1149,18 @@ class DefUseChains(gast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             self.add_to_locals(node.name, dnode)
 
+            for default in node.args.defaults:
+                self.visit(default).add_user(dnode)
+            for kw_default in filter(None, node.args.kw_defaults):
+                self.visit(kw_default).add_user(dnode)
+            if self.is_stub:
+                for decorator in node.decorator_list:
+                    self._defered_annotations[-1].append((
+                        decorator, currentscopes, None))
+            else:
+                for decorator in node.decorator_list:
+                    self.visit(decorator)
+
             if not self.future_annotations:
                 for arg in _iter_arguments(node.args):
                     self.visit_annotation(arg)
@@ -1120,18 +1175,6 @@ class DefUseChains(gast.NodeVisitor):
                     if arg.annotation:
                         self._defered_annotations[-1].append(
                             (arg.annotation, currentscopes, None))
-
-            for kw_default in filter(None, node.args.kw_defaults):
-                self.visit(kw_default).add_user(dnode)
-            for default in node.args.defaults:
-                self.visit(default).add_user(dnode)
-            if self.is_stub:
-                for decorator in node.decorator_list:
-                    self._defered_annotations[-1].append((
-                        decorator, currentscopes, None))
-            else:
-                for decorator in node.decorator_list:
-                    self.visit(decorator)
 
             if not self.future_annotations and node.returns:
                 self.visit(node.returns)
@@ -1161,22 +1204,22 @@ class DefUseChains(gast.NodeVisitor):
             # special treatment for classes in stub modules
             # so they can contain forward-references.
             currentscopes = list(self._scopes)
+            for decorator in node.decorator_list:
+                self._defered_annotations[-1].append((
+                    decorator, currentscopes, lambda ddecorator: ddecorator.add_user(dnode)))
             for base in node.bases:
                 self._defered_annotations[-1].append((
                     base, currentscopes, lambda dbase: dbase.add_user(dnode)))
             for keyword in node.keywords:
                 self._defered_annotations[-1].append((
                     keyword.value, currentscopes, lambda dkeyword: dkeyword.add_user(dnode)))
-            for decorator in node.decorator_list:
-                self._defered_annotations[-1].append((
-                    decorator, currentscopes, lambda ddecorator: ddecorator.add_user(dnode)))
         else:
+            for decorator in node.decorator_list:
+                self.visit(decorator).add_user(dnode)
             for base in node.bases:
                 self.visit(base).add_user(dnode)
             for keyword in node.keywords:
                 self.visit(keyword.value).add_user(dnode)
-            for decorator in node.decorator_list:
-                self.visit(decorator).add_user(dnode)
 
         with self.ScopeContext(node):
             self.set_definition("__class__", Def("__class__"))
@@ -1750,19 +1793,6 @@ class DefUseChains(gast.NodeVisitor):
             self.visit(if_).add_user(dnode)
         return dnode
 
-    def visit_excepthandler(self, node):
-        dnode = self.chains.setdefault(node, Def(node))
-        if node.type:
-            self.visit(node.type).add_user(dnode)
-        if node.name:
-            self.visit(node.name).add_user(dnode)
-        self.process_body(node.body)
-        return dnode
-
-    def visit_arguments(self, node):
-        for arg in _iter_arguments(node):
-            self.visit(arg)
-
     def visit_withitem(self, node):
         dnode = self.chains.setdefault(node, Def(node))
         self.visit(node.context_expr).add_user(dnode)
@@ -2002,22 +2032,29 @@ def _iter_arguments(args):
     if args.kwarg:
         yield args.kwarg
 
+def _is_use_name(def_):
+    ast = pkg(def_.node)
+    if not isinstance(def_.node, ast.Name):
+        return False
+    return isinstance(def_.node.ctx, (ast.Load, ast.Del))
+
 class UseDefChains(object):
     """
     DefUseChains adaptor that builds a mapping between each user
     and the Def that defines this user:
-        - chains: Dict[node, List[Def]], a mapping between nodes and the Defs
-          that define it.
+    
+    - `chains`: ``dict[node, list[Def]]``, a mapping between use nodes and the `Defs <Def>`
+        that define it.
     """
 
     def __init__(self, defuses: DefUseChains):
         self.chains = {}
 
-        # TODO: why does this doesn't include functions and classes?
+
         for chain in defuses.chains.values():
-            if isinstance(chain.node, pkg(chain.node).Name): # TODO: what about arguments ?
-                # they will included for gast but not for stdlib ast since arg in gast are Name.
-                self.chains.setdefault(chain.node, [])
+            node = chain.node
+            if _is_use_name(chain):
+                self.chains.setdefault(node, [])
             for use in chain.users():
                 self.chains.setdefault(use.node, []).append(chain)
 
