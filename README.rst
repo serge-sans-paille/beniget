@@ -14,7 +14,10 @@ API
 
 Basically Beniget provides three analyse:
 
-- `beniget.Ancestors <https://beniget.readthedocs.io/en/latest/beniget.Ancestors.html>`_ that maps each node to the list of enclosing nodes;
+- `beniget.Ancestors <https://beniget.readthedocs.io/en/latest/beniget.Ancestors.html>`_ that:
+    - maps each node to the list of definition points in that node;
+    - maps each scope node to their locals dictionary; 
+    - maps each alias node to their resolved import;
 - `beniget.DefUseChains <https://beniget.readthedocs.io/en/latest/beniget.DefUseChains.html>`_ that maps each node to the list of definition points in that node;
 - `beniget.UseDefChains <https://beniget.readthedocs.io/en/latest/beniget.UseDefChains.html>`_ that maps each node to the list of possible definition of that node.
 
@@ -34,22 +37,20 @@ This is a very basic usage: look for def without any use, and warn about them, f
     >>> import beniget, gast as ast
 
     # parse some simple statements
-    >>> code = "from math import cos, sin; print(cos(3))"
+    >>> code = "from math import cos, sin; import x, y; print(cos(3) + y.f(2))"
     >>> module = ast.parse(code)
 
     # compute the def-use chains at module level
     >>> duc = beniget.DefUseChains()
     >>> duc.visit(module)
 
-    # grab the import statement
-    >>> imported = module.body[0].names
-
     # inspect the users of each imported name
-    >>> for name in imported:
-    ...   ud = duc.chains[name]
+    >>> for alias in duc.imports:
+    ...   ud = duc.chains[alias]
     ...   if not ud.users():
-    ...     print("Unused import: {}".format(ud.name()))
+    ...     print(f"Unused import: {ud.name()}")
     Unused import: sin
+    Unused import: x
 
 *NOTE*: Due to the dynamic nature of Python, one can fool this analysis by
 calling the ``eval`` function, eventually through an indirection, or by performing a lookup
@@ -230,6 +231,57 @@ let's use the UseDef chains combined with the ancestors.
     >>> # the three top level assignments have been captured!
     >>> list(map(type, capturex.external))
     [<class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>, <class 'gast.gast.Assign'>]
+
+Report usage of deprecated functions or classes
+***********************************************
+
+This analysis takes a collection of names and 
+reports when their beeing imported and used.
+
+.. code:: python
+
+    >>> import ast, beniget
+    >>> def find_references_to(names, defuse: beniget.DefUseChains, ancestors: beniget.Ancestors) -> 'list[beniget.Def]':
+    ...    names = dict.fromkeys(names)
+    ...    found = []
+    ...    for  al,imp in defuse.imports.items():
+    ...        if imp.target() in names: # "from x import y;y" form
+    ...            for use in defuse.chains[al].users():
+    ...                found.append(use)
+    ...                # Note: this doesn't handle aliasing.
+    ...        else: # "import x; x.y" form
+    ...            for n in names:
+    ...                if n.startswith(f'{imp.target()}.'):
+    ...                    diffnames = n[len(f'{imp.target()}.'):].split('.')
+    ...                    for use in defuse.chains[al].users():
+    ...                        attr_node = parent_node = ancestors.parent(use.node)
+    ...                        index = 0
+    ...                        # check if node is part of an attribute access matching the dotted name
+    ...                        while isinstance(parent_node, ast.Attribute) and index < len(diffnames):
+    ...                            if parent_node.attr != diffnames[index]:
+    ...                                break
+    ...                            attr_node = parent_node
+    ...                            parent_node = ancestors.parent(parent_node)
+    ...                            index += 1
+    ...                        else:
+    ...                            if index: # It has not break and did a loop, meaning we found a match
+    ...                                found.append(defuse.chains[attr_node])
+    ...            
+    ...    return found
+    ...
+    >>> module = ast.parse('''\
+    ... from typing import List, Dict; import typing as t; import numpy as np
+    ... def f() -> List[str]: ...
+    ... def g(a: Dict) -> t.overload: return np.fft.calc(0)''')
+    >>> c = beniget.DefUseChains()
+    >>> c.visit(module)
+    >>> a = beniget.Ancestors()
+    >>> a.visit(module)
+    >>> print([str(i) for i in find_references_to(['typing.Dict', 'typing.List', 'typing.overload', 'numpy.fft.calc'], c, a)])
+    ['List -> (<Subscript> -> ())', 'Dict -> ()', '.overload -> ()', '.calc -> (<Call> -> ())']
+
+    >>> print([str(i) for i in find_references_to(['typing'], c, a)])
+    ['t -> (.overload -> ())']
 
 Acknowledgments
 ---------------

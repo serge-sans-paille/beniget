@@ -42,7 +42,7 @@ jobs:
     - name: Setup
       if: ${{ !matrix.use-docker }}
       run: |
-        pip install .
+        pip install .[test]
     - name: Testing
       if: ${{ !matrix.use-docker }}
       run: |

@@ -15,6 +15,9 @@ from beniget.version import __version__
 from beniget.beniget import (Ancestors, 
                              DefUseChains, 
                              UseDefChains,
-                             Def, )
+                             Def, 
+                             parse_import, 
+                             Import)
 
 __all__ = ['Ancestors', 'DefUseChains', 'UseDefChains', 'Def', '__version__']
+

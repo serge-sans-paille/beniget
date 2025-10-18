@@ -46,13 +46,20 @@ class TestDefUseChains(TestCase):
     maxDiff = None
     ast = _gast
 
-    def checkChains(self, code, ref, strict=True):
+    def checkChains(self, code, ref, *, 
+                    strict=True, 
+                    is_stub=False, 
+                    filename=None, 
+                    modname=None):
+        
         node = self.ast.parse(code)
         if strict:
-            c = StrictDefUseChains()
+            c = StrictDefUseChains(is_stub=is_stub, 
+                    filename=filename, modname=modname)
         else:
-            c = beniget.DefUseChains()
-
+            c = beniget.DefUseChains(is_stub=is_stub, 
+                    filename=filename, modname=modname)
+        
         c.visit(node)
         self.assertEqual(c.dump_chains(node), ref)
         return node, c
@@ -1454,6 +1461,184 @@ A = bytes
                  'A -> (A -> (), A -> ())'], # good
                 strict=False
             )
+    
+    def test_stubs_generic_base_forward_ref(self):
+        code = '''
+Thing = object
+class _ScandirIterator(str, int, Thing[_ScandirIterator[F]], object):
+    ...
+class C(F, k=H):
+    ...
+F = H = object
+'''
+        self.checkChains(
+                code, 
+                ['Thing -> (Thing -> (<Subscript> -> (_ScandirIterator -> (_ScandirIterator -> (<Subscript> -> ((#2)))))))',
+                 '_ScandirIterator -> (_ScandirIterator -> (<Subscript> -> (<Subscript> -> ((#0)))))',
+                 'C -> ()',
+                 'F -> (F -> (<Subscript> -> (<Subscript> -> (_ScandirIterator -> (_ScandirIterator -> ((#2)))))), F -> (C -> ()))',
+                 'H -> (H -> (C -> ()))'],
+                is_stub=True
+            )
+        
+        self.checkChains(
+                code, 
+                ['Thing -> (Thing -> (<Subscript> -> (_ScandirIterator -> ())))',
+                 '_ScandirIterator -> ()', 
+                 'C -> ()',
+                 'F -> ()',
+                 'H -> ()'],
+                strict=False,
+            )
+
+    def test_stubs_forward_ref(self):
+        code = '''
+from typing import TypeAlias
+LiteralValue: TypeAlias = list[LiteralValue]|object
+'''
+        self.checkChains(
+                code, 
+                ['TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (LiteralValue -> (<Subscript> -> (<BinOp> -> ())))'],
+                is_stub=True
+            )
+        self.checkChains(
+                code.replace('typing', 'typing_extensions'), 
+                ['TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (LiteralValue -> (<Subscript> -> (<BinOp> -> ())))'],
+                is_stub=True
+            )
+        self.checkChains(
+                code, 
+                ['TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> ()'],
+                strict=False,
+            )
+    
+    def test_stubs_typevar_forward_ref(self):
+        code = '''
+from typing import TypeVar
+AnyStr = TypeVar('AnyStr', F, bound=ast.AST)
+import ast
+F = object
+'''
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (<Call> -> ()))',
+                 'AnyStr -> ()',
+                 'ast -> (ast -> (.AST -> (<Call> -> ())))',
+                 'F -> (F -> (<Call> -> ()))'],
+                is_stub=True
+            )
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (<Call> -> ()))', 'AnyStr -> ()', 'ast -> ()', 'F -> ()'],
+                strict=False,
+            )
+        
+        # c.TypeVar is not recognized as being typing.TypeVar. 
+        self.checkChains(
+                code.replace('from typing import TypeVar', 'from c import TypeVar'), 
+                ['TypeVar -> (TypeVar -> (<Call> -> ()))', 'AnyStr -> ()', 'ast -> ()', 'F -> ()'],
+                is_stub=True,
+                strict=False,
+            )
+    
+    def test_stubs_typevar_typing_pyi(self):
+        code = '''
+class TypeVar: pass
+AnyStr = TypeVar('AnyStr', F)
+F = object
+'''
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (<Call> -> ()))',
+                 'AnyStr -> ()',
+                 'F -> (F -> (<Call> -> ()))'],
+                is_stub=True,
+                filename='typing.pyi',
+            )
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (<Call> -> ()))',
+                 'AnyStr -> ()',
+                 'F -> (F -> (<Call> -> ()))'],
+                is_stub=True,
+                modname='typing',
+            )
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (<Call> -> ()))',
+                 'AnyStr -> ()',
+                 'F -> (F -> (<Call> -> ()))'],
+                is_stub=True,
+                filename='/home/dev/projects/typeshed_client/typeshed/typing.pyi',
+            )
+        
+        # When beniget doesn't know we're analysing the typing module, it cannot link
+        # TypeVar to typing.TypeVar, so this special stub semantics doesn't apply.
+        self.checkChains(
+                code, 
+                ['TypeVar -> (TypeVar -> (<Call> -> ()))', 'AnyStr -> ()', 'F -> ()'],
+                is_stub=True,
+                strict=False,
+            )
+    
+    def test_stubs_typealias_typing_pyi(self):
+        code = '''
+TypeAlias: object
+LiteralValue: TypeAlias = list[LiteralValue]|object
+'''
+        self.checkChains(
+                code, 
+                ['TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (LiteralValue -> (<Subscript> -> (<BinOp> -> ())))'],
+                is_stub=True,
+                filename='typing.pyi',
+            )
+    
+    def test_stubs_conditionnal_typealias(self):
+        code = '''
+import sys
+if sys.version_info < (3,10):
+    TypeAlias = object
+else:
+    from typing import TypeAlias
+LiteralValue: TypeAlias = list[LiteralValue]|object
+'''
+        self.checkChains(
+                code, 
+                ['sys -> (sys -> (.version_info -> (<Compare> -> ())))',
+                 'TypeAlias -> (TypeAlias -> ())', 
+                 'TypeAlias -> (TypeAlias -> ())',
+                 'LiteralValue -> (LiteralValue -> (<Subscript> -> (<BinOp> -> ())))',
+                 ],
+                filename='test.pyi',
+            )
+    
+    def test_stubs_class_decorators(self):
+        code = '''
+@dataclass_transform
+class Thing:
+    x: int
+def dataclass_transform(f):...
+'''
+        self.checkChains(
+                code, 
+                ['Thing -> ()', 'dataclass_transform -> (dataclass_transform -> (Thing -> ()))'], 
+                filename='some.pyi')
+    
+    def test_stubs_function_decorators(self):
+        code = '''
+class Thing:
+    @property
+    def x(self) -> int:...
+def property(f):...
+'''
+        self.checkChains(
+                code, 
+                ['Thing -> ()', 'property -> (property -> ())'], 
+                filename='some.pyi')
 
     def test_annotation_def_is_not_assign_target(self):
         code = 'from typing import Optional; var:Optional'
@@ -1655,3 +1840,42 @@ class TestUseDefChains(TestCase):
 class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
 
+class TestDefUseChainsUnderstandsFilename(TestCase):
+
+    def test_potential_module_names(self):
+        from beniget.beniget import _potential_module_names, _split_posixpath
+        self.assertEqual(_potential_module_names(_split_posixpath('/var/lib/config.py')), 
+                         ('var.lib.config', 'lib.config', 'config'))
+        self.assertEqual(_potential_module_names(_split_posixpath('git-repos/pydoctor/pydoctor/driver.py')), 
+                         ('pydoctor.pydoctor.driver', 'pydoctor.driver', 'driver'))
+        self.assertEqual(_potential_module_names(_split_posixpath('git-repos/pydoctor/pydoctor/__init__.py')), 
+                         ('pydoctor.pydoctor', 'pydoctor'))
+
+    def test_def_use_chains_init_modname(self):
+        self.assertEqual(beniget.DefUseChains(
+            'typing.pyi').modname, 'typing')
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget.py').modname, 'beniget.beniget')
+        self.assertEqual(beniget.DefUseChains(
+            '/root/repos/beniget/beniget/beniget.py', 
+            modname='beniget.__init__').modname, 'beniget')
+    
+    def test_def_use_chains_init_is_stub(self):
+        self.assertEqual(beniget.DefUseChains(
+            'typing.pyi').is_stub, True)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget.py').is_stub, False)
+        self.assertEqual(beniget.DefUseChains(
+            '/root/repos/beniget/beniget/beniget.pyi').is_stub, True)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget.py', is_stub=True).is_stub, True)
+    
+    def test_def_use_chains_init_is_package(self):
+        self.assertEqual(beniget.DefUseChains(
+            'typing.pyi').is_package, False)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget.py').is_package, False)
+        self.assertEqual(beniget.DefUseChains(
+            '/root/repos/beniget/beniget/__init__.pyi').is_package, True)
+        self.assertEqual(beniget.DefUseChains(
+            'beniget/beniget/', modname='beniget.__init__').is_package, True)
