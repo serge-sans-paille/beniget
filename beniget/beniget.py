@@ -1119,7 +1119,6 @@ class DefUseChains(gast.NodeVisitor):
             
                 # When an exception has been assigned using "as" target, it is cleared 
                 # at the end of the except clause.
-                handler_name = None
                 if excepthandler.name:
                     # Compat gast/ast
                     ast = pkg(node)
