@@ -629,6 +629,7 @@ class X: ...
 del X
 def f() -> X: ..."""
         self.check_message(code, ["W: unbound identifier 'X' at <unknown>:3:11"])
+        self.checkChains(code, ['X -> (X -> ())', 'f -> ()'], strict=False)
 
     def test_deleted_pep649_deferred_annotation(self):
         # This will not pass at runtime anymore starting at Python 3.14
@@ -638,6 +639,7 @@ def f() -> X: ...
 del X
 f.__annotations__"""
         self.check_message(code, [])
+        self.checkChains(code, ['X -> (X -> (), X -> ())', 'f -> (f -> (.__annotations__ -> ()))'])
 
     def test_deleted_pep563_deferred_annotation(self):
         # Passes pyright and mypy and runtime
@@ -648,6 +650,9 @@ del X
 def f() -> X: ...
 f()"""
         self.check_message(code, [])
+        self.checkChains(code, ['annotations -> ()', 
+                                'X -> (X -> (), X -> ())', 
+                                'f -> (f -> (<Call> -> ()))'])
 
     def test_unsafe_use_in_function_before_deleted(self):
         # Passes at runtime, but fairly unsafe.
@@ -656,6 +661,7 @@ class X: ...
 def f(): return X()
 f(); del X"""
         self.check_message(code, ["W: unbound identifier 'X' at <unknown>:2:16"])
+        self.checkChains(code, ['X -> (X -> ())', 'f -> (f -> (<Call> -> ()))'], strict=False)
 
     def test_use_in_function_after_deleted(self):
         # Passes pyright and mypy but fails at runtime.
@@ -664,6 +670,7 @@ class X: ...
 def f(): return X()
 del X; f()"""
         self.check_message(code, ["W: unbound identifier 'X' at <unknown>:2:16"])
+        self.checkChains(code, ['X -> (X -> ())', 'f -> (f -> (<Call> -> ()))'], strict=False)
 
     def test_deleted_non_local_var(self):
         code = """\
@@ -674,9 +681,12 @@ def f():
         del v
         v # unbound
     q()
-    v # not great but we must stay over approximated
+    v # not unbound, we must stay over approximated
 f()"""
         self.check_message(code, ["W: unbound identifier 'v' at <unknown>:6:8"])
+        node, du = self.checkChains(code, ['f -> (f -> (<Call> -> ()))'], strict=False)
+        assert du.dump_chains(node.body[0]) == ['v -> (v -> (), v -> ())', 'q -> (q -> (<Call> -> ()))']
+        assert du.dump_chains(node.body[0].body[1]) == [] # q has no locals
 
     def test_cant_delete_nonlocal_not_declared_with_nonlocal_keyword(self):
         code = """\
@@ -685,7 +695,7 @@ def f():
     def q():
         del v # unbound
     q()
-    v # not great but we must stay over approximated
+    v # not unbound, we must stay over approximated
 f()"""
 
         self.check_message(code, ["W: deleting unreachable variable at <unknown>:4:12"])
@@ -699,7 +709,7 @@ def q():
     del v
     v # unbound
 q()
-v # not great but we must stay over approximated"""
+v # not unbound, we must stay over approximated"""
 
         self.check_message(code, ["W: unbound identifier 'v' at <unknown>:5:4"])
         self.checkChains(code, ['v -> (v -> (), v -> ())',
@@ -711,7 +721,7 @@ v = 1
 def q():
     del v # unbound
 q()
-v # not great but we must stay over approximated"""
+v # not unbound, we must stay over approximated"""
 
         self.check_message(code, ["W: deleting unreachable variable at <unknown>:3:8"])
         self.checkChains(code, ['v -> (v -> ())',

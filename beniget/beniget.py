@@ -366,10 +366,10 @@ class DefUseChains(gast.NodeVisitor):
         """
         :type: dict[node, Def]
         """
-
-        self.locals = defaultdict(list)
+        
+        self.locals = defaultdict(ordered_set)
         """
-        :type: dict[node, list[Def]]
+        :type: dict[node, ordered_set[Def]]
         """
 
         self.filename = filename
@@ -637,8 +637,6 @@ class DefUseChains(gast.NodeVisitor):
         self._scope_depths.pop()
         self._scopes.pop()
 
-    CompScopeContext = ScopeContext
-
     @contextmanager
     def DefinitionContext(self, definitions):
         self._definitions.append(definitions)
@@ -691,8 +689,7 @@ class DefUseChains(gast.NodeVisitor):
         def visit_arg(node, skip_annotation=False):
             dnode = self.chains.setdefault(node, Def(node))
             self.set_definition(node.arg, dnode)
-            if dnode not in self.locals[self._scopes[-1]]:
-                self.locals[self._scopes[-1]].append(dnode)
+            self.add_to_locals(node.arg, dnode)
             if node.annotation is not None and not skip_annotation:
                 self.visit(node.annotation)
             return dnode
@@ -759,10 +756,6 @@ class DefUseChains(gast.NodeVisitor):
             # handle function bodies
             self.process_functions_bodies()
 
-            # handle defered annotations as in from __future__ import annotations
-            self.process_annotations()
-            self._defered_annotations.pop()
-
             # various sanity checks
             if __debug__:
                 overloaded_builtins = set()
@@ -780,12 +773,18 @@ class DefUseChains(gast.NodeVisitor):
                 assert nb_defs == nb_heads + nb_bltns - nb_overloaded_bltns, (
                     f'Sanity check failed: {nb_defs} != {nb_heads + nb_bltns - nb_overloaded_bltns}')
 
-        # Deleted nodes are not actual definitions, but are useful for
-        # intermediate analysis. Prune them once the processing is done.
-        for dnodes in self.locals.values():
-            del_indices = [i for i, n in enumerate(dnodes) if n.isdel()]
-            for del_index in reversed(del_indices):
-                dnodes.pop(del_index)
+            # Deleted nodes are not actual definitions, but are useful for
+            # intermediate analysis. Prune them once the processing is done.
+            # It should be done before defered annotations are processed, since
+            # annotations may refer to deleted names.
+            for dnodes in self.locals.values():
+                for n in list(dnodes):
+                    if n.isdel():
+                        dnodes.discard(n)
+
+            # handle defered annotations as in from __future__ import annotations
+            self.process_annotations()
+            self._defered_annotations.pop()
 
         assert not self._definitions
         assert not self._defered_annotations
@@ -840,9 +839,9 @@ class DefUseChains(gast.NodeVisitor):
         # it.
         if name not in self._definitions[0]:
             if isinstance(dnode_or_dnodes, Def):
-                self.locals[self.module].append(dnode_or_dnodes)
+                self.locals[self.module].add(dnode_or_dnodes)
             else:
-                self.locals[self.module].extend(dnode_or_dnodes)
+                self.locals[self.module].update(dnode_or_dnodes)
         DefUseChains.add_to_definition(self._definitions[0], name,
                                        dnode_or_dnodes)
 
@@ -850,7 +849,7 @@ class DefUseChains(gast.NodeVisitor):
         if self._deadcode:
             return
         if name not in self._definitions[0]:
-            self.locals[self.module].append(dnode)
+            self.locals[self.module].add(dnode)
         DefUseChains.add_to_definition(self._definitions[0], name, dnode)
 
     def visit_annotation(self, node):
@@ -979,7 +978,7 @@ class DefUseChains(gast.NodeVisitor):
                 # If we augassign from a value that comes from '*', let's use
                 # this node as the definition point.
                 if '*' in loaded_from:
-                    self.locals[self._scopes[-1]].append(dtarget)
+                    self.add_to_locals(node.target.id, dtarget)
         else:
             self.visit(node.target).add_user(dvalue)
 
@@ -1149,11 +1148,12 @@ class DefUseChains(gast.NodeVisitor):
         if node.msg:
             self.visit(node.msg)
 
-    def add_to_locals(self, name, dnode):
-        if self.is_global(name):
+
+    def add_to_locals(self, name, dnode, index=-1):
+        if self.is_global(name) and not dnode.isdel():
             self.set_or_extend_global(name, dnode)
         else:
-            self.locals[self._scopes[-1]].append(dnode)
+            self.locals[self._scopes[index]].add(dnode)
 
     def visit_Import(self, node):
         for alias in node.names:
@@ -1261,7 +1261,7 @@ class DefUseChains(gast.NodeVisitor):
         except SyntaxError as e:
             self.warn(str(e), node)
             return dnode
-        with self.CompScopeContext(node):
+        with self.ScopeContext(node):
             for i, comprehension in enumerate(node.generators):
                 self.visit_comprehension(comprehension,
                                          is_nested=i!=0).add_user(dnode)
@@ -1278,7 +1278,7 @@ class DefUseChains(gast.NodeVisitor):
         except SyntaxError as e:
             self.warn(str(e), node)
             return dnode
-        with self.CompScopeContext(node):
+        with self.ScopeContext(node):
             for i, comprehension in enumerate(node.generators):
                 self.visit_comprehension(comprehension,
                                          is_nested=i!=0).add_user(dnode)
@@ -1408,24 +1408,20 @@ class DefUseChains(gast.NodeVisitor):
         # actually read the identifier <> value binding) and as a Store (they
         # somehow create a new binding from the identifier to an unbound value).
         if isinstance(node.ctx, (ast.Param, ast.Store, ast.Del)):
-            # FIXME: find a smart way to merge the code below with add_to_locals
-            if self.is_global(node.id) and not dnode.isdel():
-                self.set_or_extend_global(node.id, dnode)
-            else:
-                # special code for warlus target: should be
-                # stored in first non comprehension scope
-                index, enclosing_scope = (self._first_non_comprehension_scope()
-                                          if named_expr else (-1, self._scopes[-1]))
-
-                if index < -1 and isinstance(enclosing_scope, ast.ClassDef):
+            # special code for warlus target: should be
+            # stored in first non comprehension scope
+            if named_expr: 
+                index, enclosing_scope = self._first_non_comprehension_scope()
+                if index != -1 and isinstance(enclosing_scope, ast.ClassDef):
                     # invalid named expression, not calling set_definition.
                     self.warn('assignment expression within a comprehension '
                               'cannot be used in a class body', node)
                     return dnode
+            else:
+                index = -1
 
-                self.set_definition(node.id, dnode, index)
-                if dnode not in self.locals[self._scopes[index]]:
-                    self.locals[self._scopes[index]].append(dnode)
+            self.set_definition(node.id, dnode, index)
+            self.add_to_locals(node.id, dnode, index)
 
             # Compat: Name.annotation is a special case because of gast
             if getattr(node, 'annotation', None) is not None and not skip_annotation and not self.future_annotations:
@@ -1704,13 +1700,17 @@ def _get_lookup_scopes(heads):
     return [global_scope] + other_scopes + [direct_scope]
 
 def _lookup(name, scopes, locals_map):
+    # For annotation resolution only!
     context = scopes.pop()
     defs = []
     for loc in locals_map.get(context, ()):
-        if loc.name() == name and loc.islive:
+        if loc.name() == name:
             defs.append(loc)
     if defs:
-        return defs
+        # If all definitions are killed, we're dealing
+        # with a deleted name, in that case, adhere to mypy's and pyright's behaviour.
+        # That is to still return the deleted definitions.
+        return [d for d in defs if d.islive] or defs
     elif len(scopes)==0:
         raise LookupError()
     return _lookup(name, scopes, locals_map)
