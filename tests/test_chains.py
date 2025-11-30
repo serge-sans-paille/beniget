@@ -35,6 +35,12 @@ def captured_output():
     finally:
         sys.stdout, sys.stderr = old_out, old_err
 
+if sys.implementation.name == 'pypy':
+    def normalize_chain(chain):
+        return chain.replace('<builtin_function>', '<builtin_function_or_method>')
+else:
+    def normalize_chain(chain):
+        return chain
 
 class StrictDefUseChains(beniget.DefUseChains):
         def warn(self, msg, node):
@@ -54,7 +60,8 @@ class TestDefUseChains(TestCase):
             c = beniget.DefUseChains()
 
         c.visit(node)
-        self.assertEqual(c.dump_chains(node), ref)
+        out = list(map(normalize_chain, c.dump_chains(node)))
+        self.assertEqual(ref, out)
         return node, c
 
     def test_simple_expression(self):
@@ -1668,6 +1675,8 @@ class TestUseDefChains(TestCase):
         if sys.version_info.minor in {6, 7}:
             # 3.6 or 3.7
             actual = replace_deprecated_names(actual)
+
+        actual = normalize_chain(actual)
 
         self.assertEqual(actual, ref)
 
