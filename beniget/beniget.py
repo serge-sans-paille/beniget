@@ -1336,6 +1336,9 @@ class DefUseChains(gast.NodeVisitor):
         for value in node.values:
             self.visit(value).add_user(dnode)
         return dnode
+    
+    visit_Interpolation = visit_FormattedValue
+    visit_TemplateStr = visit_JoinedStr
 
     visit_Attribute = visit_Await
 
