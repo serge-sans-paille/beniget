@@ -1657,6 +1657,18 @@ print(x, y)
         code = '''@D \ndef C(b=(D:=1)): ...'''
         self.check_message(code, [])
 
+    def test_fstring(self):
+        code = "v = 3.6; f'f-strings are new in Python {v}!'"
+        self.checkChains(code, ['v -> (v -> (<FormattedValue> -> (<JoinedStr> -> ())))'])
+
+    @skipIf(sys.version_info < (3, 14), 'Use the t-strings')
+    def test_tstring(self):
+        # Template strings are evaluated eagerly from left to right, 
+        # just like f-strings. This means that interpolations are evaluated 
+        # immediately when the template string is processed, not deferred or wrapped in lambdas.
+        code = "pi = 3.14; t't-strings are new in Python {pi!s}!'"
+        self.checkChains(code, ['pi -> (pi -> (<Interpolation> -> (<TemplateStr> -> ())))'])
+
 
 class TestDefUseChainsStdlib(TestDefUseChains):
     ast = _ast
@@ -1699,6 +1711,19 @@ class TestUseDefChains(TestCase):
     def test_delete(self):
         code = "a = 1; del a"
         self.checkChains(code, "a <- {a}")
+    
+    def test_fstring(self):
+        code = "v = 3.6; f'f-strings are new in Python {v}!'"
+        self.checkChains(code, '<FormattedValue> <- {v}, '
+                               '<JoinedStr> <- {<Constant>, <Constant>, <FormattedValue>}, '
+                               'v <- {v}')
+    
+    @skipIf(sys.version_info < (3, 14), 'Use the t-strings')
+    def test_tstring(self):
+        code = "pi = 3.14; t't-strings are new in Python {pi!s}!'"
+        self.checkChains(code, '<Interpolation> <- {pi}, '
+                               '<TemplateStr> <- {<Constant>, <Constant>, <Interpolation>}, '
+                               'pi <- {pi}')
 
 class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
