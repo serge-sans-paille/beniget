@@ -12,19 +12,6 @@ from beniget.beniget import _get_lookup_scopes
 # Show full diff in unittest
 unittest.util._MAX_LENGTH=2000
 
-def replace_deprecated_names(out):
-    return out.replace(
-        '<Num>', '<Constant>'
-    ).replace(
-        '<Ellipsis>', '<Constant>'
-    ).replace(
-        '<Str>', '<Constant>'
-    ).replace(
-        '<Bytes>', '<Constant>'
-    ).replace(
-        '<NameConstant>', '<Constant>'
-    )
-
 @contextmanager
 def captured_output():
     new_out, new_err = io.StringIO(), io.StringIO()
@@ -34,13 +21,6 @@ def captured_output():
         yield sys.stdout, sys.stderr
     finally:
         sys.stdout, sys.stderr = old_out, old_err
-
-if sys.implementation.name == 'pypy':
-    def normalize_chain(chain):
-        return chain.replace('<builtin_function>', '<builtin_function_or_method>')
-else:
-    def normalize_chain(chain):
-        return chain
 
 class StrictDefUseChains(beniget.DefUseChains):
         def warn(self, msg, node):
@@ -1673,6 +1653,42 @@ print(x, y)
 class TestDefUseChainsStdlib(TestDefUseChains):
     ast = _ast
 
+if sys.implementation.name == 'pypy':
+    def replace_platform_dependent_names(chain):
+        return chain.replace('<builtin_function>', '<builtin_function_or_method>')
+else:
+    def replace_platform_dependent_names(chain):
+        return chain
+
+# Work around Constant simplification from Python 3.8
+if sys.version_info < (3, 8):
+    def replace_deprecated_names(out):
+        return out.replace(
+            '<Num>', '<Constant>'
+        ).replace(
+            '<Ellipsis>', '<Constant>'
+        ).replace(
+            '<Str>', '<Constant>'
+        ).replace(
+            '<Bytes>', '<Constant>'
+        ).replace(
+            '<NameConstant>', '<Constant>'
+        )
+else:
+    def replace_deprecated_names(out): 
+        return out
+
+def normalize_chain(out):
+    out = replace_platform_dependent_names(out)
+    out = replace_deprecated_names(out)
+    return out
+
+def normalize_usedef_chains(self):
+    out = sorted((normalize_chain(kname), normalize_chain("{} <- {{{}}}".format(
+            kname, ", ".join(sorted(normalize_chain(u) for u in usesnames))
+        ))) for kname, usesnames in self._dump_chains())
+    return ", ".join(s for k, s in out)
+
 class TestUseDefChains(TestCase):
     ast = _gast
     def checkChains(self, code, ref):
@@ -1681,15 +1697,7 @@ class TestUseDefChains(TestCase):
         c = StrictDefUseChains()
         c.visit(node)
         cc = beniget.UseDefChains(c)
-        actual = str(cc)
-
-        # work around Constant simplification from Python 3.8
-        if sys.version_info.minor in {6, 7}:
-            # 3.6 or 3.7
-            actual = replace_deprecated_names(actual)
-
-        actual = normalize_chain(actual)
-
+        actual = normalize_usedef_chains(cc)
         self.assertEqual(actual, ref)
 
     def test_simple_expression(self):

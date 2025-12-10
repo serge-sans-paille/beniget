@@ -1765,13 +1765,12 @@ class UseDefChains(object):
             for use in chain.users():
                 self.chains.setdefault(use.node, []).append(chain)
 
+    def _dump_chains(self):
+        return ((Def(k).name(), (use.name() for use in uses))
+                 for k, uses in self.chains.items())
+
     def __str__(self):
-        out = []
-        for k, uses in self.chains.items():
-            kname = Def(k).name()
-            kstr = "{} <- {{{}}}".format(
-                kname, ", ".join(sorted(use.name() for use in uses))
-            )
-            out.append((kname, kstr))
-        out.sort()
+        out = sorted((kname, "{} <- {{{}}}".format(
+                kname, ", ".join(sorted(usesnames))
+            )) for kname, usesnames in self._dump_chains())
         return ", ".join(s for k, s in out)
