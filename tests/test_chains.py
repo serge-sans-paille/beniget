@@ -13,19 +13,6 @@ from beniget.beniget import _get_lookup_scopes, def695, collect_locals
 # Show full diff in unittest
 unittest.util._MAX_LENGTH=2000
 
-def replace_deprecated_names(out):
-    return out.replace(
-        '<Num>', '<Constant>'
-    ).replace(
-        '<Ellipsis>', '<Constant>'
-    ).replace(
-        '<Str>', '<Constant>'
-    ).replace(
-        '<Bytes>', '<Constant>'
-    ).replace(
-        '<NameConstant>', '<Constant>'
-    )
-
 @contextmanager
 def captured_output():
     new_out, new_err = io.StringIO(), io.StringIO()
@@ -35,13 +22,6 @@ def captured_output():
         yield sys.stdout, sys.stderr
     finally:
         sys.stdout, sys.stderr = old_out, old_err
-
-if sys.implementation.name == 'pypy':
-    def normalize_chain(chain):
-        return chain.replace('<builtin_function>', '<builtin_function_or_method>')
-else:
-    def normalize_chain(chain):
-        return chain
 
 class StrictDefUseChains(beniget.DefUseChains):
         def warn(self, msg, node):
@@ -2229,9 +2209,57 @@ print(x, y)
         code = '''@D \ndef C(b=(D:=1)): ...'''
         self.check_message(code, [])
 
+    def test_fstring(self):
+        code = "v = 3.6; f'f-strings are new in Python {v}!'"
+        self.checkChains(code, ['v -> (v -> (<FormattedValue> -> (<JoinedStr> -> ())))'])
+
+    @skipIf(sys.version_info < (3, 14), 'Use the t-strings')
+    def test_tstring(self):
+        # Template strings are evaluated eagerly from left to right, 
+        # just like f-strings. This means that interpolations are evaluated 
+        # immediately when the template string is processed, not deferred or wrapped in lambdas.
+        code = "pi = 3.14; t't-strings are new in Python {pi!s}!'"
+        self.checkChains(code, ['pi -> (pi -> (<Interpolation> -> (<TemplateStr> -> ())))'])
+
 
 class TestDefUseChainsStdlib(TestDefUseChains):
     ast = _ast
+
+if sys.implementation.name == 'pypy':
+    def replace_platform_dependent_names(chain):
+        return chain.replace('<builtin_function>', '<builtin_function_or_method>')
+else:
+    def replace_platform_dependent_names(chain):
+        return chain
+
+# Work around Constant simplification from Python 3.8
+if sys.version_info < (3, 8):
+    def replace_deprecated_names(out):
+        return out.replace(
+            '<Num>', '<Constant>'
+        ).replace(
+            '<Ellipsis>', '<Constant>'
+        ).replace(
+            '<Str>', '<Constant>'
+        ).replace(
+            '<Bytes>', '<Constant>'
+        ).replace(
+            '<NameConstant>', '<Constant>'
+        )
+else:
+    def replace_deprecated_names(out): 
+        return out
+
+def normalize_chain(out):
+    out = replace_platform_dependent_names(out)
+    out = replace_deprecated_names(out)
+    return out
+
+def normalize_usedef_chains(self):
+    out = sorted((normalize_chain(kname), normalize_chain("{} <- {{{}}}".format(
+            kname, ", ".join(sorted(normalize_chain(u) for u in usesnames))
+        ))) for kname, usesnames in self._dump_chains())
+    return ", ".join(s for k, s in out)
 
 class TestUseDefChains(TestCase):
     ast = _gast
@@ -2243,15 +2271,7 @@ class TestUseDefChains(TestCase):
         
         c.visit(node)
         cc = beniget.UseDefChains(c)
-        actual = str(cc)
-
-        # work around Constant simplification from Python 3.8
-        if sys.version_info.minor in {6, 7}:
-            # 3.6 or 3.7
-            actual = replace_deprecated_names(actual)
-
-        actual = normalize_chain(actual)
-
+        actual = normalize_usedef_chains(cc)
         self.assertEqual(actual, ref)
 
     def test_simple_expression(self):
@@ -2306,6 +2326,18 @@ class TestUseDefChains(TestCase):
                                '<Tuple> <- {int, str}, '
                                'int <- {<type>}, str <- {<type>}, tuple <- {<type>}')
 
+    def test_fstring(self):
+        code = "v = 3.6; f'f-strings are new in Python {v}!'"
+        self.checkChains(code, '<FormattedValue> <- {v}, '
+                               '<JoinedStr> <- {<Constant>, <Constant>, <FormattedValue>}, '
+                               'v <- {v}')
+    
+    @skipIf(sys.version_info < (3, 14), 'Use the t-strings')
+    def test_tstring(self):
+        code = "pi = 3.14; t't-strings are new in Python {pi!s}!'"
+        self.checkChains(code, '<Interpolation> <- {pi}, '
+                               '<TemplateStr> <- {<Constant>, <Constant>, <Interpolation>}, '
+                               'pi <- {pi}')
 
 class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
