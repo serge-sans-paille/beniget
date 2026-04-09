@@ -971,11 +971,22 @@ class DefUseChains(gast.NodeVisitor):
             with self.ScopeContext(node):
                 for arg in _iter_arguments(node.args):
                     self.visit_skip_annotation(arg)
+                self.add_class_magic()
                 self.process_body(node.body)
         else:
             raise NotImplementedError()
 
     visit_AsyncFunctionDef = visit_FunctionDef
+
+
+    def add_class_magic(self):
+        try:
+            clsnode = next(iter(s for s in reversed(self._scopes)
+                                if isinstance(s, pkg(s).ClassDef)))
+            self.set_definition("__class__", self.chains[clsnode])
+        except StopIteration:
+            pass
+
 
     def visit_ClassDef(self, node):
         dnode = self.chains.setdefault(node, Def(node))
@@ -986,14 +997,13 @@ class DefUseChains(gast.NodeVisitor):
 
         with self.get_annotation_context(node):
             self.visit_type_params(node)
-        
+
             for base in node.bases:
                 self.visit(base).add_user(dnode)
             for keyword in node.keywords:
                 self.visit(keyword.value).add_user(dnode)
 
             with self.ScopeContext(node):
-                self.set_definition("__class__", Def("__class__"))
                 self.process_body(node.body)
 
         self.set_definition(node.name, dnode)
