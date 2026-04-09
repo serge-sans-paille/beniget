@@ -548,6 +548,38 @@ def outer():
         self.check_message(code,
                            ["unbound identifier 'x' at <unknown>:3"])
 
+    def test_unbound_class_magic_in_class0(self):
+        code = "class A:\n __class__"
+        self.checkChains(code, ['A -> ()'], strict=False)
+        self.check_message(code,
+                           ["unbound identifier '__class__' at <unknown>:2"])
+
+    def test_unbound_class_magic_in_class1(self):
+        code = "class A:\n if 1: __class__"
+        self.checkChains(code, ['A -> ()'], strict=False)
+        self.check_message(code,
+                           ["unbound identifier '__class__' at <unknown>:2"])
+
+    def test_unbound_class_magic(self):
+        code = "def A():\n __class__"
+        self.check_message(code,
+                           ["unbound identifier '__class__' at <unknown>:2"])
+
+    def test_unbound_class_magic_in_method_arg_default(self):
+        code = "class A:\n def foo(_,a=__class__): pass"
+        self.check_message(code,
+                           ["unbound identifier '__class__' at <unknown>:2"])
+
+    def test_no_unbound_class_magic_in_method(self):
+        code = "class A:\n def foo(_): __class__"
+        self.checkChains(code, ['A -> (__class__ -> ())'])
+        self.check_message(code, [])
+
+    def test_no_unbound_class_magic_in_inner_class_in_method(self):
+        code = "class A:\n def foo(_):\n  class B: __class__"
+        self.checkChains(code, ['A -> (__class__ -> ())'])
+        self.check_message(code, [])
+
     def test_unbound_local_identifier_in_method(self):
         code = "class A:pass\nclass B:\n def A(self) -> A:pass"
         self.check_message(code, [])
@@ -2338,6 +2370,15 @@ class TestUseDefChains(TestCase):
         self.checkChains(code, '<Interpolation> <- {pi}, '
                                '<TemplateStr> <- {<Constant>, <Constant>, <Interpolation>}, '
                                'pi <- {pi}')
+
+    def test_class_magic(self):
+        code = "class A:\n def foo(_): A.foo"
+        self.checkChains(code, '.foo <- {A}, '
+                               'A <- {A}')
+        code = "class A:\n def foo(_): __class__.foo"
+        self.checkChains(code, '.foo <- {__class__}, '
+                               '__class__ <- {A}')
+
 
 class TestUseDefChainsStdlib(TestUseDefChains):
     ast = _ast
