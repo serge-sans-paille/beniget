@@ -1657,10 +1657,9 @@ class DefUseChains(gast.NodeVisitor):
 
         defs = []
         for kase in node.cases:
+            self.visit(kase.pattern)
             if kase.guard:
                 self.visit(kase.guard)
-            self.visit(kase.pattern)
-
             with self.DefinitionContext(self._definitions[-1].copy()) as case_defs:
                 self.process_body(kase.body)
             defs.append(case_defs)

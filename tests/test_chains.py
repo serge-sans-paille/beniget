@@ -2149,6 +2149,54 @@ match command:
                                 'b -> (b -> ())'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_capture_is_available_in_guard(self):
+        code = '''
+match 1:
+    case captured if captured:
+        captured
+captured
+'''
+        self.checkChains(
+            code,
+            ['captured -> (captured -> (), captured -> (), captured -> ())']
+        )
+
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_capture_shadows_outer_name_in_guard(self):
+        code = '''
+captured = 1
+match 1:
+    case captured if captured:
+        captured
+captured
+'''
+        self.checkChains(
+            code,
+            ['captured -> ()',
+             'captured -> (captured -> (), captured -> (), captured -> ())']
+        )
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_capture_from_guard_failed_case_reaches_next_guard(self):
+        code = '''
+subject = 1
+match subject:
+    case previous if False:
+        pass
+    case _ if previous:
+        pass
+'''
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+
+        first_case, second_case = module.body[1].cases
+        capture = chains.chains[first_case.pattern]
+        next_guard_use = chains.chains[second_case.guard]
+        self.assertIn(next_guard_use, capture.users())
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
     def test_match_list(self):
         code = '''
 command = 'go there'
