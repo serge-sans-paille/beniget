@@ -2102,6 +2102,95 @@ match command:
                                 'b -> (b -> ())'])
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_capture_is_available_in_guard(self):
+        code = '''
+subject = object()
+enabled = True
+consume = lambda value: value
+match subject:
+    case captured if enabled and captured:
+        consume(captured)
+consume(captured)
+'''
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+
+        case = module.body[3].cases[0]
+        capture = chains.chains[case.pattern]
+        guard_captured = next(
+            chains.chains[node]
+            for node in self.ast.walk(case.guard)
+            if isinstance(node, self.ast.Name) and node.id == 'captured'
+        )
+        guard_enabled = next(
+            chains.chains[node]
+            for node in self.ast.walk(case.guard)
+            if isinstance(node, self.ast.Name) and node.id == 'enabled'
+        )
+        body_captured = chains.chains[case.body[0].value.args[0]]
+        post_match_captured = chains.chains[module.body[4].value.args[0]]
+        enabled_definition = chains.chains[module.body[1].targets[0]]
+
+        self.assertIn(guard_captured, capture.users())
+        self.assertIn(body_captured, capture.users())
+        self.assertIn(post_match_captured, capture.users())
+        self.assertIn(guard_enabled, enabled_definition.users())
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_capture_shadows_outer_name_in_guard(self):
+        code = '''
+subject = object()
+captured = object()
+enabled = True
+consume = lambda value: value
+match subject:
+    case captured if enabled and captured:
+        consume(captured)
+'''
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+
+        case = module.body[4].cases[0]
+        capture = chains.chains[case.pattern]
+        outer_capture = chains.chains[module.body[1].targets[0]]
+        guard_captured = next(
+            chains.chains[node]
+            for node in self.ast.walk(case.guard)
+            if isinstance(node, self.ast.Name) and node.id == 'captured'
+        )
+        guard_enabled = next(
+            chains.chains[node]
+            for node in self.ast.walk(case.guard)
+            if isinstance(node, self.ast.Name) and node.id == 'enabled'
+        )
+        enabled_definition = chains.chains[module.body[2].targets[0]]
+
+        self.assertIn(guard_captured, capture.users())
+        self.assertNotIn(guard_captured, outer_capture.users())
+        self.assertIn(guard_enabled, enabled_definition.users())
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_capture_from_guard_failed_case_reaches_next_guard(self):
+        code = '''
+subject = 1
+match subject:
+    case previous if False:
+        pass
+    case _ if previous:
+        pass
+'''
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+
+        first_case, second_case = module.body[1].cases
+        capture = chains.chains[first_case.pattern]
+        next_guard_use = chains.chains[second_case.guard]
+        self.assertIn(next_guard_use, capture.users())
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
     def test_match_list(self):
         code = '''
 command = 'go there'
