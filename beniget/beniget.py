@@ -593,7 +593,21 @@ class DefUseChains(gast.NodeVisitor):
         base_scope = next(scopes_iter)
         base_scope_is_TypeParamScope = isinstance(base_scope, TypeParamScope)
         defs = self._definitions[depth:]
-        if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
+        ast = pkg(node)
+        class_name_defs = None
+        if (isinstance(base_scope, ast.ClassDef) and isinstance(node.ctx, ast.Load)
+                and name not in self._globals[-1] and name not in self._nonlocals[-1]):
+            for defs_ in reversed(defs):
+                if name in defs_:
+                    if any(d.isdel() for d in defs_[name]):
+                        # LOAD_NAME falls back to globals after a class-local
+                        # deletion, not to an enclosing function or class.
+                        class_name_defs = {d for d in defs_[name] if not d.isdel()}
+                    break
+
+        if class_name_defs is not None:
+            looked_up_definitions.extend(reversed(self._definitions[0:-self._scope_depths[0]]))
+        elif not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
 
             def add_defs(looked_up_definitions, defs):
                 if self.is_global(name):
@@ -608,7 +622,6 @@ class DefUseChains(gast.NodeVisitor):
 
             add_defs(looked_up_definitions, defs)
 
-            ast = pkg(node)
             # Iterate over scopes, filtering out class scopes, except if the enclosing
             # scope is a TypeParamScope.
             for scope, depth, precomputed_locals in zip(scopes_iter,
@@ -632,11 +645,16 @@ class DefUseChains(gast.NodeVisitor):
             elif name in defs:
                 name_defs = {dnode for dnode in defs[name] if not
                              dnode.isdel()}
+                if class_name_defs is not None:
+                    name_defs.update(class_name_defs)
                 if not name_defs:
                     break
                 return name_defs if not stars else stars + list(name_defs)
             elif "*" in defs:
                 stars.extend(defs["*"])
+
+        if class_name_defs:
+            return class_name_defs if not stars else stars + list(class_name_defs)
 
         d = self.chains.setdefault(node, Def(node))
 
