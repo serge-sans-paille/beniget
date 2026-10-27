@@ -595,6 +595,57 @@ def outer():
         self.check_message(code,
                            [])
 
+    def test_deleted_class_member(self):
+        code = "x = 1\nclass C:\n x = 1; del x; y = x"
+        self.check_message(code, [])
+
+
+    def test_deleted_class_member_in_enclosing_function(self):
+        code = """
+        x = 1
+        def outer():
+            x = 2
+            class C:
+                x = 3
+                del x
+                value = x
+            return C"""
+        self.check_message(code, [])
+        self.checkChains(code, ['x -> (x -> ())', 'outer -> ()'])
+
+    def test_deleted_class_global_remains_unbound(self):
+        code = "x = 1\nclass C:\n global x\n del x\n value = x"
+        self.check_message(code, ["unbound identifier 'x' at <unknown>:5"])
+
+    def test_deleted_class_nonlocal_remains_unbound(self):
+        code = "def outer():\n x = 1\n class C:\n  nonlocal x\n  del x\n  value = x"
+        self.check_message(code, ["unbound identifier 'x' at <unknown>:6"])
+
+    def test_deleted_class_name_without_global_remains_unbound(self):
+        code = "def outer():\n x = 1\n class C:\n  x = 2\n  del x\n  value = x"
+        self.check_message(code, ["unbound identifier 'x' at <unknown>:6"])
+
+    def test_conditionally_deleted_class_member(self):
+        code = "x = 1\nclass C:\n x = 1\n if 1: del x\n y = x"
+
+        node = self.ast.parse(code)
+        du = StrictDefUseChains()
+        du.visit(node)
+        use = node.body[1].body[-1].value
+        self.assertEqual([d.node for d in beniget.UseDefChains(du).chains[use]],
+                         [node.body[0].targets[0], node.body[1].body[0].targets[0]])
+
+
+    def test_conditionally_deleted_class_member_use(self):
+        code = 'x = 1\nclass C:\n x = 2\n if 1:\n  del x\n  v = x'
+
+        node = self.ast.parse(code)
+        du = StrictDefUseChains()
+        du.visit(node)
+        use = node.body[1].body[-1].body[-1].value
+        self.assertEqual([d.node for d in beniget.UseDefChains(du).chains[use]],
+                         [node.body[0].targets[0]])
+
     def test_del_in_for(self):
         code = "for x in [1]:\n del x\nx"
         self.check_message(code,
@@ -735,17 +786,13 @@ v # not unbound, we must stay over approximated"""
         code = '''\
 x = 1
 class y:
-    @property(x)
-    def a(self):...
+    def a(self, v=x):...
     x = 2
-    @property(x)
-    def b(self):...
+    def b(self, v=x):...
     del x
-    @property(x)
-    def c(self):...
+    def c(self, v=x):...
 '''
-        self.check_message(code, ["W: unbound identifier 'x' at <unknown>:9:14"])
-        self.checkChains(code, ['x -> (x -> (<Call> -> ()))', 'y -> ()'], strict=False)
+        self.checkChains(code, ['x -> (x -> (a -> ()), x -> (c -> ()))', 'y -> ()'], strict=False)
 
     def test_assign_uses_class_level_name(self):
         code = '''
