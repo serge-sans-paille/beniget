@@ -558,6 +558,29 @@ class DefUseChains(gast.NodeVisitor):
         else:
             return not islocal
 
+    def lookup_may_fallback_to_globals(self, name, scope, defs):
+        """
+        A name lookup at class scope falls back to a global lookup if
+        the name is deleted at that scope
+        """
+        ast = pkg(scope)
+        if not isinstance(scope, ast.ClassDef):
+            return []
+        if self.is_global(name) or self.is_nonlocal(name):
+            return []
+        for defs_ in reversed(defs):
+            name_defs = defs_.get(name, ())
+            name_dels = [1 for d in name_defs if d.isdel()]
+            if name_dels:
+                for def_ in reversed(self._definitions[0:-self._scope_depths[0]]):
+                    if name not in def_:
+                        continue
+                    fallback = [dnode for dnode in def_[name] if not dnode.isdel()]
+                    if fallback:
+                        return fallback
+                break
+        return []
+
     def compute_annotation_defs(self, node, quiet=False):
         name = node.id
         # resolving an annotation is a bit different
@@ -595,6 +618,9 @@ class DefUseChains(gast.NodeVisitor):
         defs = self._definitions[depth:]
         if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
 
+            # fallback if a deleted node triggers a different kind of lookup
+            fallback = self.lookup_may_fallback_to_globals(name, base_scope, defs)
+
             def add_defs(looked_up_definitions, defs):
                 if self.is_global(name):
                     # only add deleted node, if any
@@ -603,6 +629,7 @@ class DefUseChains(gast.NodeVisitor):
                             if dnode.isdel():
                                 # This create a del that shadows the global
                                 looked_up_definitions.append({name: [dnode]})
+                                break
                 else:
                     looked_up_definitions.extend(reversed(defs))
 
@@ -630,11 +657,14 @@ class DefUseChains(gast.NodeVisitor):
             if defs is StopIteration:
                 break
             elif name in defs:
-                name_defs = {dnode for dnode in defs[name] if not
-                             dnode.isdel()}
-                if not name_defs:
+                name_defs = [dnode for dnode in defs[name] if not
+                             dnode.isdel()]
+                if not name_defs and not fallback:
                     break
-                return name_defs if not stars else stars + list(name_defs)
+                name_defs.extend(fallback)
+                if stars:
+                    name_defs = stars + list(name_defs)
+                return name_defs
             elif "*" in defs:
                 stars.extend(defs["*"])
 
