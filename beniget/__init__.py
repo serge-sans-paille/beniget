@@ -12,10 +12,10 @@ Beniget provides three analyse:
 - `UseDefChains` that maps each node to the list of possible definition of that node.
 """
 from beniget.version import __version__
-from beniget.beniget import (Ancestors, 
-                             DefUseChains, 
+from beniget.beniget import (Ancestors,
+                             DefUseChains,
                              UseDefChains,
-                             Def, 
+                             Def,
                              TypeParamScope, )
 
 __all__ = ['Ancestors', 'DefUseChains', 'UseDefChains', 'Def', 'TypeParamScope', '__version__']
