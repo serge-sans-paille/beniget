@@ -345,7 +345,7 @@ class TypeParamScope(gast.stmt):
     r"""
     Special AST node to represent the PEP-695 lexical scopes (A.k.a annotation scopes).
 
-    Only used in the context of type parameters of generic classes/functions or type aliases. 
+    Only used in the context of type parameters of generic classes/functions or type aliases.
     (We have another mecanism to handle annotations)
 
     Example usage:
@@ -360,14 +360,14 @@ class TypeParamScope(gast.stmt):
 
     """
     _fields = ('body', 'd')
-    
+
     def __init__(self, d):
         """
-        :param d: The wrapped definition node. 
+        :param d: The wrapped definition node.
         :type d: ast.FunctionDef | ast.ClassDef | ast.TypeAlias
         """
         self.d = d
-    
+
     @property
     def body(self):
         """
@@ -375,15 +375,15 @@ class TypeParamScope(gast.stmt):
         :rtype: list[ast.TypeVar | ast.TypeVarTuple | ast.ParamSpec]
         """
         return getattr(self.d, 'type_params', [])
-    
+
     def __hash__(self):
         return hash(id(self.d)+1)
-    
+
     def __eq__(self, value):
         if not isinstance(value, TypeParamScope):
             return NotImplemented
         return self.d == value.d
-        
+
 
 class DefUseChains(gast.NodeVisitor):
     """
@@ -419,7 +419,7 @@ class DefUseChains(gast.NodeVisitor):
         """
         :type: dict[node, Def]
         """
-        
+
         self.locals = defaultdict(ordered_set)
         """
         :type: dict[node, ordered_set[Def]]
@@ -476,8 +476,8 @@ class DefUseChains(gast.NodeVisitor):
 
         self.future_annotations = False
         """
-        Flag indicates the use of ``from __future__ import annotations``. 
-        It should also be manually turned on to support Python3.14+'s annotation scopes. 
+        Flag indicates the use of ``from __future__ import annotations``.
+        It should also be manually turned on to support Python3.14+'s annotation scopes.
         """
 
     #
@@ -558,6 +558,29 @@ class DefUseChains(gast.NodeVisitor):
         else:
             return not islocal
 
+    def lookup_may_fallback_to_globals(self, name, scope, defs):
+        """
+        A name lookup at class scope falls back to a global lookup if
+        the name is deleted at that scope
+        """
+        ast = pkg(scope)
+        if not isinstance(scope, ast.ClassDef):
+            return []
+        if self.is_global(name) or self.is_nonlocal(name):
+            return []
+        for defs_ in reversed(defs):
+            name_defs = defs_.get(name, ())
+            name_dels = [1 for d in name_defs if d.isdel()]
+            if name_dels:
+                for def_ in reversed(self._definitions[0:-self._scope_depths[0]]):
+                    if name not in def_:
+                        continue
+                    fallback = [dnode for dnode in def_[name] if not dnode.isdel()]
+                    if fallback:
+                        return fallback
+                break
+        return []
+
     def compute_annotation_defs(self, node, quiet=False):
         name = node.id
         # resolving an annotation is a bit different
@@ -595,6 +618,9 @@ class DefUseChains(gast.NodeVisitor):
         defs = self._definitions[depth:]
         if not self.invalid_name_lookup(name, base_scope, precomputed_locals, defs):
 
+            # fallback if a deleted node triggers a different kind of lookup
+            fallback = self.lookup_may_fallback_to_globals(name, base_scope, defs)
+
             def add_defs(looked_up_definitions, defs):
                 if self.is_global(name):
                     # only add deleted node, if any
@@ -603,6 +629,7 @@ class DefUseChains(gast.NodeVisitor):
                             if dnode.isdel():
                                 # This create a del that shadows the global
                                 looked_up_definitions.append({name: [dnode]})
+                                break
                 else:
                     looked_up_definitions.extend(reversed(defs))
 
@@ -630,11 +657,14 @@ class DefUseChains(gast.NodeVisitor):
             if defs is StopIteration:
                 break
             elif name in defs:
-                name_defs = {dnode for dnode in defs[name] if not
-                             dnode.isdel()}
-                if not name_defs:
+                name_defs = [dnode for dnode in defs[name] if not
+                             dnode.isdel()]
+                if not name_defs and not fallback:
                     break
-                return name_defs if not stars else stars + list(name_defs)
+                name_defs.extend(fallback)
+                if stars:
+                    name_defs = stars + list(name_defs)
+                return name_defs
             elif "*" in defs:
                 stars.extend(defs["*"])
 
@@ -951,7 +981,7 @@ class DefUseChains(gast.NodeVisitor):
                 self.visit(kw_default).add_user(dnode)
             for decorator in node.decorator_list:
                 self.visit(decorator)
-            
+
             with self.get_annotation_context(node):
                 self.visit_type_params(node)
 
@@ -964,7 +994,7 @@ class DefUseChains(gast.NodeVisitor):
                                     list(self._scopes),
                                     list(self._scope_depths),
                                     list(self._precomputed_locals)))
-            
+
             self.set_definition(node.name, dnode)
 
         elif step is DefinitionStep:
@@ -1058,13 +1088,13 @@ class DefUseChains(gast.NodeVisitor):
                     self.add_to_locals(node.target.id, dtarget)
         else:
             self.visit(node.target).add_user(dvalue)
-    
+
     def visit_TypeAlias(self, node):
         ast = pkg(node)
 
         if not isinstance(node.name, ast.Name):
             raise NotImplementedError()
-        
+
         dname = self.chains.setdefault(node.name, Def(node.name))
         self.add_to_locals(node.name.id, dname)
 
@@ -1072,7 +1102,7 @@ class DefUseChains(gast.NodeVisitor):
             self.visit_type_params(node)
             self.visit_annotation(node, defer=True, field='value')
 
-        self.set_definition(node.name.id, dname)           
+        self.set_definition(node.name.id, dname)
 
     def visit_For(self, node):
         self.visit(node.iter)
@@ -1279,7 +1309,7 @@ class DefUseChains(gast.NodeVisitor):
                     continue
                 else:
                     if isinstance(self._scopes[-i-1], TypeParamScope):
-                        # Special lint for names in annotation scopes, see 
+                        # Special lint for names in annotation scopes, see
                         # https://docs.python.org/3.12/reference/executionmodel.html#annotation-scopes
                         self.warn("names defined in annotation scopes cannot be rebound with nonlocal statements", node)
                         break
@@ -1435,7 +1465,7 @@ class DefUseChains(gast.NodeVisitor):
         for value in node.values:
             self.visit(value).add_user(dnode)
         return dnode
-    
+
     visit_Interpolation = visit_FormattedValue
     visit_TemplateStr = visit_JoinedStr
 
@@ -1512,7 +1542,7 @@ class DefUseChains(gast.NodeVisitor):
         if isinstance(node.ctx, (ast.Param, ast.Store, ast.Del)):
             # special code for warlus target: should be
             # stored in first non comprehension scope
-            if named_expr: 
+            if named_expr:
                 index, enclosing_scope = self._first_non_comprehension_scope()
                 if index != -1 and isinstance(enclosing_scope, ast.ClassDef):
                     # invalid named expression, not calling set_definition.
@@ -1571,7 +1601,7 @@ class DefUseChains(gast.NodeVisitor):
         if node.step:
             self.visit(node.step).add_user(dnode)
         return dnode
-    
+
     # type parameters, these nodes can only be visited under a TypeParamScope scope
 
     def visit_type_params(self, node):
@@ -1756,7 +1786,7 @@ def _validate_annotation_body(node):
     - the yield/ yield from statement is used
     - the await keyword is used
     """
-    for illegal in (n for n in gast.walk(node) if type(n).__name__ in  
+    for illegal in (n for n in gast.walk(node) if type(n).__name__ in
                     ('NamedExpr', 'Yield', 'YieldFrom', 'Await')):
         name = _node_type_to_human_name.get(type(illegal).__name__, 'current syntax')
         raise SyntaxError(f'{name} cannot be used in annotation-like scopes')
@@ -1832,7 +1862,7 @@ def _get_lookup_scopes(heads):
     except IndexError:
         # we got only a global scope
         return direct_scopes
-    
+
     ast = pkg(global_scope)
     if heads and isinstance(direct_scopes[-1], TypeParamScope) and isinstance(heads[-1], ast.ClassDef):
         # include the enclosing class scope in case we're in a TypeParamScope scope
