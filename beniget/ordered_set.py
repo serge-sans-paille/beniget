@@ -43,7 +43,7 @@ class ordered_set(MutableSet['T']):
     """
     A set that preserves insertion order by internally using a dict.
     """
-    
+
     __slots__ = ('values',)
 
     def __init__(self, elements: 'Optional[Iterable[T]]' = None):
@@ -51,7 +51,7 @@ class ordered_set(MutableSet['T']):
 
     def add(self, x: 'T') -> None:
         self.values[x] = None
-    
+
     def update(self, values:'Iterable[T]') -> None:
         self.values.update((k, None) for k in values)
 
@@ -69,7 +69,7 @@ class ordered_set(MutableSet['T']):
 
     def __contains__(self, x: object) -> bool:
         return self.values.__contains__(x)
-    
+
     def __add__(self, other:'ordered_set[T]') -> 'ordered_set[T]':
         return ordered_set(itertools.chain(self, other))
 
