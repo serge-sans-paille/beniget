@@ -1345,7 +1345,8 @@ class DefUseChains(gast.NodeVisitor):
             dnode = self.chains.setdefault(node, Def(node))
             for default in node.args.defaults:
                 self.visit(default).add_user(dnode)
-            # a lambda never has kw_defaults
+            for default in node.args.kw_defaults:
+                self.visit(default).add_user(dnode)
             self._defered.append((node,
                                   list(self._definitions),
                                   list(self._scopes),
