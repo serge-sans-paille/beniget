@@ -366,6 +366,36 @@ while done:
         code = "import x as y; y()"
         self.checkChains(code, ["y -> (y -> (<Call> -> ()))"])
 
+    def test_simple_function(self):
+        node, c = self.checkChains( "def foo(y): True", ['foo -> ()'])
+        self.assertEqual(c.dump_chains(node.body[0]), ['y -> ()'])
+
+    def test_function_defaults(self):
+        node, c = self.checkChains("x=1\ndef foo(x=x): pass\nx=2",
+                                   ['x -> (x -> (foo -> ()))',
+                                    'foo -> ()',
+                                    'x -> ()',
+                                    ])
+        self.assertEqual(c.dump_chains(node.body[1]), [
+            'x -> ()',
+        ])
+
+    def test_function_varargs(self):
+        node, c = self.checkChains("def foo(*args): args", ['foo -> ()'])
+        self.assertEqual(c.dump_chains(node.body[0]), ['args -> (args -> ())'])
+
+    def test_function_kwargs(self):
+        node, c = self.checkChains("def foo(**kwargs): kwargs", ['foo -> ()'])
+        self.assertEqual(c.dump_chains(node.body[0]), ['kwargs -> (kwargs -> ())'])
+
+    def test_function_kwonly_defaults(self):
+        code = '''
+        a = 1
+        def foo(*, x=a): x
+        '''
+        node, c = self.checkChains(code, ['a -> (a -> (foo -> ()))', 'foo -> ()'])
+        self.assertEqual(c.dump_chains(node.body[1]), ['x -> (x -> ())'])
+
     def test_simple_lambda(self):
         node, c = self.checkChains( "lambda y: True", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['y -> ()'])
@@ -389,6 +419,13 @@ while done:
     def test_lambda_kwargs(self):
         node, c = self.checkChains( "lambda **kwargs: kwargs", [])
         self.assertEqual(c.dump_chains(node.body[0].value), ['kwargs -> (kwargs -> (<Lambda> -> ()))'])
+
+    def test_lambda_kwonly_defaults(self):
+        code = '''
+        a = 1
+        lambda *, x=a: x
+        '''
+        self.checkChains(code, ['a -> (a -> (<Lambda> -> ()))'])
 
     def test_multiple_import_as(self):
         code = "import x as y, z; y"
