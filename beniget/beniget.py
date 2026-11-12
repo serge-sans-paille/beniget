@@ -1742,8 +1742,16 @@ class DefUseChains(gast.NodeVisitor):
 
     def visit_MatchOr(self, node):
         dnode = self.chains.setdefault(node, Def(node))
+        alternatives = defaultdict(ordered_set)
+        # Only one alternative matches; none sees another's captures.
+        # Reads fall back to the incoming context; only captures are merged.
         for pat in node.patterns:
-            self.visit(pat).add_user(dnode)
+            with self.DefinitionContext(defaultdict(ordered_set)) as pat_defs:
+                self.visit(pat).add_user(dnode)
+            for name, definitions in pat_defs.items():
+                alternatives[name].update(definitions)
+        for name, definitions in alternatives.items():
+            self.set_definition(name, definitions)
         return dnode
 
 
