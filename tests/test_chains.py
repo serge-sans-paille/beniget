@@ -2234,6 +2234,101 @@ match subject:
         self.assertIn(next_guard_use, capture.users())
 
     @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_or_captures_reach_guard_and_body(self):
+        code = """
+def f(subject):
+    match subject:
+        case [x] | {"x": x} if x:
+            return x
+"""
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+        use_defs = beniget.UseDefChains(chains)
+        case = module.body[0].body[0].cases[0]
+        captures = {case.pattern.patterns[0].patterns[0],
+                    case.pattern.patterns[1].patterns[0]}
+        for use in (case.guard, case.body[0].value):
+            self.assertEqual(captures, {d.node for d in use_defs.chains[use]})
+        self.assertTrue(all(chains.chains[n].islive for n in captures))
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_or_nested_alternatives(self):
+        code = """
+def f(subject):
+    match subject:
+        case ([x] | {"x": x}) | (x,):
+            return x
+"""
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+        case = module.body[0].body[0].cases[0]
+        captures = {n for n in self.ast.walk(case.pattern)
+                    if isinstance(n, self.ast.MatchAs) and n.name == 'x'}
+        use_defs = beniget.UseDefChains(chains)
+        self.assertEqual(3, len(captures))
+        self.assertEqual(captures,
+                         {d.node for d in use_defs.chains[case.body[0].value]})
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_or_multiple_capture_names(self):
+        code = """
+def f(subject):
+    match subject:
+        case [x, *rest] | {"x": x, **rest}:
+            return x, rest
+"""
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+        case = module.body[0].body[0].cases[0]
+        seq, mapping = case.pattern.patterns
+        use_defs = beniget.UseDefChains(chains)
+        expected = ({seq.patterns[0], mapping.patterns[0]},
+                    {seq.patterns[1], mapping})
+        for use, captures in zip(case.body[0].value.elts, expected):
+            self.assertEqual(captures, {d.node for d in use_defs.chains[use]})
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_or_alternative_reads_enclosing_definition(self):
+        code = """
+class C:
+    __match_args__ = ('value',)
+subject = None
+match subject:
+    case [C] | C(C):
+        C
+"""
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+        case = module.body[2].cases[0]
+        use_defs = beniget.UseDefChains(chains)
+        self.assertEqual({module.body[0]},
+                         {d.node for d in use_defs.chains[case.pattern.patterns[1].cls]})
+        captures = {case.pattern.patterns[0].patterns[0],
+                    case.pattern.patterns[1].patterns[0]}
+        self.assertEqual(captures,
+                         {d.node for d in use_defs.chains[case.body[0].value]})
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
+    def test_match_or_without_captures_preserves_definitions(self):
+        code = """
+x = 3
+match 1:
+    case 1 | 2:
+        x
+"""
+        module = self.ast.parse(dedent(code))
+        chains = StrictDefUseChains()
+        chains.visit(module)
+        use_defs = beniget.UseDefChains(chains)
+        use = module.body[1].cases[0].body[0].value
+        self.assertEqual({module.body[0].targets[0]},
+                         {d.node for d in use_defs.chains[use]})
+
+    @skipIf(sys.version_info < (3,10), "Python 3.10 syntax")
     def test_match_list(self):
         code = '''
 command = 'go there'
