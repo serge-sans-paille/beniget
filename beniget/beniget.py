@@ -690,7 +690,14 @@ class DefUseChains(gast.NodeVisitor):
         ast = pkg(stmts[0])
         for stmt in stmts:
             self.visit(stmt)
-            if isinstance(stmt, (ast.Break, ast.Continue, ast.Raise)):
+            assert_false = (
+                isinstance(stmt, ast.Assert)
+                and (isinstance(stmt.test, ast.Constant)
+                     or (sys.version_info < (3, 8)
+                         and isinstance(stmt.test, ast.NameConstant)))
+                and stmt.test.value is False
+            )
+            if isinstance(stmt, (ast.Break, ast.Continue, ast.Raise)) or assert_false:
                 if not deadcode:
                     deadcode = True
                     self._deadcode += 1

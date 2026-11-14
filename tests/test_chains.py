@@ -228,6 +228,27 @@ for _ in [1]:
         code = "raise next([e for e in [1]])"
         self.checkChains(code, [])
 
+    def test_assert_false_dead_code(self):
+        code = "i = 8\nassert False\ni = 3\ni"
+        self.checkChains(code, ['i -> (i -> ())', 'i -> ()'])
+
+    def test_assert_false_nested_dead_code(self):
+        code = "i = 8\nif i:\n assert False\n i = 3\ni"
+        self.checkChains(code, ['i -> (i -> (), i -> ())', 'i -> ()'])
+
+    def test_assert_false_message(self):
+        code = "message = 'failed'\ni = 8\nassert False, message\ni = 3\ni"
+        self.checkChains(code, ['message -> (message -> ())',
+                                'i -> (i -> ())', 'i -> ()'])
+
+    def test_other_assertions_keep_definitions(self):
+        for test in ('True', 'condition', 'bool(False)'):
+            with self.subTest(test=test):
+                code = "condition = True\nassert {}\ni = 3\ni".format(test)
+                condition = ('condition -> (condition -> ())'
+                             if test == 'condition' else 'condition -> ()')
+                self.checkChains(code, [condition, 'i -> (i -> ())'])
+
     def test_redefinition_in_comp(self):
         code = "[name for name in 'hello']\nfor name in 'hello':name"
         self.checkChains(
